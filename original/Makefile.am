@@ -13,7 +13,7 @@ ACLOCAL_AMFLAGS = -I scripts/autoconf
 
 # test programs - run on make check, make distcheck
 if ENABLE_TESTS
-check_PROGRAMS= pngtest pngunknown pngstest pngvalid pngimage pngcp
+check_PROGRAMS= pngtest pngunknown pngstest pngvalid pngimage tarith pngcp
 if HAVE_CLOCK_GETTIME
 check_PROGRAMS += timepng
 endif
@@ -54,6 +54,9 @@ pngunknown_LDADD = libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
 pngimage_SOURCES = contrib/libtests/pngimage.c
 pngimage_LDADD = libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
 
+tarith_SOURCES = contrib/libtests/tarith.c
+tarith_LDADD = libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
+
 timepng_SOURCES = contrib/libtests/timepng.c
 timepng_LDADD = libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
 
@@ -87,7 +90,8 @@ TESTS =\
    tests/pngstest-sRGB tests/pngstest-sRGB-alpha tests/pngunknown-IDAT\
    tests/pngunknown-discard tests/pngunknown-if-safe tests/pngunknown-sAPI\
    tests/pngunknown-sTER tests/pngunknown-save tests/pngunknown-vpAg\
-   tests/pngimage-quick tests/pngimage-full
+   tests/pngimage-quick tests/pngimage-full tests/tarith-ascii\
+   tests/tarith-checkfp tests/tarith-muldiv tests/tarith-gamma
 endif
 
 # man pages

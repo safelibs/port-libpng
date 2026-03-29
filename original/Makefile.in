@@ -103,7 +103,7 @@ host_triplet = @host@
 @ENABLE_TESTS_TRUE@check_PROGRAMS = pngtest$(EXEEXT) \
 @ENABLE_TESTS_TRUE@	pngunknown$(EXEEXT) pngstest$(EXEEXT) \
 @ENABLE_TESTS_TRUE@	pngvalid$(EXEEXT) pngimage$(EXEEXT) \
-@ENABLE_TESTS_TRUE@	pngcp$(EXEEXT) $(am__EXEEXT_1)
+@ENABLE_TESTS_TRUE@	tarith$(EXEEXT) pngcp$(EXEEXT) $(am__EXEEXT_1)
 @ENABLE_TESTS_TRUE@@HAVE_CLOCK_GETTIME_TRUE@am__append_1 = timepng
 @ENABLE_TOOLS_TRUE@bin_PROGRAMS = pngfix$(EXEEXT) \
 @ENABLE_TOOLS_TRUE@	png-fix-itxt$(EXEEXT)
@@ -259,6 +259,11 @@ am__pngimage_SOURCES_DIST = contrib/libtests/pngimage.c
 pngimage_OBJECTS = $(am_pngimage_OBJECTS)
 @ENABLE_TESTS_TRUE@pngimage_DEPENDENCIES =  \
 @ENABLE_TESTS_TRUE@	libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
+am__tarith_SOURCES_DIST = contrib/libtests/tarith.c
+@ENABLE_TESTS_TRUE@am_tarith_OBJECTS = contrib/libtests/tarith.$(OBJEXT)
+tarith_OBJECTS = $(am_tarith_OBJECTS)
+@ENABLE_TESTS_TRUE@tarith_DEPENDENCIES =  \
+@ENABLE_TESTS_TRUE@	libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
 am__pngstest_SOURCES_DIST = contrib/libtests/pngstest.c
 @ENABLE_TESTS_TRUE@am_pngstest_OBJECTS =  \
 @ENABLE_TESTS_TRUE@	contrib/libtests/pngstest.$(OBJEXT)
@@ -317,6 +322,7 @@ am__depfiles_remade = ./$(DEPDIR)/png.Plo ./$(DEPDIR)/pngerror.Plo \
 	arm/$(DEPDIR)/palette_neon_intrinsics.Plo \
 	contrib/libtests/$(DEPDIR)/pngimage.Po \
 	contrib/libtests/$(DEPDIR)/pngstest.Po \
+	contrib/libtests/$(DEPDIR)/tarith.Po \
 	contrib/libtests/$(DEPDIR)/pngunknown.Po \
 	contrib/libtests/$(DEPDIR)/pngvalid.Po \
 	contrib/libtests/$(DEPDIR)/timepng.Po \
@@ -366,7 +372,8 @@ SOURCES = $(libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@_la_SOURCES) \
 	$(libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@lsx_la_SOURCES) \
 	$(png_fix_itxt_SOURCES) $(pngcp_SOURCES) $(pngfix_SOURCES) \
 	$(pngimage_SOURCES) $(pngstest_SOURCES) $(pngtest_SOURCES) \
-	$(pngunknown_SOURCES) $(pngvalid_SOURCES) $(timepng_SOURCES)
+	$(pngunknown_SOURCES) $(pngvalid_SOURCES) $(tarith_SOURCES) \
+	$(timepng_SOURCES)
 DIST_SOURCES =  \
 	$(am__libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@_la_SOURCES_DIST) \
 	$(am__libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@lsx_la_SOURCES_DIST) \
@@ -374,7 +381,7 @@ DIST_SOURCES =  \
 	$(am__pngfix_SOURCES_DIST) $(am__pngimage_SOURCES_DIST) \
 	$(am__pngstest_SOURCES_DIST) $(am__pngtest_SOURCES_DIST) \
 	$(am__pngunknown_SOURCES_DIST) $(am__pngvalid_SOURCES_DIST) \
-	$(am__timepng_SOURCES_DIST)
+	$(am__tarith_SOURCES_DIST) $(am__timepng_SOURCES_DIST)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -781,6 +788,8 @@ BUILT_SOURCES = pnglibconf.h
 @ENABLE_TESTS_TRUE@pngunknown_LDADD = libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
 @ENABLE_TESTS_TRUE@pngimage_SOURCES = contrib/libtests/pngimage.c
 @ENABLE_TESTS_TRUE@pngimage_LDADD = libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
+@ENABLE_TESTS_TRUE@tarith_SOURCES = contrib/libtests/tarith.c
+@ENABLE_TESTS_TRUE@tarith_LDADD = libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
 @ENABLE_TESTS_TRUE@timepng_SOURCES = contrib/libtests/timepng.c
 @ENABLE_TESTS_TRUE@timepng_LDADD = libpng@PNGLIB_MAJOR@@PNGLIB_MINOR@.la
 @ENABLE_TESTS_TRUE@pngcp_SOURCES = contrib/tools/pngcp.c
@@ -807,7 +816,8 @@ BUILT_SOURCES = pnglibconf.h
 @ENABLE_TESTS_TRUE@   tests/pngstest-sRGB tests/pngstest-sRGB-alpha tests/pngunknown-IDAT\
 @ENABLE_TESTS_TRUE@   tests/pngunknown-discard tests/pngunknown-if-safe tests/pngunknown-sAPI\
 @ENABLE_TESTS_TRUE@   tests/pngunknown-sTER tests/pngunknown-save tests/pngunknown-vpAg\
-@ENABLE_TESTS_TRUE@   tests/pngimage-quick tests/pngimage-full
+@ENABLE_TESTS_TRUE@   tests/pngimage-quick tests/pngimage-full tests/tarith-ascii\
+@ENABLE_TESTS_TRUE@   tests/tarith-checkfp tests/tarith-muldiv tests/tarith-gamma
 
 
 # man pages
@@ -1137,6 +1147,12 @@ contrib/libtests/pngimage.$(OBJEXT): contrib/libtests/$(am__dirstamp) \
 pngimage$(EXEEXT): $(pngimage_OBJECTS) $(pngimage_DEPENDENCIES) $(EXTRA_pngimage_DEPENDENCIES) 
 	@rm -f pngimage$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(pngimage_OBJECTS) $(pngimage_LDADD) $(LIBS)
+contrib/libtests/tarith.$(OBJEXT): contrib/libtests/$(am__dirstamp) \
+	contrib/libtests/$(DEPDIR)/$(am__dirstamp)
+
+tarith$(EXEEXT): $(tarith_OBJECTS) $(tarith_DEPENDENCIES) $(EXTRA_tarith_DEPENDENCIES)
+	@rm -f tarith$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(tarith_OBJECTS) $(tarith_LDADD) $(LIBS)
 contrib/libtests/pngstest.$(OBJEXT): contrib/libtests/$(am__dirstamp) \
 	contrib/libtests/$(DEPDIR)/$(am__dirstamp)
 
@@ -1242,6 +1258,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@arm/$(DEPDIR)/palette_neon_intrinsics.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@contrib/libtests/$(DEPDIR)/pngimage.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@contrib/libtests/$(DEPDIR)/pngstest.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@contrib/libtests/$(DEPDIR)/tarith.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@contrib/libtests/$(DEPDIR)/pngunknown.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@contrib/libtests/$(DEPDIR)/pngvalid.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@contrib/libtests/$(DEPDIR)/timepng.Po@am__quote@ # am--include-marker
@@ -2201,6 +2218,7 @@ distclean: distclean-am
 	-rm -f arm/$(DEPDIR)/palette_neon_intrinsics.Plo
 	-rm -f contrib/libtests/$(DEPDIR)/pngimage.Po
 	-rm -f contrib/libtests/$(DEPDIR)/pngstest.Po
+	-rm -f contrib/libtests/$(DEPDIR)/tarith.Po
 	-rm -f contrib/libtests/$(DEPDIR)/pngunknown.Po
 	-rm -f contrib/libtests/$(DEPDIR)/pngvalid.Po
 	-rm -f contrib/libtests/$(DEPDIR)/timepng.Po
@@ -2289,6 +2307,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f arm/$(DEPDIR)/palette_neon_intrinsics.Plo
 	-rm -f contrib/libtests/$(DEPDIR)/pngimage.Po
 	-rm -f contrib/libtests/$(DEPDIR)/pngstest.Po
+	-rm -f contrib/libtests/$(DEPDIR)/tarith.Po
 	-rm -f contrib/libtests/$(DEPDIR)/pngunknown.Po
 	-rm -f contrib/libtests/$(DEPDIR)/pngvalid.Po
 	-rm -f contrib/libtests/$(DEPDIR)/timepng.Po

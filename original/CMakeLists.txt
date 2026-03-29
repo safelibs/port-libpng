@@ -648,6 +648,9 @@ set(pngunknown_sources
 set(pngimage_sources
     contrib/libtests/pngimage.c
 )
+set(tarith_sources
+    contrib/libtests/tarith.c
+)
 set(pngfix_sources
     contrib/tools/pngfix.c
 )
@@ -963,6 +966,22 @@ if(PNG_TESTS AND PNG_SHARED)
                COMMAND pngimage
                OPTIONS --exhaustive --list-combos --log
                FILES ${PNGSUITE_PNGS})
+
+  add_executable(tarith ${tarith_sources})
+  target_link_libraries(tarith PRIVATE png_shared)
+
+  png_add_test(NAME tarith-ascii
+               COMMAND tarith
+               OPTIONS ascii)
+  png_add_test(NAME tarith-checkfp
+               COMMAND tarith
+               OPTIONS checkfp)
+  png_add_test(NAME tarith-muldiv
+               COMMAND tarith
+               OPTIONS muldiv)
+  png_add_test(NAME tarith-gamma
+               COMMAND tarith
+               OPTIONS gamma)
 endif()
 
 if(PNG_SHARED AND PNG_TOOLS)
