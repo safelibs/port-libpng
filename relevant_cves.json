@@ -1,0 +1,163 @@
+{
+  "generated_at_utc": "2026-03-29T23:30:00Z",
+  "library": "libpng",
+  "derived_from": "/home/yans/code/safelibs/ported/libpng/all_cves.json",
+  "selection_policy": {
+    "include": [
+      "CVE root cause is not primarily memory corruption.",
+      "The bug class can still survive a Rust rewrite: parser state bugs, arithmetic/limit bugs, infinite loops, decompression bombs, or data-leak/correctness issues.",
+      "CVE entries tied to C null-pointer crashes are kept only when they still imply parser invariant checks or state-transition tests for the Rust port."
+    ],
+    "exclude": [
+      "Primary memory-corruption CVEs, even when triggered by arithmetic mistakes.",
+      "Bugs whose main lesson is C-specific ownership or longjmp cleanup rather than PNG parser behavior.",
+      "Standalone utility-only issues unless they directly change core library design priorities."
+    ]
+  },
+  "summary": {
+    "reviewed_cves": 70,
+    "selected_relevant_cves": 12,
+    "high_priority": 9,
+    "secondary": 3
+  },
+  "high_priority": [
+    {
+      "cve_id": "CVE-2004-0599",
+      "issue_class": "integer overflow in image/chunk size handling",
+      "why_relevant_to_rust": "Rust does not automatically prevent length or dimension arithmetic bugs. A naive port can still panic, reject valid input incorrectly, or mishandle allocation/limit checks if it uses unchecked casts or wraparound arithmetic.",
+      "porting_takeaway": "Use checked arithmetic for row, chunk, and progressive-read size calculations and convert between integer types explicitly.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2004-0599"
+    },
+    {
+      "cve_id": "CVE-2007-2445",
+      "issue_class": "parser state not rolled back on chunk CRC error",
+      "why_relevant_to_rust": "This is a state-machine bug, not a buffer bug. Rust will not save the port if partially-updated decoder state survives an error path and later code assumes it is valid.",
+      "porting_takeaway": "Chunk handlers should either validate before mutating state or restore invariants before returning an error. Add tests for malformed tRNS chunks with bad CRCs.",
+      "local_source_note": "Upstream CHANGES says the fix was to set num_trans to 0 before the error return in png_handle_tRNS.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2007-2445"
+    },
+    {
+      "cve_id": "CVE-2007-5268",
+      "issue_class": "transform logic bug from wrong operators/comparisons",
+      "why_relevant_to_rust": "Language safety does not prevent incorrect boolean/bitwise logic. Porting transform code mechanically can reproduce the same crash-inducing logic error.",
+      "porting_takeaway": "Re-derive transform predicates from the PNG rules instead of line-by-line translation, and add property tests around palette and grayscale transforms.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2007-5268"
+    },
+    {
+      "cve_id": "CVE-2009-2042",
+      "issue_class": "incorrect handling of trailing bits in 1-bit interlaced rows",
+      "why_relevant_to_rust": "This is a data-sanitization and output-correctness bug. A safe implementation can still leak stale bits or produce wrong pixels if it fails to clear unused bits at row edges.",
+      "porting_takeaway": "Mask or zero padding bits in packed rows, especially for 1-bit interlaced images whose widths are not divisible by 8.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2009-2042"
+    },
+    {
+      "cve_id": "CVE-2010-0205",
+      "issue_class": "decompression bomb / resource amplification",
+      "why_relevant_to_rust": "Rust does not prevent attacker-controlled CPU or memory amplification. Inflating ancillary chunks still needs explicit limits and early abort behavior.",
+      "porting_takeaway": "Enforce hard caps on decompressed ancillary chunk size and compressed-to-uncompressed expansion before inflating.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2010-0205"
+    },
+    {
+      "cve_id": "CVE-2011-3328",
+      "issue_class": "divide-by-zero in cHRM/rgb_to_gray arithmetic",
+      "why_relevant_to_rust": "Arithmetic validity checks are still required in Rust. Malformed color-space metadata can still trigger panics or invalid math if zero/degenerate cases are not rejected.",
+      "porting_takeaway": "Validate cHRM-derived denominators before use and test rgb_to_gray together with color-correction paths.",
+      "local_source_note": "Upstream CHANGES groups this with other rgb_to_gray and cHRM arithmetic fixes.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2011-3328"
+    },
+    {
+      "cve_id": "CVE-2014-0333",
+      "issue_class": "infinite loop on zero-length IDAT in progressive decode",
+      "why_relevant_to_rust": "An event-driven decoder can still spin forever if state transitions do not make progress on zero-length data. This is independent of memory safety.",
+      "porting_takeaway": "Ensure the progressive reader advances or rejects a zero-length first IDAT chunk instead of remaining in the same processing mode.",
+      "local_source_note": "Upstream CHANGES says the fix was to move process_mode to PNG_READ_IDAT_MODE after recognizing IDAT.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2014-0333"
+    },
+    {
+      "cve_id": "CVE-2017-12652",
+      "issue_class": "chunk length limit enforcement bug",
+      "why_relevant_to_rust": "All PNG parsers still need explicit per-chunk and total-size policy enforcement. Memory-safe containers alone do not impose the right file-format limits.",
+      "porting_takeaway": "Check every chunk length against configured user limits, and compute a separate upper bound for IDAT from image geometry plus deflate overhead.",
+      "local_source_note": "Upstream CHANGES first added user-limit checks for non-IDAT chunks, then a computed maximum for IDAT.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2017-12652"
+    },
+    {
+      "cve_id": "CVE-2018-13785",
+      "issue_class": "row_factor calculation overflow leading to divide-by-zero",
+      "why_relevant_to_rust": "This is another dimension-arithmetic bug in chunk-length validation. Rust still needs careful checked math and well-typed intermediate values.",
+      "porting_takeaway": "Derive row_factor with checked multiplication/addition and test extreme image geometry values against chunk-length validation logic.",
+      "local_source_note": "The local changelog/CHANGES entry describes this as a fix to the row_factor calculation in png_check_chunk_length.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2018-13785"
+    }
+  ],
+  "secondary": [
+    {
+      "cve_id": "CVE-2004-0598",
+      "issue_class": "malformed iCCP handling caused null dereference",
+      "why_relevant_to_rust": "The original crash used C null pointers, but the underlying lesson still applies: malformed ICC profile chunks must be rejected cleanly without leaving invalid parser state or triggering panics.",
+      "porting_takeaway": "Treat malformed iCCP metadata as recoverable parse errors and keep ICC parsing/state updates behind validation barriers.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2004-0598"
+    },
+    {
+      "cve_id": "CVE-2013-6954",
+      "issue_class": "palette invariant violation (empty or missing PLTE)",
+      "why_relevant_to_rust": "A Rust port can still panic or miscompute if palette expansion assumes a non-empty palette without checking that the required PLTE state exists.",
+      "porting_takeaway": "Make palette presence and minimum length explicit invariants before any palette-expansion transform runs.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2013-6954"
+    },
+    {
+      "cve_id": "CVE-2016-10087",
+      "issue_class": "text-chunk state transition bug after remove and re-add",
+      "why_relevant_to_rust": "The original symptom was a null dereference, but the real risk is inconsistent internal state across API mutations. A Rust write API can still get this wrong if remove/replace paths do not fully reestablish invariants.",
+      "porting_takeaway": "Test load/remove/re-add sequences for text chunks and model chunk ownership so replacement leaves no half-cleared state behind.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2016-10087"
+    }
+  ],
+  "deprioritized_or_excluded_examples": [
+    {
+      "cve_id": "CVE-2006-7244",
+      "reason": "Negative embedded profile length still deserves validation tests, but the CVE itself is mainly a C-style leak/cleanup bug that Rust Drop should mitigate.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2006-7244"
+    },
+    {
+      "cve_id": "CVE-2008-6218",
+      "reason": "Crafted tEXt memory leak is primarily an error-path cleanup issue rather than a durable parser design lesson for safe Rust.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2008-6218"
+    },
+    {
+      "cve_id": "CVE-2009-5063",
+      "reason": "Incomplete fix for the same negative-length cleanup leak family as CVE-2006-7244; useful as history, but lower priority for a Rust-first design.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2009-5063"
+    },
+    {
+      "cve_id": "CVE-2010-2249",
+      "reason": "Malformed sCAL chunk leak is another cleanup/resource-release bug whose primary mitigation comes from ownership-based cleanup.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2010-2249"
+    },
+    {
+      "cve_id": "CVE-2011-2691",
+      "reason": "This is mostly a C null-string calling-convention mistake rather than a PNG-format design issue; an idiomatic Rust API should avoid it entirely.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2011-2691"
+    },
+    {
+      "cve_id": "CVE-2011-3026",
+      "reason": "NVD calls out integer truncation, but upstream CHANGES describes the bug as a buffer overrun. It is therefore treated as memory-corruption, not part of this non-memory set.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2011-3026"
+    },
+    {
+      "cve_id": "CVE-2018-14048",
+      "reason": "The crash is tied to libpng's C error-handling and cleanup contract around png_read_image; a Result-based Rust API should not mirror that exact failure mode.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2018-14048"
+    },
+    {
+      "cve_id": "CVE-2019-6129",
+      "reason": "Disputed memory leak report in png_create_info_struct; weak signal for core Rust-port priorities.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2019-6129"
+    },
+    {
+      "cve_id": "CVE-2026-25646",
+      "reason": "The control-flow bug includes an infinite loop, but the assigned CVE is an out-of-bounds read; excluded here because the published issue is still primarily memory-safety.",
+      "detail_url": "https://nvd.nist.gov/vuln/detail/CVE-2026-25646"
+    }
+  ]
+}
