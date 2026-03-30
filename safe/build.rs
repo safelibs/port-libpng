@@ -56,7 +56,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         manifest_dir.join("src/abi_exports.rs"),
         manifest_dir.join("src/read.rs"),
         manifest_dir.join("src/read_progressive.rs"),
+        manifest_dir.join("src/read_transform.rs"),
         manifest_dir.join("src/read_util.rs"),
+        manifest_dir.join("src/colorspace.rs"),
+        manifest_dir.join("src/simplified.rs"),
         manifest_dir.join("src/chunks.rs"),
         manifest_dir.join("src/interlace.rs"),
         manifest_dir.join("src/zlib.rs"),
@@ -101,7 +104,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .define("PNG_LOONGARCH_LSX_OPT", "0");
 
     for source in UPSTREAM_SOURCES {
-        upstream.file(manifest_dir.join(source));
+        upstream.file(prepared_upstream_source(&manifest_dir, &out_dir, source)?);
     }
 
     upstream.compile("png16_upstream");
@@ -213,6 +216,31 @@ fn render_template(
     }
 
     Ok(rendered)
+}
+
+fn prepared_upstream_source(
+    manifest_dir: &Path,
+    out_dir: &Path,
+    source: &str,
+) -> Result<PathBuf, Box<dyn Error>> {
+    let source_path = manifest_dir.join(source);
+
+    if source != "../original/pngrutil.c" {
+        return Ok(source_path);
+    }
+
+    let original = fs::read_to_string(&source_path)?;
+    let patched = original.replace(
+        "      end_byte = *end_ptr;\n",
+        "      /* Zero packed-row padding bits in row outputs while preserving\n\
+      * display-row combine semantics across interlace passes.\n\
+      */\n\
+      end_byte = (png_byte)((display == 1) ? *end_ptr : 0);\n",
+    );
+
+    let generated = out_dir.join("pngrutil_patched.c");
+    fs::write(&generated, patched)?;
+    Ok(generated)
 }
 
 fn profile_dir_from_out_dir(out_dir: &Path, profile: &str) -> Result<PathBuf, Box<dyn Error>> {

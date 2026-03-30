@@ -5,8 +5,11 @@
 
 pub mod abi_exports;
 mod chunks;
+mod colorspace;
 mod interlace;
 mod read;
 mod read_progressive;
+mod read_transform;
 mod read_util;
+mod simplified;
 mod zlib;
