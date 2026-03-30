@@ -1,6 +1,6 @@
 use crate::common::{
     PNG_FLAG_APP_ERRORS_WARN, PNG_FLAG_APP_WARNINGS_WARN, PNG_FLAG_BENIGN_ERRORS_WARN,
-    PNG_OPTION_INVALID, PNG_OPTION_NEXT, PNG_USER_TRANSFORM,
+    PNG_OPTION_INVALID, PNG_OPTION_NEXT,
 };
 use crate::state::{info_ptr_state, png_ptr_state};
 use crate::types::*;

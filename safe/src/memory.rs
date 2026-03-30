@@ -11,7 +11,6 @@ use crate::state::{
     PngInfoState, PngStructState, alloc_longjmp_storage, info_ptr_state, png_ptr_state,
 };
 use crate::types::*;
-use core::ffi::c_void;
 use core::mem;
 use core::ptr;
 

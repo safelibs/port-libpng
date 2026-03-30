@@ -190,20 +190,32 @@ pub unsafe extern "C" fn png_set_longjmp_fn(
         let Some(state) = png_ptr_state(png_ptr) else {
             return core::ptr::null_mut();
         };
+        let builtin_jmp_buf_size = state.longjmp_storage_size;
 
         if state.jmp_buf_ptr.is_null() {
-            if state.longjmp_storage.is_null() {
+            if state.longjmp_storage.is_null()
+                || builtin_jmp_buf_size == 0
+                || jmp_buf_size > builtin_jmp_buf_size
+            {
                 return core::ptr::null_mut();
             }
             state.jmp_buf_ptr =
                 crate::state::png_safe_longjmp_state_buf(state.longjmp_storage).cast::<JmpBuf>();
-            state.jmp_buf_size = jmp_buf_size;
-        } else if state.jmp_buf_size != jmp_buf_size {
-            png_warning(
-                png_ptr,
-                b"Application jmp_buf size changed\0".as_ptr().cast(),
-            );
-            return core::ptr::null_mut();
+            state.jmp_buf_size = 0;
+        } else {
+            let allocated_size = if state.jmp_buf_size == 0 {
+                builtin_jmp_buf_size
+            } else {
+                state.jmp_buf_size
+            };
+
+            if allocated_size != jmp_buf_size {
+                png_warning(
+                    png_ptr,
+                    b"Application jmp_buf size changed\0".as_ptr().cast(),
+                );
+                return core::ptr::null_mut();
+            }
         }
 
         state.longjmp_fn = longjmp_fn;

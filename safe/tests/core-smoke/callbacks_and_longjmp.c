@@ -10,6 +10,8 @@
 
 static size_t malloc_calls = 0;
 static size_t free_calls = 0;
+static size_t error_calls = 0;
+static size_t warning_calls = 0;
 
 static void *tracked_malloc(png_structp png_ptr, png_alloc_size_t size) {
     (void)png_ptr;
@@ -25,12 +27,14 @@ static void tracked_free(png_structp png_ptr, png_voidp ptr) {
 
 static void noop_error(png_structp png_ptr, png_const_charp message) {
     (void)message;
+    ++error_calls;
     png_longjmp(png_ptr, 11);
 }
 
 static void noop_warning(png_structp png_ptr, png_const_charp message) {
     (void)png_ptr;
     (void)message;
+    ++warning_calls;
 }
 
 static void read_data(png_structp png_ptr, png_bytep data, size_t length) {
@@ -122,12 +126,15 @@ int main(void) {
                                 progressive_row, progressive_end);
     assert(png_get_progressive_ptr(read_ptr) == &progressive_cookie);
 
+    assert(png_set_longjmp_fn(read_ptr, longjmp, sizeof(jmp_buf) + 32u) == NULL);
+
     jmp_buf *jmp = png_set_longjmp_fn(read_ptr, longjmp, sizeof(jmp_buf));
     assert(jmp != NULL);
     if (setjmp(*jmp) == 0) {
         png_error(read_ptr, "expected jump");
         assert(!"png_error should longjmp");
     }
+    assert(error_calls == 1);
 
     png_destroy_read_struct(&read_ptr, NULL, NULL);
     assert(read_ptr == NULL);
@@ -143,6 +150,18 @@ int main(void) {
     png_set_write_user_transform_fn(write_ptr, user_transform);
     png_set_user_transform_info(write_ptr, &transform_cookie, 16, 4);
     assert(png_get_user_transform_ptr(write_ptr) == &transform_cookie);
+
+    jmp_buf *write_jmp = png_set_longjmp_fn(write_ptr, longjmp, sizeof(jmp_buf));
+    assert(write_jmp != NULL);
+    if (setjmp(*write_jmp) == 0) {
+        size_t warnings_before = warning_calls;
+        size_t errors_before = error_calls;
+        png_benign_error(write_ptr, "expected benign warning");
+        assert(warning_calls == warnings_before + 1);
+        assert(error_calls == errors_before);
+    } else {
+        assert(!"png_benign_error on write struct should warn, not longjmp");
+    }
 
     png_destroy_write_struct(&write_ptr, NULL);
     assert(write_ptr == NULL);
