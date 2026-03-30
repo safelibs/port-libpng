@@ -1,4 +1,4 @@
-use core::ffi::{c_char, c_int, c_uchar, c_uint, c_void};
+use core::ffi::{c_char, c_double, c_int, c_uchar, c_uint, c_void};
 use libc::{FILE, time_t, tm};
 
 pub type png_voidp = *mut c_void;
@@ -10,6 +10,7 @@ pub type png_const_bytep = *const png_byte;
 pub type png_bytepp = *mut png_bytep;
 pub type png_charpp = *mut png_charp;
 pub type png_uint_16p = *mut png_uint_16;
+pub type png_const_uint_16p = *const png_uint_16;
 
 pub type png_byte = u8;
 pub type png_uint_16 = u16;
@@ -68,6 +69,7 @@ pub struct png_color_16 {
 }
 
 pub type png_color_16p = *mut png_color_16;
+pub type png_const_color_16p = *const png_color_16;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -80,6 +82,7 @@ pub struct png_color_8 {
 }
 
 pub type png_color_8p = *mut png_color_8;
+pub type png_const_color_8p = *const png_color_8;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -189,3 +192,22 @@ pub type png_tm = tm;
 pub type png_time_t = time_t;
 pub type png_uchar = c_uchar;
 pub type png_uint = c_uint;
+pub type png_controlp = *mut c_void;
+pub type png_doublep = *mut c_double;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct png_image {
+    pub opaque: png_controlp,
+    pub version: png_uint_32,
+    pub width: png_uint_32,
+    pub height: png_uint_32,
+    pub format: png_uint_32,
+    pub flags: png_uint_32,
+    pub colormap_entries: png_uint_32,
+    pub warning_or_error: png_uint_32,
+    pub message: [c_char; 64],
+}
+
+pub type png_imagep = *mut png_image;
+pub type png_const_imagep = *const png_image;

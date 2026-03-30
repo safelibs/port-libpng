@@ -120,6 +120,33 @@ static void run_entrypoint_consistency_case(const char *path) {
     free(memory_buffer);
 }
 
+static void run_message_semantics_case(const char *path) {
+    size_t memory_size = 0;
+    unsigned char *memory = read_file_bytes(path, &memory_size);
+
+    png_image wrong_version;
+    memset(&wrong_version, 0, sizeof wrong_version);
+    wrong_version.version = PNG_IMAGE_VERSION + 1;
+    assert(png_image_begin_read_from_memory(&wrong_version, memory, memory_size) == 0);
+    assert(strstr(wrong_version.message, "incorrect PNG_IMAGE_VERSION") != NULL);
+
+    png_image invalid_begin;
+    memset(&invalid_begin, 0, sizeof invalid_begin);
+    invalid_begin.version = PNG_IMAGE_VERSION;
+    assert(png_image_begin_read_from_memory(&invalid_begin, NULL, 0) == 0);
+    assert(strstr(invalid_begin.message, "invalid argument") != NULL);
+
+    png_image invalid_finish;
+    memset(&invalid_finish, 0, sizeof invalid_finish);
+    invalid_finish.version = PNG_IMAGE_VERSION;
+    assert(png_image_begin_read_from_memory(&invalid_finish, memory, memory_size) != 0);
+    invalid_finish.format = PNG_FORMAT_RGBA;
+    assert(png_image_finish_read(&invalid_finish, NULL, NULL, 0, NULL) == 0);
+    assert(strstr(invalid_finish.message, "invalid argument") != NULL);
+
+    free(memory);
+}
+
 static void run_image_free_case(const char *path) {
     size_t memory_size = 0;
     unsigned char *memory = read_file_bytes(path, &memory_size);
@@ -193,6 +220,7 @@ int main(int argc, char **argv) {
     assert(argc == 3);
 
     run_entrypoint_consistency_case(argv[1]);
+    run_message_semantics_case(argv[1]);
     run_image_free_case(argv[1]);
     run_stride_regression_case(argv[2]);
     return 0;

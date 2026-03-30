@@ -29,6 +29,69 @@ const UPSTREAM_SOURCES: &[&str] = &[
     "../original/pngwutil.c",
 ];
 
+const UPSTREAM_RENAMES: &[(&str, &str)] = &[
+    ("png_destroy_read_struct", "upstream_png_destroy_read_struct"),
+    ("png_read_info", "upstream_png_read_info"),
+    ("png_read_update_info", "upstream_png_read_update_info"),
+    ("png_read_row", "upstream_png_read_row"),
+    ("png_read_png", "upstream_png_read_png"),
+    ("png_set_expand", "upstream_png_set_expand"),
+    ("png_set_expand_16", "upstream_png_set_expand_16"),
+    ("png_set_palette_to_rgb", "upstream_png_set_palette_to_rgb"),
+    ("png_set_tRNS_to_alpha", "upstream_png_set_tRNS_to_alpha"),
+    ("png_set_gray_to_rgb", "upstream_png_set_gray_to_rgb"),
+    ("png_set_scale_16", "upstream_png_set_scale_16"),
+    ("png_set_strip_16", "upstream_png_set_strip_16"),
+    ("png_set_quantize", "upstream_png_set_quantize"),
+    ("png_set_shift", "upstream_png_set_shift"),
+    ("png_set_swap_alpha", "upstream_png_set_swap_alpha"),
+    ("png_set_invert_alpha", "upstream_png_set_invert_alpha"),
+    ("png_set_invert_mono", "upstream_png_set_invert_mono"),
+    ("png_set_bgr", "upstream_png_set_bgr"),
+    (
+        "png_set_interlace_handling",
+        "upstream_png_set_interlace_handling",
+    ),
+    ("png_set_rgb_to_gray", "upstream_png_set_rgb_to_gray"),
+    (
+        "png_set_rgb_to_gray_fixed",
+        "upstream_png_set_rgb_to_gray_fixed",
+    ),
+    ("png_set_background", "upstream_png_set_background"),
+    (
+        "png_set_background_fixed",
+        "upstream_png_set_background_fixed",
+    ),
+    ("png_set_alpha_mode", "upstream_png_set_alpha_mode"),
+    (
+        "png_set_alpha_mode_fixed",
+        "upstream_png_set_alpha_mode_fixed",
+    ),
+    ("png_set_cHRM_XYZ", "upstream_png_set_cHRM_XYZ"),
+    ("png_set_cHRM_XYZ_fixed", "upstream_png_set_cHRM_XYZ_fixed"),
+    ("png_get_cHRM_XYZ", "upstream_png_get_cHRM_XYZ"),
+    ("png_get_cHRM_XYZ_fixed", "upstream_png_get_cHRM_XYZ_fixed"),
+    (
+        "png_set_check_for_invalid_index",
+        "upstream_png_set_check_for_invalid_index",
+    ),
+    ("png_get_palette_max", "upstream_png_get_palette_max"),
+    (
+        "png_image_begin_read_from_file",
+        "upstream_png_image_begin_read_from_file",
+    ),
+    (
+        "png_image_begin_read_from_stdio",
+        "upstream_png_image_begin_read_from_stdio",
+    ),
+    (
+        "png_image_begin_read_from_memory",
+        "upstream_png_image_begin_read_from_memory",
+    ),
+    ("png_image_finish_read", "upstream_png_image_finish_read"),
+    ("png_image_free", "upstream_png_image_free"),
+];
+
 fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
@@ -103,8 +166,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .define("PNG_POWERPC_VSX_OPT", "0")
         .define("PNG_LOONGARCH_LSX_OPT", "0");
 
+    for &(symbol, renamed) in UPSTREAM_RENAMES {
+        upstream.define(symbol, renamed);
+    }
+
     for source in UPSTREAM_SOURCES {
-        upstream.file(prepared_upstream_source(&manifest_dir, &out_dir, source)?);
+        upstream.file(manifest_dir.join(source));
     }
 
     upstream.compile("png16_upstream");
@@ -216,31 +283,6 @@ fn render_template(
     }
 
     Ok(rendered)
-}
-
-fn prepared_upstream_source(
-    manifest_dir: &Path,
-    out_dir: &Path,
-    source: &str,
-) -> Result<PathBuf, Box<dyn Error>> {
-    let source_path = manifest_dir.join(source);
-
-    if source != "../original/pngrutil.c" {
-        return Ok(source_path);
-    }
-
-    let original = fs::read_to_string(&source_path)?;
-    let patched = original.replace(
-        "      end_byte = *end_ptr;\n",
-        "      /* Zero packed-row padding bits in row outputs while preserving\n\
-      * display-row combine semantics across interlace passes.\n\
-      */\n\
-      end_byte = (png_byte)((display == 1) ? *end_ptr : 0);\n",
-    );
-
-    let generated = out_dir.join("pngrutil_patched.c");
-    fs::write(&generated, patched)?;
-    Ok(generated)
 }
 
 fn profile_dir_from_out_dir(out_dir: &Path, profile: &str) -> Result<PathBuf, Box<dyn Error>> {
