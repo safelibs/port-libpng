@@ -31,10 +31,7 @@ const UPSTREAM_SOURCES: &[&str] = &[
 
 const UPSTREAM_RENAMES: &[(&str, &str)] = &[
     ("png_destroy_read_struct", "upstream_png_destroy_read_struct"),
-    ("png_read_info", "upstream_png_read_info"),
-    ("png_read_update_info", "upstream_png_read_update_info"),
     ("png_read_row", "upstream_png_read_row"),
-    ("png_read_png", "upstream_png_read_png"),
     ("png_set_expand", "upstream_png_set_expand"),
     ("png_set_expand_16", "upstream_png_set_expand_16"),
     ("png_set_palette_to_rgb", "upstream_png_set_palette_to_rgb"),
@@ -115,6 +112,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         pkg_dir.join("libpng.pc.in"),
         pkg_dir.join("libpng-config.in"),
         cshim_dir.join("longjmp_bridge.c"),
+        cshim_dir.join("read_phase_bridge.c"),
         manifest_dir.join("src/lib.rs"),
         manifest_dir.join("src/abi_exports.rs"),
         manifest_dir.join("src/read.rs"),
@@ -152,6 +150,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         .file(cshim_dir.join("longjmp_bridge.c"))
         .warnings(true)
         .compile("png16_longjmp_bridge");
+
+    cc::Build::new()
+        .file(cshim_dir.join("read_phase_bridge.c"))
+        .warnings(true)
+        .std("c99")
+        .include(&include_dir)
+        .include(manifest_dir.join("../original"))
+        .compile("png16_read_phase_bridge");
 
     let mut upstream = cc::Build::new();
     upstream

@@ -60,27 +60,27 @@ fn finish_row_stride(row_stride: png_int_32) -> usize {
 }
 
 unsafe extern "C" {
-    fn upstream_png_image_begin_read_from_file(
+    fn png_safe_call_image_begin_read_from_file(
         image: png_imagep,
         file_name: png_const_charp,
     ) -> core::ffi::c_int;
-    fn upstream_png_image_begin_read_from_stdio(
+    fn png_safe_call_image_begin_read_from_stdio(
         image: png_imagep,
         file: *mut FILE,
     ) -> core::ffi::c_int;
-    fn upstream_png_image_begin_read_from_memory(
+    fn png_safe_call_image_begin_read_from_memory(
         image: png_imagep,
         memory: png_const_voidp,
         size: usize,
     ) -> core::ffi::c_int;
-    fn upstream_png_image_finish_read(
+    fn png_safe_call_image_finish_read(
         image: png_imagep,
         background: png_const_colorp,
         buffer: png_voidp,
         row_stride: png_int_32,
         colormap: png_voidp,
     ) -> core::ffi::c_int;
-    fn upstream_png_image_free(image: png_imagep);
+    fn png_safe_call_image_free(image: png_imagep);
 }
 
 fn record_begin_result(image: png_imagep, source_kind: u8, result: core::ffi::c_int) {
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn png_image_begin_read_from_file(
     file_name: png_const_charp,
 ) -> core::ffi::c_int {
     clear_image_state(image);
-    let result = unsafe { upstream_png_image_begin_read_from_file(image, file_name) };
+    let result = unsafe { png_safe_call_image_begin_read_from_file(image, file_name) };
     record_begin_result(image, 1, result);
     result
 }
@@ -123,7 +123,7 @@ pub unsafe extern "C" fn png_image_begin_read_from_stdio(
     file: *mut FILE,
 ) -> core::ffi::c_int {
     clear_image_state(image);
-    let result = unsafe { upstream_png_image_begin_read_from_stdio(image, file) };
+    let result = unsafe { png_safe_call_image_begin_read_from_stdio(image, file) };
     record_begin_result(image, 2, result);
     result
 }
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn png_image_begin_read_from_memory(
     size: usize,
 ) -> core::ffi::c_int {
     clear_image_state(image);
-    let result = unsafe { upstream_png_image_begin_read_from_memory(image, memory, size) };
+    let result = unsafe { png_safe_call_image_begin_read_from_memory(image, memory, size) };
     record_begin_result(image, 3, result);
     result
 }
@@ -149,7 +149,7 @@ pub unsafe extern "C" fn png_image_finish_read(
     colormap: png_voidp,
 ) -> core::ffi::c_int {
     let result =
-        unsafe { upstream_png_image_finish_read(image, background, buffer, row_stride, colormap) };
+        unsafe { png_safe_call_image_finish_read(image, background, buffer, row_stride, colormap) };
     record_finish_result(image, result, row_stride);
     result
 }
@@ -157,7 +157,7 @@ pub unsafe extern "C" fn png_image_finish_read(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_image_free(image: png_imagep) {
     unsafe {
-        upstream_png_image_free(image);
+        png_safe_call_image_free(image);
     }
     clear_image_state(image);
 }

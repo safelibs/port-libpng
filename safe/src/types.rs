@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use core::ffi::{c_char, c_double, c_int, c_uchar, c_uint, c_void};
 use libc::{FILE, time_t, tm};
 
@@ -83,6 +85,43 @@ pub struct png_color_8 {
 
 pub type png_color_8p = *mut png_color_8;
 pub type png_const_color_8p = *const png_color_8;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct png_xy {
+    pub redx: png_fixed_point,
+    pub redy: png_fixed_point,
+    pub greenx: png_fixed_point,
+    pub greeny: png_fixed_point,
+    pub bluex: png_fixed_point,
+    pub bluey: png_fixed_point,
+    pub whitex: png_fixed_point,
+    pub whitey: png_fixed_point,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct png_XYZ {
+    pub red_X: png_fixed_point,
+    pub red_Y: png_fixed_point,
+    pub red_Z: png_fixed_point,
+    pub green_X: png_fixed_point,
+    pub green_Y: png_fixed_point,
+    pub green_Z: png_fixed_point,
+    pub blue_X: png_fixed_point,
+    pub blue_Y: png_fixed_point,
+    pub blue_Z: png_fixed_point,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct png_colorspace {
+    pub gamma: png_fixed_point,
+    pub end_points_xy: png_xy,
+    pub end_points_XYZ: png_XYZ,
+    pub rendering_intent: png_uint_16,
+    pub flags: png_uint_16,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -194,6 +233,56 @@ pub type png_uchar = c_uchar;
 pub type png_uint = c_uint;
 pub type png_controlp = *mut c_void;
 pub type png_doublep = *mut c_double;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct png_safe_read_core {
+    pub mode: png_uint_32,
+    pub flags: png_uint_32,
+    pub transformations: png_uint_32,
+    pub width: png_uint_32,
+    pub rowbytes: usize,
+    pub interlaced: png_byte,
+    pub color_type: png_byte,
+    pub bit_depth: png_byte,
+    pub transformed_pixel_depth: png_byte,
+    pub channels: png_byte,
+    pub background_gamma_type: png_byte,
+    pub background_gamma: png_fixed_point,
+    pub screen_gamma: png_fixed_point,
+    pub background: png_color_16,
+    pub shift: png_color_8,
+    pub colorspace: png_colorspace,
+    pub rgb_to_gray_status: png_byte,
+    pub rgb_to_gray_coefficients_set: png_byte,
+    pub rgb_to_gray_red_coeff: png_uint_16,
+    pub rgb_to_gray_green_coeff: png_uint_16,
+    pub num_palette_max: c_int,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct png_safe_info_core {
+    pub width: png_uint_32,
+    pub height: png_uint_32,
+    pub valid: png_uint_32,
+    pub rowbytes: usize,
+    pub num_palette: png_uint_16,
+    pub num_trans: png_uint_16,
+    pub bit_depth: png_byte,
+    pub color_type: png_byte,
+    pub compression_type: png_byte,
+    pub filter_type: png_byte,
+    pub interlace_type: png_byte,
+    pub channels: png_byte,
+    pub pixel_depth: png_byte,
+    pub background: png_color_16,
+    pub sig_bit: png_color_8,
+    pub trans_color: png_color_16,
+    pub colorspace: png_colorspace,
+    pub row_pointers: png_bytepp,
+    pub free_me: png_uint_32,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy)]

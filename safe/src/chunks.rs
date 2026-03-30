@@ -1,165 +1,75 @@
 use crate::types::*;
-use core::ffi::c_int;
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct OutputInfo {
-    pub info_ptr: usize,
-    pub width: png_uint_32,
-    pub height: png_uint_32,
-    pub bit_depth: png_byte,
-    pub channels: png_byte,
-    pub rowbytes: usize,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct TransformState {
-    pub expand: bool,
-    pub expand_16: bool,
-    pub palette_to_rgb: bool,
-    pub trns_to_alpha: bool,
-    pub gray_to_rgb: bool,
-    pub scale_16: bool,
-    pub strip_16: bool,
-    pub quantize: bool,
-    pub shift: bool,
-    pub swap_alpha: bool,
-    pub invert_alpha: bool,
-    pub invert_mono: bool,
-    pub bgr: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct ColorspaceState {
-    pub last_xyz_sums: [i64; 3],
-    pub degenerate_xyz: bool,
-    pub rgb_to_gray_coefficients: Option<(png_uint_16, png_uint_16)>,
-    pub background_requested: bool,
-    pub alpha_mode_requested: bool,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ReadState {
-    pub output: OutputInfo,
-    pub transforms: TransformState,
-    pub colorspace: ColorspaceState,
-    pub invalid_index_enabled: Option<bool>,
-    pub palette_max: c_int,
-    pub interlace_passes: c_int,
-}
-
-impl Default for ReadState {
-    fn default() -> Self {
-        Self {
-            output: OutputInfo::default(),
-            transforms: TransformState::default(),
-            colorspace: ColorspaceState::default(),
-            invalid_index_enabled: None,
-            palette_max: -1,
-            interlace_passes: 1,
-        }
-    }
-}
-
-fn read_states() -> &'static Mutex<HashMap<usize, ReadState>> {
-    static READ_STATES: OnceLock<Mutex<HashMap<usize, ReadState>>> = OnceLock::new();
-    READ_STATES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-pub(crate) fn update_read_state(png_ptr: png_structrp, update: impl FnOnce(&mut ReadState)) {
-    if png_ptr.is_null() {
-        return;
-    }
-
-    if let Ok(mut states) = read_states().lock() {
-        update(states.entry(png_ptr as usize).or_default());
-    }
-}
-
-pub(crate) fn with_transform_state(
-    png_ptr: png_structrp,
-    update: impl FnOnce(&mut TransformState),
-) {
-    update_read_state(png_ptr, |state| update(&mut state.transforms));
-}
-
-pub(crate) fn with_colorspace_state(
-    png_ptr: png_structrp,
-    update: impl FnOnce(&mut ColorspaceState),
-) {
-    update_read_state(png_ptr, |state| update(&mut state.colorspace));
-}
-
-pub(crate) fn read_state_snapshot(png_ptr: png_const_structrp) -> Option<ReadState> {
-    if png_ptr.is_null() {
-        return None;
-    }
-
-    read_states()
-        .lock()
-        .ok()
-        .and_then(|states| states.get(&(png_ptr as usize)).copied())
-}
-
-pub(crate) fn output_info_for(png_ptr: png_const_structrp) -> Option<OutputInfo> {
-    read_state_snapshot(png_ptr).map(|state| state.output)
-}
-
-pub(crate) fn clear_read_state(png_ptr: png_const_structrp) {
-    if png_ptr.is_null() {
-        return;
-    }
-
-    if let Ok(mut states) = read_states().lock() {
-        states.remove(&(png_ptr as usize));
-    }
-}
+use core::ffi::{c_char, c_int};
+use core::mem::MaybeUninit;
 
 unsafe extern "C" {
-    fn png_get_image_width(png_ptr: png_const_structrp, info_ptr: png_const_inforp)
-    -> png_uint_32;
-    fn png_get_image_height(
-        png_ptr: png_const_structrp,
-        info_ptr: png_const_inforp,
-    ) -> png_uint_32;
-    fn png_get_bit_depth(png_ptr: png_const_structrp, info_ptr: png_const_inforp) -> png_byte;
-    fn png_get_channels(png_ptr: png_const_structrp, info_ptr: png_const_inforp) -> png_byte;
-    fn png_get_rowbytes(png_ptr: png_const_structrp, info_ptr: png_const_inforp) -> usize;
+    fn png_safe_read_core_get(png_ptr: png_const_structrp, out: *mut png_safe_read_core);
+    fn png_safe_read_core_set(png_ptr: png_structrp, input: *const png_safe_read_core);
+    fn png_safe_info_core_get(info_ptr: png_const_inforp, out: *mut png_safe_info_core);
+    fn png_safe_info_core_set(info_ptr: png_inforp, input: *const png_safe_info_core);
 
-    fn upstream_png_set_check_for_invalid_index(png_ptr: png_structrp, allowed: c_int);
-    fn upstream_png_get_palette_max(png_ptr: png_const_structp, info_ptr: png_const_infop)
-    -> c_int;
+    fn png_safe_call_warning(png_ptr: png_structrp, message: png_const_charp) -> c_int;
+    fn png_safe_call_benign_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
+    fn png_safe_call_app_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
+    fn png_safe_call_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
 }
 
-pub(crate) unsafe fn refresh_output_info(
-    png_ptr: png_structrp,
-    info_ptr: png_inforp,
-) -> Option<OutputInfo> {
-    if png_ptr.is_null() || info_ptr.is_null() {
-        return None;
+pub(crate) unsafe fn read_core(png_ptr: png_const_structrp) -> png_safe_read_core {
+    let mut out = MaybeUninit::<png_safe_read_core>::zeroed();
+    unsafe {
+        png_safe_read_core_get(png_ptr, out.as_mut_ptr());
+        out.assume_init()
     }
-
-    let output = OutputInfo {
-        info_ptr: info_ptr as usize,
-        width: unsafe { png_get_image_width(png_ptr, info_ptr) },
-        height: unsafe { png_get_image_height(png_ptr, info_ptr) },
-        bit_depth: unsafe { png_get_bit_depth(png_ptr, info_ptr) },
-        channels: unsafe { png_get_channels(png_ptr, info_ptr) },
-        rowbytes: unsafe { png_get_rowbytes(png_ptr, info_ptr) },
-    };
-    update_read_state(png_ptr, |state| state.output = output);
-    Some(output)
 }
+
+pub(crate) unsafe fn write_core(png_ptr: png_structrp, core: &png_safe_read_core) {
+    unsafe {
+        png_safe_read_core_set(png_ptr, core);
+    }
+}
+
+pub(crate) unsafe fn read_info_core(info_ptr: png_const_inforp) -> png_safe_info_core {
+    let mut out = MaybeUninit::<png_safe_info_core>::zeroed();
+    unsafe {
+        png_safe_info_core_get(info_ptr, out.as_mut_ptr());
+        out.assume_init()
+    }
+}
+
+pub(crate) unsafe fn write_info_core(info_ptr: png_inforp, core: &png_safe_info_core) {
+    unsafe {
+        png_safe_info_core_set(info_ptr, core);
+    }
+}
+
+pub(crate) unsafe fn call_warning(png_ptr: png_structrp, message: &[u8]) -> c_int {
+    unsafe { png_safe_call_warning(png_ptr, message.as_ptr().cast::<c_char>()) }
+}
+
+pub(crate) unsafe fn call_benign_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
+    unsafe { png_safe_call_benign_error(png_ptr, message.as_ptr().cast::<c_char>()) }
+}
+
+pub(crate) unsafe fn call_app_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
+    unsafe { png_safe_call_app_error(png_ptr, message.as_ptr().cast::<c_char>()) }
+}
+
+pub(crate) unsafe fn call_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
+    unsafe { png_safe_call_error(png_ptr, message.as_ptr().cast::<c_char>()) }
+}
+
+pub(crate) fn clear_read_state(_png_ptr: png_const_structrp) {}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_set_check_for_invalid_index(png_ptr: png_structrp, allowed: c_int) {
-    update_read_state(png_ptr, |state| {
-        state.invalid_index_enabled = Some(allowed > 0);
-        state.palette_max = if allowed > 0 { 0 } else { -1 };
-    });
+    if png_ptr.is_null() {
+        return;
+    }
+
+    let mut core = unsafe { read_core(png_ptr) };
+    core.num_palette_max = if allowed > 0 { 0 } else { -1 };
     unsafe {
-        upstream_png_set_check_for_invalid_index(png_ptr, allowed);
+        write_core(png_ptr, &core);
     }
 }
 
@@ -168,7 +78,9 @@ pub unsafe extern "C" fn png_get_palette_max(
     png_ptr: png_const_structp,
     info_ptr: png_const_infop,
 ) -> c_int {
-    let palette_max = unsafe { upstream_png_get_palette_max(png_ptr, info_ptr) };
-    update_read_state(png_ptr.cast_mut(), |state| state.palette_max = palette_max);
-    palette_max
+    if png_ptr.is_null() || info_ptr.is_null() {
+        return -1;
+    }
+
+    unsafe { read_core(png_ptr) }.num_palette_max
 }
