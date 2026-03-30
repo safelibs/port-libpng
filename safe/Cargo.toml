@@ -1,0 +1,14 @@
+[package]
+name = "libpng-safe"
+version = "1.6.43"
+edition = "2024"
+license = "libpng-2.0"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "png16"
+crate-type = ["cdylib", "staticlib"]
+
+[build-dependencies]
+cc = "1.2"
