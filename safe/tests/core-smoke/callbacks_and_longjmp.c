@@ -13,7 +13,10 @@ static size_t free_calls = 0;
 static size_t error_calls = 0;
 static size_t warning_calls = 0;
 static png_voidp destroy_error_target = NULL;
+static png_voidp destroy_expected_mem_ptr = NULL;
 static int create_error_enabled = 0;
+static int destroy_context_check_enabled = 0;
+static int destroy_context_checked = 0;
 static int destroy_error_enabled = 0;
 
 static void *tracked_malloc(png_structp png_ptr, png_alloc_size_t size) {
@@ -29,6 +32,12 @@ static void *tracked_malloc(png_structp png_ptr, png_alloc_size_t size) {
 
 static void tracked_free(png_structp png_ptr, png_voidp ptr) {
     ++free_calls;
+
+    if (destroy_context_check_enabled && ptr == destroy_error_target) {
+        assert(png_ptr != ptr);
+        assert(png_get_mem_ptr(png_ptr) == destroy_expected_mem_ptr);
+        destroy_context_checked = 1;
+    }
 
     if (destroy_error_enabled && ptr == destroy_error_target) {
         destroy_error_enabled = 0;
@@ -158,14 +167,19 @@ int main(void) {
     assert(error_calls == errors_before + 1);
 
     destroy_error_target = read_ptr;
+    destroy_expected_mem_ptr = &mem_cookie;
+    destroy_context_check_enabled = 1;
     destroy_error_enabled = 1;
     if (setjmp(*jmp) == 0) {
         png_destroy_read_struct(&read_ptr, NULL, NULL);
         assert(!"png_destroy_read_struct should longjmp from free_fn");
     }
+    assert(destroy_context_checked == 1);
     assert(read_ptr == NULL);
     assert(error_calls == errors_before + 2);
     destroy_error_target = NULL;
+    destroy_expected_mem_ptr = NULL;
+    destroy_context_check_enabled = 0;
 
     png_structp write_ptr =
         png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, noop_error, noop_warning);

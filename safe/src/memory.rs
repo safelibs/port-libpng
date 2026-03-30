@@ -69,7 +69,7 @@ struct CreatePngStructContext {
     result: png_structp,
 }
 
-unsafe extern "C" fn create_png_struct_attempt(context: png_voidp) -> c_int {
+unsafe fn create_png_struct_attempt_impl(context: png_voidp) -> c_int {
     let context = &mut *context.cast::<CreatePngStructContext>();
     let template = &mut *context.template;
     let template_ptr = context.template.cast::<png_struct>();
@@ -127,6 +127,18 @@ unsafe extern "C" fn create_png_struct_attempt(context: png_voidp) -> c_int {
     ptr::write(raw, state);
     context.result = raw.cast::<png_struct>();
     1
+}
+
+unsafe extern "C" fn create_png_struct_attempt(context: png_voidp) -> c_int {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        create_png_struct_attempt_impl(context)
+    })) {
+        Ok(value) => value,
+        Err(_) => {
+            let context = &mut *context.cast::<CreatePngStructContext>();
+            crate::error::panic_to_png_error(context.template.cast::<png_struct>())
+        }
+    }
 }
 
 unsafe fn create_png_struct(
@@ -188,14 +200,22 @@ unsafe fn destroy_png_struct(png_ptr: png_structrp) {
         return;
     };
 
-    let destroy_dummy = *state;
+    let mut destroy_dummy = *state;
+    let destroy_dummy_png_ptr = (&mut destroy_dummy as *mut PngStructState).cast::<png_struct>();
     let heap_jmp_buf = if destroy_dummy.jmp_buf_size > 0 {
         destroy_dummy.jmp_buf_ptr
     } else {
         ptr::null_mut()
     };
 
-    free_with_template(png_ptr, png_ptr.cast());
+    zero_bytes(png_ptr.cast(), mem::size_of::<PngStructState>());
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        free_with_template(destroy_dummy_png_ptr, png_ptr.cast());
+    }))
+    .is_err()
+    {
+        crate::error::panic_to_png_error(destroy_dummy_png_ptr);
+    }
 
     if !heap_jmp_buf.is_null() && !destroy_dummy.longjmp_storage.is_null() {
         let mut cleanup_dummy = destroy_dummy;
@@ -208,9 +228,13 @@ unsafe fn destroy_png_struct(png_ptr: png_structrp) {
         cleanup_dummy.longjmp_fn = Some(internal_longjmp);
 
         if crate::state::png_safe_longjmp_state_set(cleanup_dummy.longjmp_storage) == 0 {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 free_with_template(cleanup_dummy_png_ptr, heap_jmp_buf.cast());
-            }));
+            }))
+            .is_err()
+            {
+                crate::error::panic_to_png_error(cleanup_dummy_png_ptr);
+            }
         }
     }
 

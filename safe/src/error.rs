@@ -28,7 +28,7 @@ unsafe fn default_error(png_ptr: png_const_structrp, error_message: png_const_ch
 }
 
 pub(crate) unsafe fn panic_to_png_error(png_ptr: png_structrp) -> ! {
-    png_error(png_ptr, INTERNAL_PANIC_MESSAGE.as_ptr().cast());
+    default_error(png_ptr, INTERNAL_PANIC_MESSAGE.as_ptr().cast());
 }
 
 pub(crate) unsafe fn png_app_warning(png_ptr: png_const_structrp, error_message: png_const_charp) {
@@ -240,4 +240,54 @@ pub unsafe extern "C" fn png_longjmp(png_ptr: png_const_structrp, val: c_int) ->
     }
 
     libc::abort();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{PngStructState, alloc_longjmp_storage};
+    use core::ptr;
+
+    unsafe extern "C" fn test_longjmp(jmp_buf_ptr: *mut JmpBuf, value: c_int) {
+        crate::state::png_safe_longjmp_state_jump(jmp_buf_ptr.cast(), value)
+    }
+
+    unsafe extern "C" fn invoke_panic_to_png_error(context: png_voidp) -> c_int {
+        panic_to_png_error(context.cast::<png_struct>());
+    }
+
+    #[test]
+    fn panic_to_png_error_uses_default_error_path() {
+        let (storage, storage_size, jmp_buf_ptr) = alloc_longjmp_storage();
+        assert!(!storage.is_null());
+
+        let mut state = PngStructState::defaults(
+            true,
+            ptr::null_mut(),
+            None,
+            None,
+            ptr::null_mut(),
+            None,
+            None,
+        );
+        state.longjmp_storage = storage;
+        state.longjmp_storage_size = storage_size;
+        state.jmp_buf_ptr = jmp_buf_ptr;
+        state.jmp_buf_size = 0;
+        state.longjmp_fn = Some(test_longjmp);
+
+        let png_ptr = (&mut state as *mut PngStructState).cast::<png_struct>();
+        let result = unsafe {
+            crate::state::png_safe_longjmp_state_invoke(
+                storage,
+                Some(invoke_panic_to_png_error),
+                png_ptr.cast(),
+            )
+        };
+        assert_eq!(result, 0);
+
+        unsafe {
+            libc::free(storage);
+        }
+    }
 }

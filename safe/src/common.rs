@@ -97,32 +97,38 @@ macro_rules! abi_guard_no_png {
     }};
 }
 
-pub unsafe fn cstr_len(ptr: png_const_charp) -> usize {
+pub fn cstr_len(ptr: png_const_charp) -> usize {
     if ptr.is_null() {
         0
     } else {
-        libc::strlen(ptr.cast())
+        unsafe { libc::strlen(ptr.cast()) }
     }
 }
 
-pub unsafe fn write_stderr(bytes: &[u8]) {
-    let _ = libc::write(2, bytes.as_ptr().cast(), bytes.len());
+pub fn write_stderr(bytes: &[u8]) {
+    unsafe {
+        let _ = libc::write(2, bytes.as_ptr().cast(), bytes.len());
+    }
 }
 
-pub unsafe fn write_stderr_cstr(ptr: png_const_charp) {
+pub fn write_stderr_cstr(ptr: png_const_charp) {
     if !ptr.is_null() {
         let len = cstr_len(ptr);
-        let _ = libc::write(2, ptr.cast(), len);
+        unsafe {
+            let _ = libc::write(2, ptr.cast(), len);
+        }
     }
 }
 
-pub unsafe fn zero_bytes(ptr: png_voidp, size: usize) {
+pub fn zero_bytes(ptr: png_voidp, size: usize) {
     if !ptr.is_null() && size != 0 {
-        libc::memset(ptr, 0, size);
+        unsafe {
+            libc::memset(ptr, 0, size);
+        }
     }
 }
 
-pub unsafe fn safecat(
+pub fn safecat(
     buffer: png_charp,
     bufsize: usize,
     mut pos: usize,
@@ -134,24 +140,28 @@ pub unsafe fn safecat(
 
     if !string.is_null() {
         let mut src = string;
-        while *src != 0 && pos + 1 < bufsize {
-            *buffer.add(pos) = *src;
+        while unsafe { *src } != 0 && pos + 1 < bufsize {
+            unsafe {
+                *buffer.add(pos) = *src;
+            }
             pos += 1;
-            src = src.add(1);
+            src = unsafe { src.add(1) };
         }
     }
 
-    *buffer.add(pos) = 0;
+    unsafe {
+        *buffer.add(pos) = 0;
+    }
     pos
 }
 
-pub unsafe fn matches_version(user_png_ver: png_const_charp) -> bool {
+pub fn matches_version(user_png_ver: png_const_charp) -> bool {
     if user_png_ver.is_null() {
         return false;
     }
 
-    let expected = CStr::from_bytes_with_nul_unchecked(PNG_LIBPNG_VER_STRING);
-    let supplied = CStr::from_ptr(user_png_ver);
+    let expected = unsafe { CStr::from_bytes_with_nul_unchecked(PNG_LIBPNG_VER_STRING) };
+    let supplied = unsafe { CStr::from_ptr(user_png_ver) };
     let expected = expected.to_bytes();
     let supplied = supplied.to_bytes();
     let mut index = 0usize;
@@ -197,8 +207,10 @@ pub fn month_name(month: png_byte) -> Option<&'static [u8; 3]> {
     }
 }
 
-pub unsafe fn set_bytes(dst: *mut c_char, bytes: &[u8]) {
-    ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), dst, bytes.len());
+pub fn set_bytes(dst: *mut c_char, bytes: &[u8]) {
+    unsafe {
+        ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), dst, bytes.len());
+    }
 }
 
 pub fn chunk_name_byte(chunk_name: png_uint_32, shift: u32) -> u8 {

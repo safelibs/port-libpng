@@ -172,30 +172,32 @@ impl PngInfoState {
     }
 }
 
-pub unsafe fn png_ptr_state<'a>(png_ptr: png_structrp) -> Option<&'a mut PngStructState> {
-    png_ptr.cast::<PngStructState>().as_mut()
+pub fn png_ptr_state<'a>(png_ptr: png_structrp) -> Option<&'a mut PngStructState> {
+    unsafe { png_ptr.cast::<PngStructState>().as_mut() }
 }
 
-pub unsafe fn png_ptr_state_const<'a>(png_ptr: png_const_structrp) -> Option<&'a PngStructState> {
-    png_ptr.cast::<PngStructState>().as_ref()
+pub fn png_ptr_state_const<'a>(png_ptr: png_const_structrp) -> Option<&'a PngStructState> {
+    unsafe { png_ptr.cast::<PngStructState>().as_ref() }
 }
 
-pub unsafe fn info_ptr_state<'a>(info_ptr: png_inforp) -> Option<&'a mut PngInfoState> {
-    info_ptr.cast::<PngInfoState>().as_mut()
+pub fn info_ptr_state<'a>(info_ptr: png_inforp) -> Option<&'a mut PngInfoState> {
+    unsafe { info_ptr.cast::<PngInfoState>().as_mut() }
 }
 
-pub unsafe fn info_ptr_state_const<'a>(info_ptr: png_const_inforp) -> Option<&'a PngInfoState> {
-    info_ptr.cast::<PngInfoState>().as_ref()
+pub fn info_ptr_state_const<'a>(info_ptr: png_const_inforp) -> Option<&'a PngInfoState> {
+    unsafe { info_ptr.cast::<PngInfoState>().as_ref() }
 }
 
-pub unsafe fn alloc_longjmp_storage() -> (*mut c_void, usize, *mut JmpBuf) {
-    let size = png_safe_longjmp_state_size();
-    let storage = libc::malloc(size);
+pub fn alloc_longjmp_storage() -> (*mut c_void, usize, *mut JmpBuf) {
+    let size = unsafe { png_safe_longjmp_state_size() };
+    let storage = unsafe { libc::malloc(size) };
     if storage.is_null() {
         return (ptr::null_mut(), size, ptr::null_mut());
     }
 
-    libc::memset(storage, 0, size);
-    let jmp_buf_ptr = png_safe_longjmp_state_buf(storage).cast::<JmpBuf>();
+    unsafe {
+        libc::memset(storage, 0, size);
+    }
+    let jmp_buf_ptr = unsafe { png_safe_longjmp_state_buf(storage) }.cast::<JmpBuf>();
     (storage, size, jmp_buf_ptr)
 }
