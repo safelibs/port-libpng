@@ -58,8 +58,6 @@ pub(crate) unsafe fn call_error(png_ptr: png_structrp, message: &[u8]) -> c_int 
     unsafe { png_safe_call_error(png_ptr, message.as_ptr().cast::<c_char>()) }
 }
 
-pub(crate) fn clear_read_state(_png_ptr: png_const_structrp) {}
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_set_check_for_invalid_index(png_ptr: png_structrp, allowed: c_int) {
     if png_ptr.is_null() {

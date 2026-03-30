@@ -1,11 +1,16 @@
-use crate::chunks::clear_read_state;
 use crate::read_util::KeepSymbol;
+use crate::read_transform::clear_read_state;
 use crate::types::*;
 use core::ptr;
 
 unsafe extern "C" {
-    fn png_create_read_struct();
-    fn png_set_read_fn();
+    fn png_create_read_struct(
+        user_png_ver: png_const_charp,
+        error_ptr: png_voidp,
+        error_fn: png_error_ptr,
+        warn_fn: png_error_ptr,
+    ) -> png_structp;
+    fn png_set_read_fn(png_ptr: png_structrp, io_ptr: png_voidp, read_data_fn: png_rw_ptr);
     fn upstream_png_destroy_read_struct(
         png_ptr_ptr: png_structpp,
         info_ptr_ptr: png_infopp,

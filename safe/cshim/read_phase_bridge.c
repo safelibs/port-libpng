@@ -8,7 +8,9 @@ typedef struct png_safe_read_core {
     png_uint_32 flags;
     png_uint_32 transformations;
     png_uint_32 width;
+    png_uint_32 height;
     size_t rowbytes;
+    size_t info_rowbytes;
     png_byte interlaced;
     png_byte color_type;
     png_byte bit_depth;
@@ -49,21 +51,16 @@ typedef struct png_safe_info_core {
     png_uint_32 free_me;
 } png_safe_info_core;
 
-extern void upstream_png_read_row(png_structrp png_ptr, png_bytep row,
-                                  png_bytep display_row);
-extern int upstream_png_image_begin_read_from_file(png_imagep image,
-                                                   png_const_charp file_name);
-extern int upstream_png_image_begin_read_from_stdio(png_imagep image,
-                                                    FILE *file);
-extern int upstream_png_image_begin_read_from_memory(png_imagep image,
-                                                     png_const_voidp memory,
-                                                     size_t size);
-extern int upstream_png_image_finish_read(png_imagep image,
-                                          png_const_colorp background,
-                                          png_voidp buffer,
-                                          png_int_32 row_stride,
-                                          png_voidp colormap);
-extern void upstream_png_image_free(png_imagep image);
+extern void upstream_png_set_quantize(png_structrp png_ptr, png_colorp palette,
+                                      int num_palette, int maximum_colors,
+                                      png_const_uint_16p histogram,
+                                      int full_quantize);
+
+static void png_safe_ignore_warning(png_structp png_ptr,
+                                    png_const_charp message) {
+    (void)png_ptr;
+    (void)message;
+}
 
 void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out) {
     memset(out, 0, sizeof(*out));
@@ -75,7 +72,9 @@ void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out)
     out->flags = png_ptr->flags;
     out->transformations = png_ptr->transformations;
     out->width = png_ptr->width;
+    out->height = png_ptr->height;
     out->rowbytes = png_ptr->rowbytes;
+    out->info_rowbytes = png_ptr->info_rowbytes;
     out->interlaced = png_ptr->interlaced;
     out->color_type = png_ptr->color_type;
     out->bit_depth = png_ptr->bit_depth;
@@ -103,7 +102,9 @@ void png_safe_read_core_set(png_structrp png_ptr, const png_safe_read_core *in) 
     png_ptr->flags = in->flags;
     png_ptr->transformations = in->transformations;
     png_ptr->width = in->width;
+    png_ptr->height = in->height;
     png_ptr->rowbytes = in->rowbytes;
+    png_ptr->info_rowbytes = in->info_rowbytes;
     png_ptr->interlaced = in->interlaced;
     png_ptr->color_type = in->color_type;
     png_ptr->bit_depth = in->bit_depth;
@@ -193,21 +194,31 @@ int png_safe_call_read_update_info(png_structrp png_ptr, png_inforp info_ptr) {
     return 1;
 }
 
-int png_safe_call_read_row(png_structrp png_ptr, png_bytep row, png_bytep display_row) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
+int png_safe_call_read_image(png_structrp png_ptr, png_bytepp image) {
+    png_error_ptr saved_warning_fn = NULL;
+    int suppress_interlace_warning = 0;
+
+    if (png_ptr != NULL &&
+        (png_ptr->flags & PNG_FLAG_ROW_INIT) != 0 &&
+        png_ptr->interlaced != 0 &&
+        (png_ptr->transformations & PNG_INTERLACE) == 0) {
+        saved_warning_fn = png_ptr->warning_fn;
+        png_ptr->warning_fn = png_safe_ignore_warning;
+        suppress_interlace_warning = 1;
     }
 
-    upstream_png_read_row(png_ptr, row, display_row);
-    return 1;
-}
-
-int png_safe_call_read_image(png_structrp png_ptr, png_bytepp image) {
     if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        if (suppress_interlace_warning != 0 && png_ptr != NULL) {
+            png_ptr->warning_fn = saved_warning_fn;
+        }
         return 0;
     }
 
     png_read_image(png_ptr, image);
+
+    if (suppress_interlace_warning != 0 && png_ptr != NULL) {
+        png_ptr->warning_fn = saved_warning_fn;
+    }
     return 1;
 }
 
@@ -252,30 +263,15 @@ int png_safe_call_error(png_structrp png_ptr, png_const_charp message) {
     return 0;
 }
 
-int png_safe_call_image_begin_read_from_file(png_imagep image,
-                                             png_const_charp file_name) {
-    return upstream_png_image_begin_read_from_file(image, file_name);
-}
+int png_safe_call_set_quantize(png_structrp png_ptr, png_colorp palette,
+                               int num_palette, int maximum_colors,
+                               png_const_uint_16p histogram,
+                               int full_quantize) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
 
-int png_safe_call_image_begin_read_from_stdio(png_imagep image, FILE *file) {
-    return upstream_png_image_begin_read_from_stdio(image, file);
-}
-
-int png_safe_call_image_begin_read_from_memory(png_imagep image,
-                                               png_const_voidp memory,
-                                               size_t size) {
-    return upstream_png_image_begin_read_from_memory(image, memory, size);
-}
-
-int png_safe_call_image_finish_read(png_imagep image,
-                                    png_const_colorp background,
-                                    png_voidp buffer,
-                                    png_int_32 row_stride,
-                                    png_voidp colormap) {
-    return upstream_png_image_finish_read(image, background, buffer, row_stride,
-                                          colormap);
-}
-
-void png_safe_call_image_free(png_imagep image) {
-    upstream_png_image_free(image);
+    upstream_png_set_quantize(png_ptr, palette, num_palette, maximum_colors,
+                              histogram, full_quantize);
+    return 1;
 }

@@ -28,11 +28,16 @@ pub(crate) unsafe fn mask_packed_row_padding(png_ptr: png_structrp, row: png_byt
     let Some(mask) = padding_mask(core.width, core.transformed_pixel_depth) else {
         return;
     };
-    if core.rowbytes == 0 {
+    let rowbytes = if core.info_rowbytes != 0 {
+        core.info_rowbytes
+    } else {
+        core.rowbytes
+    };
+    if rowbytes == 0 {
         return;
     }
 
-    let row_slice = unsafe { slice::from_raw_parts_mut(row, core.rowbytes) };
+    let row_slice = unsafe { slice::from_raw_parts_mut(row, rowbytes) };
     if let Some(last) = row_slice.last_mut() {
         *last &= mask;
     }
