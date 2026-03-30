@@ -10,5 +10,8 @@ build = "build.rs"
 name = "png16"
 crate-type = ["cdylib", "staticlib"]
 
+[dependencies]
+libc = "0.2"
+
 [build-dependencies]
 cc = "1.2"

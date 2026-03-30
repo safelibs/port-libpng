@@ -11,6 +11,95 @@ const LIBPNG_VERSION: &str = "1.6.43";
 const FULL_SO_NAME: &str = "libpng16.so.16.43.0";
 const SONAME: &str = "libpng16.so.16";
 const LIBS_PRIVATE: &str = "-lm -lz -lm ";
+const IMPLEMENTED_EXPORTS: &[&str] = &[
+    "png_access_version_number",
+    "png_benign_error",
+    "png_build_grayscale_palette",
+    "png_calloc",
+    "png_chunk_benign_error",
+    "png_chunk_error",
+    "png_chunk_warning",
+    "png_convert_from_struct_tm",
+    "png_convert_from_time_t",
+    "png_convert_to_rfc1123",
+    "png_convert_to_rfc1123_buffer",
+    "png_create_info_struct",
+    "png_create_read_struct",
+    "png_create_read_struct_2",
+    "png_create_write_struct",
+    "png_create_write_struct_2",
+    "png_data_freer",
+    "png_destroy_info_struct",
+    "png_destroy_read_struct",
+    "png_destroy_write_struct",
+    "png_error",
+    "png_free",
+    "png_free_data",
+    "png_free_default",
+    "png_get_bit_depth",
+    "png_get_channels",
+    "png_get_chunk_cache_max",
+    "png_get_chunk_malloc_max",
+    "png_get_color_type",
+    "png_get_compression_type",
+    "png_get_copyright",
+    "png_get_error_ptr",
+    "png_get_filter_type",
+    "png_get_header_ver",
+    "png_get_header_version",
+    "png_get_image_height",
+    "png_get_image_width",
+    "png_get_int_32",
+    "png_get_interlace_type",
+    "png_get_io_chunk_type",
+    "png_get_io_ptr",
+    "png_get_io_state",
+    "png_get_libpng_ver",
+    "png_get_mem_ptr",
+    "png_get_palette_max",
+    "png_get_progressive_ptr",
+    "png_get_rowbytes",
+    "png_get_rows",
+    "png_get_uint_16",
+    "png_get_uint_31",
+    "png_get_uint_32",
+    "png_get_user_chunk_ptr",
+    "png_get_user_height_max",
+    "png_get_user_transform_ptr",
+    "png_get_user_width_max",
+    "png_get_valid",
+    "png_info_init_3",
+    "png_init_io",
+    "png_longjmp",
+    "png_malloc",
+    "png_malloc_default",
+    "png_malloc_warn",
+    "png_save_int_32",
+    "png_save_uint_16",
+    "png_save_uint_32",
+    "png_set_benign_errors",
+    "png_set_check_for_invalid_index",
+    "png_set_chunk_cache_max",
+    "png_set_chunk_malloc_max",
+    "png_set_error_fn",
+    "png_set_longjmp_fn",
+    "png_set_mem_fn",
+    "png_set_option",
+    "png_set_progressive_read_fn",
+    "png_set_read_fn",
+    "png_set_read_status_fn",
+    "png_set_read_user_chunk_fn",
+    "png_set_read_user_transform_fn",
+    "png_set_rows",
+    "png_set_sig_bytes",
+    "png_set_user_limits",
+    "png_set_user_transform_info",
+    "png_set_write_fn",
+    "png_set_write_status_fn",
+    "png_set_write_user_transform_fn",
+    "png_sig_cmp",
+    "png_warning",
+];
 
 fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
@@ -35,6 +124,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         pkg_dir.join("libpng.pc.in"),
         pkg_dir.join("libpng-config.in"),
         cshim_dir.join("longjmp_bridge.c"),
+        manifest_dir.join("src/lib.rs"),
+        manifest_dir.join("src/abi_exports.rs"),
+        manifest_dir.join("src/common.rs"),
+        manifest_dir.join("src/error.rs"),
+        manifest_dir.join("src/get.rs"),
+        manifest_dir.join("src/io.rs"),
+        manifest_dir.join("src/memory.rs"),
+        manifest_dir.join("src/set.rs"),
+        manifest_dir.join("src/state.rs"),
+        manifest_dir.join("src/types.rs"),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
@@ -71,6 +170,10 @@ fn generate_stub_module(exports_file: &Path, output_file: &Path) -> Result<(), B
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
+        if IMPLEMENTED_EXPORTS.contains(&export) {
+            continue;
+        }
+
         if !seen.insert(export.to_owned()) {
             return Err(format!("duplicate export in {}: {export}", exports_file.display()).into());
         }

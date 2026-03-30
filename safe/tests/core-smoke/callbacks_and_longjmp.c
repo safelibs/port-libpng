@@ -1,0 +1,151 @@
+#include <assert.h>
+#include <setjmp.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <png.h>
+
+static size_t malloc_calls = 0;
+static size_t free_calls = 0;
+
+static void *tracked_malloc(png_structp png_ptr, png_alloc_size_t size) {
+    (void)png_ptr;
+    ++malloc_calls;
+    return malloc(size);
+}
+
+static void tracked_free(png_structp png_ptr, png_voidp ptr) {
+    (void)png_ptr;
+    ++free_calls;
+    free(ptr);
+}
+
+static void noop_error(png_structp png_ptr, png_const_charp message) {
+    (void)message;
+    png_longjmp(png_ptr, 11);
+}
+
+static void noop_warning(png_structp png_ptr, png_const_charp message) {
+    (void)png_ptr;
+    (void)message;
+}
+
+static void read_data(png_structp png_ptr, png_bytep data, size_t length) {
+    (void)png_ptr;
+    memset(data, 0, length);
+}
+
+static void write_data(png_structp png_ptr, png_bytep data, size_t length) {
+    (void)png_ptr;
+    (void)data;
+    (void)length;
+}
+
+static void flush_data(png_structp png_ptr) {
+    (void)png_ptr;
+}
+
+static void read_status(png_structp png_ptr, png_uint_32 row_number, int pass) {
+    (void)png_ptr;
+    (void)row_number;
+    (void)pass;
+}
+
+static void write_status(png_structp png_ptr, png_uint_32 row_number, int pass) {
+    (void)png_ptr;
+    (void)row_number;
+    (void)pass;
+}
+
+static void progressive_info(png_structp png_ptr, png_infop info_ptr) {
+    (void)png_ptr;
+    (void)info_ptr;
+}
+
+static void progressive_row(png_structp png_ptr, png_bytep row, png_uint_32 row_num,
+                            int pass) {
+    (void)png_ptr;
+    (void)row;
+    (void)row_num;
+    (void)pass;
+}
+
+static void progressive_end(png_structp png_ptr, png_infop info_ptr) {
+    (void)png_ptr;
+    (void)info_ptr;
+}
+
+static int user_chunk(png_structp png_ptr, png_unknown_chunkp chunk) {
+    (void)png_ptr;
+    (void)chunk;
+    return 0;
+}
+
+static void user_transform(png_structp png_ptr, png_row_infop row_info,
+                           png_bytep data) {
+    (void)png_ptr;
+    (void)row_info;
+    (void)data;
+}
+
+int main(void) {
+    int error_cookie = 17;
+    int mem_cookie = 23;
+
+    png_structp read_ptr = png_create_read_struct_2(
+        PNG_LIBPNG_VER_STRING, &error_cookie, noop_error, noop_warning,
+        &mem_cookie, tracked_malloc, tracked_free);
+    assert(read_ptr != NULL);
+    assert(png_get_error_ptr(read_ptr) == &error_cookie);
+    assert(png_get_mem_ptr(read_ptr) == &mem_cookie);
+    assert(malloc_calls > 0);
+
+    int read_cookie = 31;
+    png_set_read_fn(read_ptr, &read_cookie, read_data);
+    assert(png_get_io_ptr(read_ptr) == &read_cookie);
+    png_set_read_status_fn(read_ptr, read_status);
+
+    int chunk_cookie = 41;
+    png_set_read_user_chunk_fn(read_ptr, &chunk_cookie, user_chunk);
+    assert(png_get_user_chunk_ptr(read_ptr) == &chunk_cookie);
+
+    int transform_cookie = 59;
+    png_set_read_user_transform_fn(read_ptr, user_transform);
+    png_set_user_transform_info(read_ptr, &transform_cookie, 8, 3);
+    assert(png_get_user_transform_ptr(read_ptr) == &transform_cookie);
+
+    int progressive_cookie = 67;
+    png_set_progressive_read_fn(read_ptr, &progressive_cookie, progressive_info,
+                                progressive_row, progressive_end);
+    assert(png_get_progressive_ptr(read_ptr) == &progressive_cookie);
+
+    jmp_buf *jmp = png_set_longjmp_fn(read_ptr, longjmp, sizeof(jmp_buf));
+    assert(jmp != NULL);
+    if (setjmp(*jmp) == 0) {
+        png_error(read_ptr, "expected jump");
+        assert(!"png_error should longjmp");
+    }
+
+    png_destroy_read_struct(&read_ptr, NULL, NULL);
+    assert(read_ptr == NULL);
+
+    png_structp write_ptr =
+        png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, noop_error, noop_warning);
+    assert(write_ptr != NULL);
+
+    int write_cookie = 73;
+    png_set_write_fn(write_ptr, &write_cookie, write_data, flush_data);
+    assert(png_get_io_ptr(write_ptr) == &write_cookie);
+    png_set_write_status_fn(write_ptr, write_status);
+    png_set_write_user_transform_fn(write_ptr, user_transform);
+    png_set_user_transform_info(write_ptr, &transform_cookie, 16, 4);
+    assert(png_get_user_transform_ptr(write_ptr) == &transform_cookie);
+
+    png_destroy_write_struct(&write_ptr, NULL);
+    assert(write_ptr == NULL);
+    assert(free_calls > 0);
+    return 0;
+}
