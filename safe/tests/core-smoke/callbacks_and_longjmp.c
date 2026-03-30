@@ -12,6 +12,8 @@ static size_t malloc_calls = 0;
 static size_t free_calls = 0;
 static size_t error_calls = 0;
 static size_t warning_calls = 0;
+static png_voidp destroy_error_target = NULL;
+static int destroy_error_enabled = 0;
 
 static void *tracked_malloc(png_structp png_ptr, png_alloc_size_t size) {
     (void)png_ptr;
@@ -20,8 +22,13 @@ static void *tracked_malloc(png_structp png_ptr, png_alloc_size_t size) {
 }
 
 static void tracked_free(png_structp png_ptr, png_voidp ptr) {
-    (void)png_ptr;
     ++free_calls;
+
+    if (destroy_error_enabled && ptr == destroy_error_target) {
+        destroy_error_enabled = 0;
+        png_error(png_ptr, "destroy free error");
+    }
+
     free(ptr);
 }
 
@@ -136,8 +143,15 @@ int main(void) {
     }
     assert(error_calls == 1);
 
-    png_destroy_read_struct(&read_ptr, NULL, NULL);
+    destroy_error_target = read_ptr;
+    destroy_error_enabled = 1;
+    if (setjmp(*jmp) == 0) {
+        png_destroy_read_struct(&read_ptr, NULL, NULL);
+        assert(!"png_destroy_read_struct should longjmp from free_fn");
+    }
     assert(read_ptr == NULL);
+    assert(error_calls == 2);
+    destroy_error_target = NULL;
 
     png_structp write_ptr =
         png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, noop_error, noop_warning);

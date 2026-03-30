@@ -11,6 +11,7 @@ use crate::state::{
     PngInfoState, PngStructState, alloc_longjmp_storage, info_ptr_state, png_ptr_state,
 };
 use crate::types::*;
+use core::ffi::c_int;
 use core::mem;
 use core::ptr;
 
@@ -55,6 +56,10 @@ unsafe fn free_with_template(template: png_structrp, ptr_to_free: png_voidp) {
     }
 
     libc::free(ptr_to_free);
+}
+
+unsafe extern "C" fn internal_longjmp(jmp_buf_ptr: *mut JmpBuf, value: c_int) {
+    crate::state::png_safe_longjmp_state_jump(jmp_buf_ptr.cast(), value)
 }
 
 unsafe fn create_png_struct(
@@ -137,26 +142,34 @@ unsafe fn destroy_png_struct(png_ptr: png_structrp) {
         return;
     };
 
-    let mut dummy = *state;
-    if dummy.jmp_buf_size > 0 && !dummy.jmp_buf_ptr.is_null() {
-        if !dummy.longjmp_storage.is_null() {
-            state.jmp_buf_ptr =
-                crate::state::png_safe_longjmp_state_buf(dummy.longjmp_storage).cast::<JmpBuf>();
-            state.jmp_buf_size = 0;
-        }
+    let destroy_dummy = *state;
+    let heap_jmp_buf = if destroy_dummy.jmp_buf_size > 0 {
+        destroy_dummy.jmp_buf_ptr
+    } else {
+        ptr::null_mut()
+    };
 
-        free_with_template(
-            (&mut dummy as *mut PngStructState).cast(),
-            dummy.jmp_buf_ptr.cast(),
-        );
-        dummy.jmp_buf_ptr = ptr::null_mut();
-        dummy.jmp_buf_size = 0;
+    free_with_template(png_ptr, png_ptr.cast());
+
+    if !heap_jmp_buf.is_null() && !destroy_dummy.longjmp_storage.is_null() {
+        let mut cleanup_dummy = destroy_dummy;
+        let cleanup_dummy_png_ptr =
+            (&mut cleanup_dummy as *mut PngStructState).cast::<png_struct>();
+        cleanup_dummy.jmp_buf_ptr =
+            crate::state::png_safe_longjmp_state_buf(cleanup_dummy.longjmp_storage)
+                .cast::<JmpBuf>();
+        cleanup_dummy.jmp_buf_size = 0;
+        cleanup_dummy.longjmp_fn = Some(internal_longjmp);
+
+        if crate::state::png_safe_longjmp_state_set(cleanup_dummy.longjmp_storage) == 0 {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                free_with_template(cleanup_dummy_png_ptr, heap_jmp_buf.cast());
+            }));
+        }
     }
 
-    free_with_template((&mut dummy as *mut PngStructState).cast(), png_ptr.cast());
-
-    if !dummy.longjmp_storage.is_null() {
-        libc::free(dummy.longjmp_storage);
+    if !destroy_dummy.longjmp_storage.is_null() {
+        libc::free(destroy_dummy.longjmp_storage);
     }
 }
 
@@ -617,8 +630,8 @@ pub unsafe extern "C" fn png_destroy_read_struct(
     crate::abi_guard!(png_ptr, {
         png_destroy_info_struct(png_ptr, end_info_ptr_ptr);
         png_destroy_info_struct(png_ptr, info_ptr_ptr);
-        destroy_png_struct(png_ptr);
         *png_ptr_ptr = ptr::null_mut();
+        destroy_png_struct(png_ptr);
     })
 }
 
@@ -634,7 +647,7 @@ pub unsafe extern "C" fn png_destroy_write_struct(
     let png_ptr = *png_ptr_ptr;
     crate::abi_guard!(png_ptr, {
         png_destroy_info_struct(png_ptr, info_ptr_ptr);
-        destroy_png_struct(png_ptr);
         *png_ptr_ptr = ptr::null_mut();
+        destroy_png_struct(png_ptr);
     })
 }
