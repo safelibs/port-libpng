@@ -62,6 +62,73 @@ unsafe extern "C" fn internal_longjmp(jmp_buf_ptr: *mut JmpBuf, value: c_int) {
     crate::state::png_safe_longjmp_state_jump(jmp_buf_ptr.cast(), value)
 }
 
+#[repr(C)]
+struct CreatePngStructContext {
+    template: *mut PngStructState,
+    user_png_ver: png_const_charp,
+    result: png_structp,
+}
+
+unsafe extern "C" fn create_png_struct_attempt(context: png_voidp) -> c_int {
+    let context = &mut *context.cast::<CreatePngStructContext>();
+    let template = &mut *context.template;
+    let template_ptr = context.template.cast::<png_struct>();
+
+    if !matches_version(context.user_png_ver) {
+        let mut message = [0i8; 128];
+        let mut pos = 0usize;
+        pos = safecat(
+            message.as_mut_ptr(),
+            message.len(),
+            pos,
+            b"Application built with libpng-\0".as_ptr().cast(),
+        );
+        pos = safecat(
+            message.as_mut_ptr(),
+            message.len(),
+            pos,
+            context.user_png_ver,
+        );
+        pos = safecat(
+            message.as_mut_ptr(),
+            message.len(),
+            pos,
+            b" but running with \0".as_ptr().cast(),
+        );
+        let _ = safecat(
+            message.as_mut_ptr(),
+            message.len(),
+            pos,
+            PNG_LIBPNG_VER_STRING.as_ptr().cast(),
+        );
+        png_warning(template_ptr, message.as_ptr());
+        return 0;
+    }
+
+    let raw = malloc_base_with_template(template_ptr, mem::size_of::<PngStructState>())
+        .cast::<PngStructState>();
+    if raw.is_null() {
+        return 0;
+    }
+
+    let (longjmp_storage, longjmp_storage_size, _) = alloc_longjmp_storage();
+    if longjmp_storage.is_null() {
+        free_with_template(template_ptr, raw.cast());
+        return 0;
+    }
+
+    let mut state = *template;
+    state.longjmp_storage = longjmp_storage;
+    state.longjmp_storage_size = longjmp_storage_size;
+    state.jmp_buf_ptr = ptr::null_mut();
+    state.jmp_buf_size = 0;
+    state.longjmp_fn = None;
+
+    ptr::write(raw, state);
+    context.result = raw.cast::<png_struct>();
+    1
+}
+
 unsafe fn create_png_struct(
     user_png_ver: png_const_charp,
     error_ptr: png_voidp,
@@ -75,59 +142,38 @@ unsafe fn create_png_struct(
     let mut template = PngStructState::defaults(
         is_read, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
     );
-
-    if !matches_version(user_png_ver) {
-        let mut message = [0i8; 128];
-        let mut pos = 0usize;
-        pos = safecat(
-            message.as_mut_ptr(),
-            message.len(),
-            pos,
-            b"Application built with libpng-\0".as_ptr().cast(),
-        );
-        pos = safecat(message.as_mut_ptr(), message.len(), pos, user_png_ver);
-        pos = safecat(
-            message.as_mut_ptr(),
-            message.len(),
-            pos,
-            b" but running with \0".as_ptr().cast(),
-        );
-        let _ = safecat(
-            message.as_mut_ptr(),
-            message.len(),
-            pos,
-            PNG_LIBPNG_VER_STRING.as_ptr().cast(),
-        );
-        png_warning(
-            (&mut template as *mut PngStructState).cast(),
-            message.as_ptr(),
-        );
+    let (create_longjmp_storage, create_longjmp_storage_size, create_jmp_buf_ptr) =
+        alloc_longjmp_storage();
+    if create_longjmp_storage.is_null() {
         return ptr::null_mut();
     }
 
-    let raw = malloc_base_with_template(
-        (&mut template as *mut PngStructState).cast(),
-        mem::size_of::<PngStructState>(),
-    )
-    .cast::<PngStructState>();
-    if raw.is_null() {
+    template.longjmp_storage = create_longjmp_storage;
+    template.longjmp_storage_size = create_longjmp_storage_size;
+    template.jmp_buf_ptr = create_jmp_buf_ptr;
+    template.jmp_buf_size = 0;
+    template.longjmp_fn = Some(internal_longjmp);
+
+    let mut context = CreatePngStructContext {
+        template: &mut template,
+        user_png_ver,
+        result: ptr::null_mut(),
+    };
+
+    // Match libpng's temporary create-time setjmp so allocator and callback
+    // errors during construction unwind back to a NULL return.
+    if crate::state::png_safe_longjmp_state_invoke(
+        create_longjmp_storage,
+        Some(create_png_struct_attempt),
+        (&mut context as *mut CreatePngStructContext).cast(),
+    ) == 0
+    {
+        libc::free(create_longjmp_storage);
         return ptr::null_mut();
     }
 
-    let (longjmp_storage, longjmp_storage_size, _) = alloc_longjmp_storage();
-    if longjmp_storage.is_null() {
-        free_with_template((&mut template as *mut PngStructState).cast(), raw.cast());
-        return ptr::null_mut();
-    }
-
-    let mut state = template;
-    state.longjmp_storage = longjmp_storage;
-    state.longjmp_storage_size = longjmp_storage_size;
-    state.jmp_buf_ptr = ptr::null_mut();
-    state.jmp_buf_size = 0;
-
-    ptr::write(raw, state);
-    let png_ptr = raw.cast::<png_struct>();
+    libc::free(create_longjmp_storage);
+    let png_ptr = context.result;
     if is_read {
         initialize_default_read_io(png_ptr);
     } else {

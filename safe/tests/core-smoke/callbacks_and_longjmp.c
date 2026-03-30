@@ -13,10 +13,16 @@ static size_t free_calls = 0;
 static size_t error_calls = 0;
 static size_t warning_calls = 0;
 static png_voidp destroy_error_target = NULL;
+static int create_error_enabled = 0;
 static int destroy_error_enabled = 0;
 
 static void *tracked_malloc(png_structp png_ptr, png_alloc_size_t size) {
-    (void)png_ptr;
+    if (create_error_enabled) {
+        create_error_enabled = 0;
+        png_error(png_ptr, "create alloc error");
+        return NULL;
+    }
+
     ++malloc_calls;
     return malloc(size);
 }
@@ -105,6 +111,13 @@ static void user_transform(png_structp png_ptr, png_row_infop row_info,
 int main(void) {
     int error_cookie = 17;
     int mem_cookie = 23;
+    size_t errors_before = error_calls;
+
+    create_error_enabled = 1;
+    assert(png_create_read_struct_2(PNG_LIBPNG_VER_STRING, &error_cookie, noop_error,
+                                    noop_warning, &mem_cookie, tracked_malloc,
+                                    tracked_free) == NULL);
+    assert(error_calls == errors_before + 1);
 
     png_structp read_ptr = png_create_read_struct_2(
         PNG_LIBPNG_VER_STRING, &error_cookie, noop_error, noop_warning,
@@ -137,11 +150,12 @@ int main(void) {
     jmp_buf *jmp = png_set_longjmp_fn(read_ptr, longjmp, oversized_jmp_buf_size);
     assert(jmp != NULL);
     assert(png_set_longjmp_fn(read_ptr, longjmp, oversized_jmp_buf_size) == jmp);
+    errors_before = error_calls;
     if (setjmp(*jmp) == 0) {
         png_error(read_ptr, "expected jump");
         assert(!"png_error should longjmp");
     }
-    assert(error_calls == 1);
+    assert(error_calls == errors_before + 1);
 
     destroy_error_target = read_ptr;
     destroy_error_enabled = 1;
@@ -150,7 +164,7 @@ int main(void) {
         assert(!"png_destroy_read_struct should longjmp from free_fn");
     }
     assert(read_ptr == NULL);
-    assert(error_calls == 2);
+    assert(error_calls == errors_before + 2);
     destroy_error_target = NULL;
 
     png_structp write_ptr =

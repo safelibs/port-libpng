@@ -5,6 +5,8 @@ typedef struct png_safe_longjmp_state {
     jmp_buf env;
 } png_safe_longjmp_state;
 
+typedef int (*png_safe_longjmp_callback_fn)(void *context);
+
 size_t png_safe_longjmp_state_size(void) {
     return sizeof(png_safe_longjmp_state);
 }
@@ -12,6 +14,18 @@ size_t png_safe_longjmp_state_size(void) {
 int png_safe_longjmp_state_set(void *storage) {
     png_safe_longjmp_state *state = (png_safe_longjmp_state *)storage;
     return setjmp(state->env);
+}
+
+int png_safe_longjmp_state_invoke(void *storage,
+                                  png_safe_longjmp_callback_fn callback,
+                                  void *context) {
+    png_safe_longjmp_state *state = (png_safe_longjmp_state *)storage;
+
+    if (setjmp(state->env) != 0) {
+        return 0;
+    }
+
+    return callback(context);
 }
 
 void png_safe_longjmp_state_jump(void *storage, int value) {

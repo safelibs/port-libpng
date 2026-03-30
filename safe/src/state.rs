@@ -10,6 +10,11 @@ use core::ptr;
 unsafe extern "C" {
     pub fn png_safe_longjmp_state_size() -> usize;
     pub fn png_safe_longjmp_state_set(storage: *mut c_void) -> c_int;
+    pub fn png_safe_longjmp_state_invoke(
+        storage: *mut c_void,
+        callback: Option<unsafe extern "C" fn(*mut c_void) -> c_int>,
+        context: *mut c_void,
+    ) -> c_int;
     pub fn png_safe_longjmp_state_jump(storage: *mut c_void, value: c_int) -> !;
     pub fn png_safe_longjmp_state_buf(storage: *mut c_void) -> *mut c_void;
 }
