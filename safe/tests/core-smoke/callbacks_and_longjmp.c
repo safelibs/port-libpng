@@ -195,14 +195,24 @@ int main(void) {
 
     jmp_buf *write_jmp = png_set_longjmp_fn(write_ptr, longjmp, sizeof(jmp_buf));
     assert(write_jmp != NULL);
+    size_t warnings_before = warning_calls;
+    errors_before = error_calls;
     if (setjmp(*write_jmp) == 0) {
-        size_t warnings_before = warning_calls;
-        size_t errors_before = error_calls;
+        png_benign_error(write_ptr, "expected benign write error");
+        assert(!"png_benign_error on default write struct should longjmp");
+    }
+    assert(warning_calls == warnings_before);
+    assert(error_calls == errors_before + 1);
+
+    png_set_benign_errors(write_ptr, 1);
+    warnings_before = warning_calls;
+    errors_before = error_calls;
+    if (setjmp(*write_jmp) == 0) {
         png_benign_error(write_ptr, "expected benign warning");
         assert(warning_calls == warnings_before + 1);
         assert(error_calls == errors_before);
     } else {
-        assert(!"png_benign_error on write struct should warn, not longjmp");
+        assert(!"png_benign_error after png_set_benign_errors should warn");
     }
 
     png_destroy_write_struct(&write_ptr, NULL);

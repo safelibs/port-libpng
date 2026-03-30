@@ -100,9 +100,10 @@ impl PngStructState {
         state.user_chunk_malloc_max = PNG_USER_CHUNK_MALLOC_MAX;
         state.num_palette_max = 0;
         state.zbuffer_size = crate::common::PNG_ZBUF_SIZE;
-        state.flags |= PNG_FLAG_BENIGN_ERRORS_WARN | PNG_FLAG_APP_WARNINGS_WARN;
+        state.flags |= PNG_FLAG_APP_WARNINGS_WARN;
         if is_read {
             state.mode = PNG_IS_READ_STRUCT;
+            state.flags |= PNG_FLAG_BENIGN_ERRORS_WARN;
         }
         state
     }
