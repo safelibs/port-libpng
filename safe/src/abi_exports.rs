@@ -1,5 +1,6 @@
 use std::process;
 
+#[allow(dead_code)]
 #[cold]
 #[inline(never)]
 pub(crate) fn placeholder_abort(symbol: &str) -> ! {

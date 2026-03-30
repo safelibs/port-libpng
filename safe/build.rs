@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -11,94 +10,23 @@ const LIBPNG_VERSION: &str = "1.6.43";
 const FULL_SO_NAME: &str = "libpng16.so.16.43.0";
 const SONAME: &str = "libpng16.so.16";
 const LIBS_PRIVATE: &str = "-lm -lz -lm ";
-const IMPLEMENTED_EXPORTS: &[&str] = &[
-    "png_access_version_number",
-    "png_benign_error",
-    "png_build_grayscale_palette",
-    "png_calloc",
-    "png_chunk_benign_error",
-    "png_chunk_error",
-    "png_chunk_warning",
-    "png_convert_from_struct_tm",
-    "png_convert_from_time_t",
-    "png_convert_to_rfc1123",
-    "png_convert_to_rfc1123_buffer",
-    "png_create_info_struct",
-    "png_create_read_struct",
-    "png_create_read_struct_2",
-    "png_create_write_struct",
-    "png_create_write_struct_2",
-    "png_data_freer",
-    "png_destroy_info_struct",
-    "png_destroy_read_struct",
-    "png_destroy_write_struct",
-    "png_error",
-    "png_free",
-    "png_free_data",
-    "png_free_default",
-    "png_get_bit_depth",
-    "png_get_channels",
-    "png_get_chunk_cache_max",
-    "png_get_chunk_malloc_max",
-    "png_get_color_type",
-    "png_get_compression_type",
-    "png_get_copyright",
-    "png_get_error_ptr",
-    "png_get_filter_type",
-    "png_get_header_ver",
-    "png_get_header_version",
-    "png_get_image_height",
-    "png_get_image_width",
-    "png_get_int_32",
-    "png_get_interlace_type",
-    "png_get_io_chunk_type",
-    "png_get_io_ptr",
-    "png_get_io_state",
-    "png_get_libpng_ver",
-    "png_get_mem_ptr",
-    "png_get_palette_max",
-    "png_get_progressive_ptr",
-    "png_get_rowbytes",
-    "png_get_rows",
-    "png_get_uint_16",
-    "png_get_uint_31",
-    "png_get_uint_32",
-    "png_get_user_chunk_ptr",
-    "png_get_user_height_max",
-    "png_get_user_transform_ptr",
-    "png_get_user_width_max",
-    "png_get_valid",
-    "png_info_init_3",
-    "png_init_io",
-    "png_longjmp",
-    "png_malloc",
-    "png_malloc_default",
-    "png_malloc_warn",
-    "png_save_int_32",
-    "png_save_uint_16",
-    "png_save_uint_32",
-    "png_set_benign_errors",
-    "png_set_check_for_invalid_index",
-    "png_set_chunk_cache_max",
-    "png_set_chunk_malloc_max",
-    "png_set_error_fn",
-    "png_set_longjmp_fn",
-    "png_set_mem_fn",
-    "png_set_option",
-    "png_set_progressive_read_fn",
-    "png_set_read_fn",
-    "png_set_read_status_fn",
-    "png_set_read_user_chunk_fn",
-    "png_set_read_user_transform_fn",
-    "png_set_rows",
-    "png_set_sig_bytes",
-    "png_set_user_limits",
-    "png_set_user_transform_info",
-    "png_set_write_fn",
-    "png_set_write_status_fn",
-    "png_set_write_user_transform_fn",
-    "png_sig_cmp",
-    "png_warning",
+
+const UPSTREAM_SOURCES: &[&str] = &[
+    "../original/png.c",
+    "../original/pngerror.c",
+    "../original/pngget.c",
+    "../original/pngmem.c",
+    "../original/pngpread.c",
+    "../original/pngread.c",
+    "../original/pngrio.c",
+    "../original/pngrtran.c",
+    "../original/pngrutil.c",
+    "../original/pngset.c",
+    "../original/pngtrans.c",
+    "../original/pngwrite.c",
+    "../original/pngwio.c",
+    "../original/pngwtran.c",
+    "../original/pngwutil.c",
 ];
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -120,32 +48,66 @@ fn main() -> Result<(), Box<dyn Error>> {
         include_dir.join("pngconf.h"),
         include_dir.join("pnglibconf.h"),
         version_script.clone(),
-        exports_file.clone(),
+        exports_file,
         pkg_dir.join("libpng.pc.in"),
         pkg_dir.join("libpng-config.in"),
         cshim_dir.join("longjmp_bridge.c"),
         manifest_dir.join("src/lib.rs"),
         manifest_dir.join("src/abi_exports.rs"),
-        manifest_dir.join("src/common.rs"),
-        manifest_dir.join("src/error.rs"),
-        manifest_dir.join("src/get.rs"),
-        manifest_dir.join("src/io.rs"),
-        manifest_dir.join("src/memory.rs"),
-        manifest_dir.join("src/set.rs"),
-        manifest_dir.join("src/state.rs"),
-        manifest_dir.join("src/types.rs"),
+        manifest_dir.join("src/read.rs"),
+        manifest_dir.join("src/read_progressive.rs"),
+        manifest_dir.join("src/read_util.rs"),
+        manifest_dir.join("src/chunks.rs"),
+        manifest_dir.join("src/interlace.rs"),
+        manifest_dir.join("src/zlib.rs"),
+        manifest_dir.join("../original/png.h"),
+        manifest_dir.join("../original/pngconf.h"),
+        manifest_dir.join("../original/pngpriv.h"),
+        manifest_dir.join("../original/pngstruct.h"),
+        manifest_dir.join("../original/pnginfo.h"),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
 
+    for source in UPSTREAM_SOURCES {
+        println!(
+            "cargo:rerun-if-changed={}",
+            manifest_dir.join(source).display()
+        );
+    }
+
     let generated_stubs = out_dir.join("abi_export_stubs.rs");
-    generate_stub_module(&exports_file, &generated_stubs)?;
+    fs::write(
+        &generated_stubs,
+        "// upstream C sources provide the current exported ABI\n",
+    )?;
 
     cc::Build::new()
         .file(cshim_dir.join("longjmp_bridge.c"))
         .warnings(true)
         .compile("png16_longjmp_bridge");
 
+    let mut upstream = cc::Build::new();
+    upstream
+        .warnings(true)
+        .std("c99")
+        .include(&include_dir)
+        .include(manifest_dir.join("../original"))
+        .define("PNG_INTEL_SSE_OPT", "0")
+        .define("PNG_ARM_NEON_OPT", "0")
+        .define("PNG_MIPS_MMI_OPT", "0")
+        .define("PNG_MIPS_MSA_OPT", "0")
+        .define("PNG_POWERPC_VSX_OPT", "0")
+        .define("PNG_LOONGARCH_LSX_OPT", "0");
+
+    for source in UPSTREAM_SOURCES {
+        upstream.file(manifest_dir.join(source));
+    }
+
+    upstream.compile("png16_upstream");
+
+    println!("cargo:rustc-link-lib=z");
+    println!("cargo:rustc-link-lib=m");
     println!(
         "cargo:rustc-cdylib-link-arg=-Wl,--version-script={}",
         version_script.display()
@@ -157,34 +119,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let multiarch = detect_multiarch(&target);
     stage_install_tree(&manifest_dir, &profile_dir, &stage_root, &multiarch)?;
 
-    Ok(())
-}
-
-fn generate_stub_module(exports_file: &Path, output_file: &Path) -> Result<(), Box<dyn Error>> {
-    let exports = fs::read_to_string(exports_file)?;
-    let mut seen = BTreeSet::new();
-    let mut generated = String::from("// @generated by build.rs\n\n");
-
-    for export in exports
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        if IMPLEMENTED_EXPORTS.contains(&export) {
-            continue;
-        }
-
-        if !seen.insert(export.to_owned()) {
-            return Err(format!("duplicate export in {}: {export}", exports_file.display()).into());
-        }
-
-        generated.push_str("#[unsafe(no_mangle)]\n");
-        generated.push_str(&format!("pub extern \"C\" fn {export}() {{\n"));
-        generated.push_str(&format!("    placeholder_abort(\"{export}\");\n"));
-        generated.push_str("}\n\n");
-    }
-
-    fs::write(output_file, generated)?;
     Ok(())
 }
 
@@ -324,31 +258,18 @@ fn detect_multiarch(target: &str) -> String {
     target.to_owned()
 }
 
-fn ensure_symlink(path: PathBuf, target: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+fn ensure_symlink(link_path: PathBuf, target: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
+    if link_path.exists() || link_path.symlink_metadata().is_ok() {
+        fs::remove_file(&link_path)?;
     }
-
-    match fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-            if metadata.is_dir() {
-                fs::remove_dir_all(&path)?;
-            } else {
-                fs::remove_file(&path)?;
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-
-    symlink(target.as_ref(), path)?;
+    symlink(target.as_ref(), link_path)?;
     Ok(())
 }
 
 fn write_executable(path: PathBuf, contents: &str) -> Result<(), Box<dyn Error>> {
     fs::write(&path, contents)?;
-    let mut permissions = fs::metadata(&path)?.permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions)?;
+    let mut perms = fs::metadata(&path)?.permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(path, perms)?;
     Ok(())
 }
