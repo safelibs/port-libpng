@@ -54,6 +54,7 @@ pub struct PngStructState {
     pub user_chunk_ptr: png_voidp,
     pub read_user_chunk_fn: png_user_chunk_ptr,
     pub num_palette_max: c_int,
+    pub num_trans: png_uint_16,
     pub mem_ptr: png_voidp,
     pub malloc_fn: png_malloc_ptr,
     pub free_fn: png_free_ptr,

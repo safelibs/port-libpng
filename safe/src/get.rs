@@ -17,7 +17,7 @@ pub unsafe extern "C" fn png_get_valid(
             return 0;
         };
 
-        if flag == PNG_INFO_tRNS && state.num_palette_max == 0 && info.num_trans == 0 {
+        if flag == PNG_INFO_tRNS && state.num_trans == 0 {
             0
         } else {
             info.valid & flag

@@ -126,10 +126,10 @@ int main(void) {
                                 progressive_row, progressive_end);
     assert(png_get_progressive_ptr(read_ptr) == &progressive_cookie);
 
-    assert(png_set_longjmp_fn(read_ptr, longjmp, sizeof(jmp_buf) + 32u) == NULL);
-
-    jmp_buf *jmp = png_set_longjmp_fn(read_ptr, longjmp, sizeof(jmp_buf));
+    size_t oversized_jmp_buf_size = sizeof(jmp_buf) + 32u;
+    jmp_buf *jmp = png_set_longjmp_fn(read_ptr, longjmp, oversized_jmp_buf_size);
     assert(jmp != NULL);
+    assert(png_set_longjmp_fn(read_ptr, longjmp, oversized_jmp_buf_size) == jmp);
     if (setjmp(*jmp) == 0) {
         png_error(read_ptr, "expected jump");
         assert(!"png_error should longjmp");

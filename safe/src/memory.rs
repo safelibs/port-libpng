@@ -138,15 +138,26 @@ unsafe fn destroy_png_struct(png_ptr: png_structrp) {
     };
 
     let mut dummy = *state;
+    if dummy.jmp_buf_size > 0 && !dummy.jmp_buf_ptr.is_null() {
+        if !dummy.longjmp_storage.is_null() {
+            state.jmp_buf_ptr =
+                crate::state::png_safe_longjmp_state_buf(dummy.longjmp_storage).cast::<JmpBuf>();
+            state.jmp_buf_size = 0;
+        }
+
+        free_with_template(
+            (&mut dummy as *mut PngStructState).cast(),
+            dummy.jmp_buf_ptr.cast(),
+        );
+        dummy.jmp_buf_ptr = ptr::null_mut();
+        dummy.jmp_buf_size = 0;
+    }
+
+    free_with_template((&mut dummy as *mut PngStructState).cast(), png_ptr.cast());
+
     if !dummy.longjmp_storage.is_null() {
         libc::free(dummy.longjmp_storage);
     }
-
-    zero_bytes(
-        (state as *mut PngStructState).cast(),
-        mem::size_of::<PngStructState>(),
-    );
-    free_with_template((&mut dummy as *mut PngStructState).cast(), png_ptr.cast());
 }
 
 #[unsafe(no_mangle)]
@@ -482,6 +493,9 @@ pub unsafe extern "C" fn png_free_data(
             png_free(png_ptr, info.trans_alpha.cast());
             info.trans_alpha = ptr::null_mut();
             info.num_trans = 0;
+            if let Some(state) = png_ptr_state(png_ptr.cast_mut()) {
+                state.num_trans = 0;
+            }
         }
 
         if ((mask & PNG_FREE_SCAL) & info.free_me) != 0 {
@@ -595,16 +609,16 @@ pub unsafe extern "C" fn png_destroy_read_struct(
     info_ptr_ptr: png_infopp,
     end_info_ptr_ptr: png_infopp,
 ) {
-    crate::abi_guard_no_png!({
-        if png_ptr_ptr.is_null() || (*png_ptr_ptr).is_null() {
-            return;
-        }
+    if png_ptr_ptr.is_null() || (*png_ptr_ptr).is_null() {
+        return;
+    }
 
-        let png_ptr = *png_ptr_ptr;
+    let png_ptr = *png_ptr_ptr;
+    crate::abi_guard!(png_ptr, {
         png_destroy_info_struct(png_ptr, end_info_ptr_ptr);
         png_destroy_info_struct(png_ptr, info_ptr_ptr);
-        *png_ptr_ptr = ptr::null_mut();
         destroy_png_struct(png_ptr);
+        *png_ptr_ptr = ptr::null_mut();
     })
 }
 
@@ -613,14 +627,14 @@ pub unsafe extern "C" fn png_destroy_write_struct(
     png_ptr_ptr: png_structpp,
     info_ptr_ptr: png_infopp,
 ) {
-    crate::abi_guard_no_png!({
-        if png_ptr_ptr.is_null() || (*png_ptr_ptr).is_null() {
-            return;
-        }
+    if png_ptr_ptr.is_null() || (*png_ptr_ptr).is_null() {
+        return;
+    }
 
-        let png_ptr = *png_ptr_ptr;
+    let png_ptr = *png_ptr_ptr;
+    crate::abi_guard!(png_ptr, {
         png_destroy_info_struct(png_ptr, info_ptr_ptr);
-        *png_ptr_ptr = ptr::null_mut();
         destroy_png_struct(png_ptr);
+        *png_ptr_ptr = ptr::null_mut();
     })
 }

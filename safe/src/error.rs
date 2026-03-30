@@ -193,15 +193,23 @@ pub unsafe extern "C" fn png_set_longjmp_fn(
         let builtin_jmp_buf_size = state.longjmp_storage_size;
 
         if state.jmp_buf_ptr.is_null() {
-            if state.longjmp_storage.is_null()
-                || builtin_jmp_buf_size == 0
-                || jmp_buf_size > builtin_jmp_buf_size
-            {
+            if state.longjmp_storage.is_null() || builtin_jmp_buf_size == 0 {
                 return core::ptr::null_mut();
             }
-            state.jmp_buf_ptr =
-                crate::state::png_safe_longjmp_state_buf(state.longjmp_storage).cast::<JmpBuf>();
-            state.jmp_buf_size = 0;
+
+            if jmp_buf_size <= builtin_jmp_buf_size {
+                state.jmp_buf_ptr = crate::state::png_safe_longjmp_state_buf(state.longjmp_storage)
+                    .cast::<JmpBuf>();
+                state.jmp_buf_size = 0;
+            } else {
+                let allocated = crate::memory::png_malloc_warn(png_ptr, jmp_buf_size);
+                if allocated.is_null() {
+                    return core::ptr::null_mut();
+                }
+
+                state.jmp_buf_ptr = allocated.cast::<JmpBuf>();
+                state.jmp_buf_size = jmp_buf_size;
+            }
         } else {
             let allocated_size = if state.jmp_buf_size == 0 {
                 builtin_jmp_buf_size
