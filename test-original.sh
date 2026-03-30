@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 IMAGE_TAG="libpng-original-smoke:latest"
+BUILD_CONTEXT="$(mktemp -d)"
 
 required_dependents=(
   "GIMP"
@@ -21,7 +22,13 @@ required_dependents=(
   "pngquant"
 )
 
-for tool in docker jq; do
+cleanup() {
+  rm -rf "$BUILD_CONTEXT"
+}
+
+trap cleanup EXIT
+
+for tool in docker git jq; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     printf 'missing required host tool: %s\n' "$tool" >&2
     exit 1
@@ -38,13 +45,6 @@ if [[ ! -f original/pngtest.png ]]; then
   exit 1
 fi
 
-for pattern in libpng16-16t64_*.deb libpng-dev_*.deb libpng-tools_*.deb; do
-  if ! compgen -G "$pattern" >/dev/null; then
-    printf 'missing required package matching %s\n' "$pattern" >&2
-    exit 1
-  fi
-done
-
 expected_count="${#required_dependents[@]}"
 actual_count="$(jq -r '.dependents | length' dependents.json)"
 if [[ "$actual_count" != "$expected_count" ]]; then
@@ -56,18 +56,20 @@ for dependent in "${required_dependents[@]}"; do
   jq -e --arg name "$dependent" '.dependents[] | select(.name == $name)' dependents.json >/dev/null
 done
 
-docker build -t "$IMAGE_TAG" -f - . <<'DOCKERFILE'
+git ls-files -z -- original | tar --null -T - -cf - | tar -xf - -C "$BUILD_CONTEXT"
+
+docker build -t "$IMAGE_TAG" -f - "$BUILD_CONTEXT" <<'DOCKERFILE'
 FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
+      build-essential \
       ca-certificates \
       dbus-x11 \
       feh \
       file \
-      gcc \
       gimp \
       libcairo2-dev \
       libgdk-pixbuf-2.0-dev \
@@ -75,7 +77,6 @@ RUN apt-get update \
       libsdl2-image-dev \
       libwebkit2gtk-4.1-dev \
       libreoffice-draw \
-      make \
       netpbm \
       pkg-config \
       pngquant \
@@ -83,17 +84,21 @@ RUN apt-get update \
       r-base \
       r-cran-png \
       scribus \
+      xdotool \
       x11-utils \
       xsane \
       xvfb \
+      zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
-COPY libpng16-16t64_*.deb libpng-dev_*.deb libpng-tools_*.deb /tmp/local-libpng/
-
-RUN dpkg -i /tmp/local-libpng/*.deb \
- && rm -rf /tmp/local-libpng
-
+COPY original /src/libpng
 COPY original/pngtest.png /opt/fixtures/input.png
+
+RUN cd /src/libpng \
+ && ./configure --prefix=/usr/local \
+ && make -j"$(nproc)" \
+ && make install \
+ && ldconfig
 
 RUN useradd -m -s /bin/bash tester \
  && mkdir -p /home/tester/work \
@@ -105,6 +110,8 @@ DOCKERFILE
 
 docker run --rm -i "$IMAGE_TAG" bash <<'EOF'
 set -euo pipefail
+
+export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 log() {
   printf '==> %s\n' "$1"
@@ -325,17 +332,28 @@ pnmtopng "$(pwd)/netpbm/out.ppm" > "$(pwd)/netpbm/roundtrip.png"
 require_nonempty_file "$(pwd)/netpbm/roundtrip.png"
 
 log "XSane"
+rm -f "$(pwd)/xsane-out.png"
 timeout 150 xvfb-run -a bash -lc '
-  xsane -s -N "'"$(pwd)"'/xsane-out" test:0 >/tmp/xsane.log 2>&1 &
+  xsane -s -N "'"$(pwd)"'/xsane-out.png" test:0 >/tmp/xsane.log 2>&1 &
   pid=$!
-  sleep 20
-  xwininfo -root -tree > "'"$(pwd)"'/xsane-tree.txt"
+  for _ in $(seq 1 30); do
+    win="$(xdotool search --name "xsane 0.999 unknown:0" | head -n1 || true)"
+    if [[ -n "$win" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  [[ -n "${win:-}" ]]
+  xdotool key --window "$win" ctrl+Return >/dev/null 2>&1
+  for _ in $(seq 1 30); do
+    [[ -s "'"$(pwd)"'/xsane-out.png" ]] && break
+    sleep 1
+  done
   kill "$pid" || true
   wait "$pid" || true
 '
-grep -F '"xsane 0.999' "$(pwd)/xsane-tree.txt" >/dev/null
-grep -F '"Preview ' "$(pwd)/xsane-tree.txt" >/dev/null
-grep -F '"Standard options ' "$(pwd)/xsane-tree.txt" >/dev/null
+require_nonempty_file "$(pwd)/xsane-out.png"
+file "$(pwd)/xsane-out.png" | grep -F 'PNG image data' >/dev/null
 
 log "R png package"
 mkdir -p r-png
