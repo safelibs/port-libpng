@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-03-29",
+  "ubuntu_release": "24.04.3 LTS (noble)",
+  "metadata_source": "local apt-cache package and source metadata from the Ubuntu 24.04 repositories configured on this system",
+  "selection_policy": "Representative direct dependents on libpng runtime package (libpng16-16t64) and/or development package (libpng-dev). This list is intentionally diverse rather than exhaustive.",
+  "dependents": [
+    {
+      "name": "GIMP",
+      "source_package": "gimp",
+      "category": "graphics editor",
+      "package_dependencies": [
+        {
+          "package": "gimp",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        }
+      ],
+      "runtime_functionality": "Opening, editing, and exporting PNG images.",
+      "runtime_evidence_level": "inferred"
+    },
+    {
+      "name": "LibreOffice Draw",
+      "source_package": "libreoffice",
+      "category": "office drawing application",
+      "package_dependencies": [
+        {
+          "package": "libreoffice-draw",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        }
+      ],
+      "runtime_functionality": "Importing, rendering, and exporting PNG images inside drawings and related office documents.",
+      "runtime_evidence_level": "inferred"
+    },
+    {
+      "name": "Scribus",
+      "source_package": "scribus",
+      "category": "desktop publishing",
+      "package_dependencies": [
+        {
+          "package": "scribus",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        }
+      ],
+      "runtime_functionality": "Placing PNG images into page layouts for publishing output.",
+      "runtime_evidence_level": "explicit"
+    },
+    {
+      "name": "WebKitGTK",
+      "source_package": "webkit2gtk",
+      "category": "web content engine",
+      "package_dependencies": [
+        {
+          "package": "libwebkit2gtk-4.1-0",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        }
+      ],
+      "runtime_functionality": "Decoding and rendering PNG images referenced by web pages and other embedded web content.",
+      "runtime_evidence_level": "inferred"
+    },
+    {
+      "name": "GDK Pixbuf",
+      "source_package": "gdk-pixbuf",
+      "category": "image loading library",
+      "package_dependencies": [
+        {
+          "package": "libgdk-pixbuf-2.0-0",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        },
+        {
+          "package": "libgdk-pixbuf-2.0-dev",
+          "usage": "compile-time",
+          "libpng_dependency": "libpng-dev"
+        }
+      ],
+      "runtime_functionality": "Loading and saving PNG pixbufs for GTK and GNOME software.",
+      "runtime_evidence_level": "explicit"
+    },
+    {
+      "name": "Cairo",
+      "source_package": "cairo",
+      "category": "2D graphics library",
+      "package_dependencies": [
+        {
+          "package": "libcairo2",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        },
+        {
+          "package": "libcairo2-dev",
+          "usage": "compile-time",
+          "libpng_dependency": "libpng-dev"
+        }
+      ],
+      "runtime_functionality": "PNG-backed raster surfaces and PNG output support for software built on Cairo.",
+      "runtime_evidence_level": "inferred"
+    },
+    {
+      "name": "SDL2_image",
+      "source_package": "libsdl2-image",
+      "category": "game and multimedia image codec library",
+      "package_dependencies": [
+        {
+          "package": "libsdl2-image-2.0-0",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        },
+        {
+          "package": "libsdl2-image-dev",
+          "usage": "compile-time",
+          "libpng_dependency": "libpng-dev"
+        }
+      ],
+      "runtime_functionality": "Loading PNG images as SDL surfaces.",
+      "runtime_evidence_level": "explicit"
+    },
+    {
+      "name": "feh",
+      "source_package": "feh",
+      "category": "image viewer",
+      "package_dependencies": [
+        {
+          "package": "feh",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        }
+      ],
+      "runtime_functionality": "Displaying PNG images.",
+      "runtime_evidence_level": "inferred"
+    },
+    {
+      "name": "Netpbm",
+      "source_package": "netpbm-free",
+      "category": "image conversion toolkit",
+      "package_dependencies": [
+        {
+          "package": "netpbm",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        }
+      ],
+      "runtime_functionality": "Converting images to and from PNG, including via tools such as pnmtopng.",
+      "runtime_evidence_level": "explicit"
+    },
+    {
+      "name": "XSane",
+      "source_package": "xsane",
+      "category": "scanner frontend",
+      "package_dependencies": [
+        {
+          "package": "xsane",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        }
+      ],
+      "runtime_functionality": "Saving scanned images as PNG among the supported output formats.",
+      "runtime_evidence_level": "inferred"
+    },
+    {
+      "name": "R png package",
+      "source_package": "r-cran-png",
+      "category": "statistical computing extension",
+      "package_dependencies": [
+        {
+          "package": "r-cran-png",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        }
+      ],
+      "runtime_functionality": "Reading, writing, and displaying PNG images from R.",
+      "runtime_evidence_level": "explicit"
+    },
+    {
+      "name": "pngquant",
+      "source_package": "pngquant",
+      "category": "PNG optimization utility",
+      "package_dependencies": [
+        {
+          "package": "pngquant",
+          "usage": "runtime",
+          "libpng_dependency": "libpng16-16t64"
+        }
+      ],
+      "runtime_functionality": "Quantizing and recompressing PNG images into smaller palette-based PNGs.",
+      "runtime_evidence_level": "explicit"
+    }
+  ]
+}
