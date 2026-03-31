@@ -38,6 +38,7 @@ unsafe extern "C" {
         histogram: png_const_uint_16p,
         full_quantize: c_int,
     ) -> c_int;
+    fn upstream_png_read_row(png_ptr: png_structrp, row: png_bytep, display_row: png_bytep);
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -371,6 +372,38 @@ pub unsafe extern "C" fn png_read_row(
     display_row: png_bytep,
 ) {
     if png_ptr.is_null() {
+        return;
+    }
+
+    let core = unsafe { read_core(png_ptr) };
+    let handled_interlace = core.interlaced != 0 && (core.transformations & PNG_INTERLACE) != 0;
+
+    if handled_interlace {
+        unsafe {
+            upstream_png_read_row(png_ptr, row, display_row);
+        }
+
+        let rowbytes = if core.rowbytes != 0 {
+            core.rowbytes
+        } else {
+            core.info_rowbytes
+        };
+        let width = usize::try_from(core.width).unwrap_or(0);
+        let pixel_depth = infer_pixel_depth(core, width, rowbytes);
+
+        if width != 0 && pixel_depth != 0 && pixel_depth < 8 {
+            if !row.is_null() && rowbytes != 0 {
+                let row_slice = unsafe { std::slice::from_raw_parts_mut(row, rowbytes) };
+                mask_packed_row_padding_for_width(row_slice, width, pixel_depth);
+            }
+
+            if !display_row.is_null() && rowbytes != 0 {
+                let display_slice =
+                    unsafe { std::slice::from_raw_parts_mut(display_row, rowbytes) };
+                mask_packed_row_padding_for_width(display_slice, width, pixel_depth);
+            }
+        }
+
         return;
     }
 
