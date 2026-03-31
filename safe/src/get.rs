@@ -1,3 +1,4 @@
+use crate::chunks::read_core;
 use crate::state;
 use crate::types::*;
 
@@ -48,10 +49,6 @@ unsafe extern "C" {
     fn upstream_png_get_user_height_max(png_ptr: png_const_structrp) -> png_uint_32;
     fn upstream_png_get_chunk_cache_max(png_ptr: png_const_structrp) -> png_uint_32;
     fn upstream_png_get_chunk_malloc_max(png_ptr: png_const_structrp) -> png_alloc_size_t;
-    fn upstream_png_get_palette_max(
-        png_ptr: png_const_structp,
-        info_ptr: png_const_infop,
-    ) -> core::ffi::c_int;
 }
 
 #[unsafe(no_mangle)]
@@ -204,7 +201,11 @@ pub unsafe extern "C" fn png_get_palette_max(
     png_ptr: png_const_structp,
     info_ptr: png_const_infop,
 ) -> core::ffi::c_int {
-    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-        upstream_png_get_palette_max(png_ptr, info_ptr)
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        if png_ptr.is_null() || info_ptr.is_null() {
+            -1
+        } else {
+            read_core(png_ptr.cast()).num_palette_max
+        }
     })
 }

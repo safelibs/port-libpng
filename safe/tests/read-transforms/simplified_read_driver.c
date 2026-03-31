@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -216,6 +217,24 @@ static void run_stride_regression_case(const char *path) {
     free(bottom_up);
 }
 
+static void run_invalid_stride_case(const char *path) {
+    png_image image;
+    memset(&image, 0, sizeof image);
+    image.version = PNG_IMAGE_VERSION;
+
+    assert(png_image_begin_read_from_file(&image, path) != 0);
+    image.format = PNG_FORMAT_RGBA;
+
+    size_t size = PNG_IMAGE_SIZE(image);
+    png_bytep buffer = (png_bytep)malloc(size == 0 ? 1 : size);
+    assert(buffer != NULL);
+    assert(png_image_finish_read(&image, NULL, buffer, INT_MIN, NULL) == 0);
+    assert(strstr(image.message, "row_stride too large") != NULL);
+    assert(image.opaque == NULL);
+
+    free(buffer);
+}
+
 static void run_grayscale_output_case(const char *path) {
     png_image image;
     memset(&image, 0, sizeof image);
@@ -327,6 +346,7 @@ int main(int argc, char **argv) {
     run_message_semantics_case(argv[1]);
     run_image_free_case(argv[1]);
     run_stride_regression_case(argv[2]);
+    run_invalid_stride_case(argv[2]);
     run_linear_output_case(argv[2]);
     run_grayscale_output_case(argv[3]);
     run_colormap_output_case(argv[4]);

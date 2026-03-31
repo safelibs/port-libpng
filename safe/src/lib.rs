@@ -17,6 +17,7 @@ mod read_progressive;
 mod read_transform;
 mod read_util;
 mod set;
+mod simplified;
 mod state;
 mod types;
 mod write;

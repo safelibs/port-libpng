@@ -1,4 +1,5 @@
 use crate::chunks;
+use crate::chunks::{read_core, write_core};
 use crate::common::PNG_OPTION_INVALID;
 use crate::read_util::PNG_HANDLE_CHUNK_LAST;
 use crate::state;
@@ -22,10 +23,6 @@ unsafe extern "C" {
         user_chunk_malloc_max: png_alloc_size_t,
     );
     fn upstream_png_set_benign_errors(png_ptr: png_structrp, allowed: core::ffi::c_int);
-    fn upstream_png_set_check_for_invalid_index(
-        png_ptr: png_structrp,
-        allowed: core::ffi::c_int,
-    );
     fn upstream_png_set_option(
         png_ptr: png_structrp,
         option: core::ffi::c_int,
@@ -168,11 +165,13 @@ pub unsafe extern "C" fn png_set_check_for_invalid_index(
     png_ptr: png_structrp,
     allowed: core::ffi::c_int,
 ) {
-    crate::abi_guard!(png_ptr, unsafe {
-        upstream_png_set_check_for_invalid_index(png_ptr, allowed);
+    crate::abi_guard!(png_ptr, {
+        let mut core = read_core(png_ptr);
+        core.num_palette_max = if allowed > 0 { 0 } else { -1 };
+        write_core(png_ptr, &core);
         state::update_png(png_ptr, |state| {
             state.check_for_invalid_index = if allowed > 0 { 1 } else { 0 };
-            state.palette_max = if allowed > 0 { 0 } else { -1 };
+            state.palette_max = core.num_palette_max;
         });
     });
 }

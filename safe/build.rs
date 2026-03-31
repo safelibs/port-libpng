@@ -17,7 +17,6 @@ const UPSTREAM_SOURCES: &[&str] = &[
     "../original/pngget.c",
     "../original/pngmem.c",
     "../original/pngpread.c",
-    "../original/pngread.c",
     "../original/pngrio.c",
     "../original/pngrtran.c",
     "../original/pngrutil.c",
@@ -183,6 +182,34 @@ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
     ("png_set_cHRM_XYZ_fixed", "upstream_png_set_cHRM_XYZ_fixed"),
     ("png_get_cHRM_XYZ", "upstream_png_get_cHRM_XYZ"),
     ("png_get_cHRM_XYZ_fixed", "upstream_png_get_cHRM_XYZ_fixed"),
+    ("png_image_free", "upstream_png_image_free"),
+];
+
+const PNGREAD_DEFINITION_RENAMES: &[(&str, &str)] = &[
+    ("png_create_read_struct", "upstream_png_create_read_struct"),
+    ("png_create_read_struct_2", "upstream_png_create_read_struct_2"),
+    ("png_read_info", "upstream_png_read_info"),
+    ("png_read_update_info", "upstream_png_read_update_info"),
+    ("png_start_read_image", "upstream_png_start_read_image"),
+    ("png_read_row", "upstream_png_read_row"),
+    ("png_read_rows", "upstream_png_read_rows"),
+    ("png_read_image", "upstream_png_read_image"),
+    ("png_read_end", "upstream_png_read_end"),
+    ("png_destroy_read_struct", "upstream_png_destroy_read_struct"),
+    ("png_set_read_status_fn", "upstream_png_set_read_status_fn"),
+    (
+        "png_image_begin_read_from_file",
+        "upstream_png_image_begin_read_from_file",
+    ),
+    (
+        "png_image_begin_read_from_stdio",
+        "upstream_png_image_begin_read_from_stdio",
+    ),
+    (
+        "png_image_begin_read_from_memory",
+        "upstream_png_image_begin_read_from_memory",
+    ),
+    ("png_image_finish_read", "upstream_png_image_finish_read"),
 ];
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -236,6 +263,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         manifest_dir.join("../original/pngpriv.h"),
         manifest_dir.join("../original/pngstruct.h"),
         manifest_dir.join("../original/pnginfo.h"),
+        manifest_dir.join("../original/pngread.c"),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
@@ -269,6 +297,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .include(manifest_dir.join("../original"))
         .compile("png16_longjmp_bridge");
 
+    let adapted_pngread = out_dir.join("pngread_rust_entry_bridge.c");
+    generate_pngread_bridge_source(
+        &manifest_dir.join("../original/pngread.c"),
+        &adapted_pngread,
+    )?;
+
     let mut upstream = cc::Build::new();
     upstream
         .warnings(true)
@@ -292,6 +326,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     upstream.compile("png16_upstream");
+
+    cc::Build::new()
+        .file(&adapted_pngread)
+        .warnings(true)
+        .std("c99")
+        .include(&include_dir)
+        .include(manifest_dir.join("../original"))
+        .define("PNG_DISABLE_ADLER32_CHECK_SUPPORTED", "1")
+        .define("PNG_INTEL_SSE_OPT", "0")
+        .define("PNG_ARM_NEON_OPT", "0")
+        .define("PNG_MIPS_MMI_OPT", "0")
+        .define("PNG_MIPS_MSA_OPT", "0")
+        .define("PNG_POWERPC_VSX_OPT", "0")
+        .define("PNG_LOONGARCH_LSX_OPT", "0")
+        .compile("png16_pngread_bridge");
 
     println!("cargo:rustc-link-lib=z");
     println!("cargo:rustc-link-lib=m");
@@ -449,6 +498,70 @@ fn render_template(
     }
 
     Ok(rendered)
+}
+
+fn generate_pngread_bridge_source(
+    original_path: &Path,
+    output_path: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let mut source = fs::read_to_string(original_path)?;
+
+    for &(symbol, renamed) in PNGREAD_DEFINITION_RENAMES {
+        rename_pngread_definition(&mut source, symbol, renamed)?;
+    }
+
+    fs::write(output_path, source)?;
+    Ok(())
+}
+
+fn rename_pngread_definition(
+    source: &mut String,
+    symbol: &str,
+    renamed: &str,
+) -> Result<(), Box<dyn Error>> {
+    let line_start = format!("\n{symbol}(");
+    let line_start_replacement = format!("\n{renamed}(");
+    if replace_unique(source, &line_start, &line_start_replacement)? {
+        return Ok(());
+    }
+
+    let inline_pngapi = format!(" PNGAPI {symbol}(");
+    let inline_pngapi_replacement = format!(" PNGAPI {renamed}(");
+    if replace_unique(source, &inline_pngapi, &inline_pngapi_replacement)? {
+        return Ok(());
+    }
+
+    let macro_form = format!("\n{symbol},(");
+    let macro_form_replacement = format!("\n{renamed},(");
+    if replace_unique(source, &macro_form, &macro_form_replacement)? {
+        return Ok(());
+    }
+
+    Err(format!(
+        "failed to rewrite pngread.c definition for symbol {symbol}"
+    )
+    .into())
+}
+
+fn replace_unique(
+    source: &mut String,
+    needle: &str,
+    replacement: &str,
+) -> Result<bool, Box<dyn Error>> {
+    let matches = source.matches(needle).count();
+    if matches == 0 {
+        return Ok(false);
+    }
+
+    if matches != 1 {
+        return Err(format!(
+            "expected exactly one occurrence of {needle:?}, found {matches}"
+        )
+        .into());
+    }
+
+    *source = source.replacen(needle, replacement, 1);
+    Ok(true)
 }
 
 fn profile_dir_from_out_dir(out_dir: &Path, profile: &str) -> Result<PathBuf, Box<dyn Error>> {

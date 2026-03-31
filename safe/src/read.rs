@@ -240,6 +240,17 @@ pub(crate) unsafe fn free_parse_snapshot(snapshot: &ParseSnapshot) {
     }
 }
 
+fn sync_struct_colorspace_from_info(png_ptr: png_structrp, info_ptr: png_inforp) {
+    if png_ptr.is_null() || info_ptr.is_null() {
+        return;
+    }
+
+    let info = read_info_core(info_ptr);
+    let mut core = read_core(png_ptr);
+    core.colorspace = info.colorspace;
+    write_core(png_ptr, &core);
+}
+
 pub(crate) unsafe fn rollback_parse_state(
     png_ptr: png_structrp,
     info_ptr: png_inforp,
@@ -698,6 +709,7 @@ unsafe fn parse_chrm_chunk(
     {
         unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
     }
+    sync_struct_colorspace_from_info(png_ptr, info_ptr);
 }
 
 unsafe fn parse_gama_chunk(
@@ -714,6 +726,7 @@ unsafe fn parse_gama_chunk(
     if unsafe { png_safe_set_gAMA_fixed(png_ptr, info_ptr, read_be_i32(data)) } == 0 {
         unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
     }
+    sync_struct_colorspace_from_info(png_ptr, info_ptr);
 }
 
 unsafe fn parse_srgb_chunk(
@@ -730,6 +743,7 @@ unsafe fn parse_srgb_chunk(
     if unsafe { png_safe_set_sRGB(png_ptr, info_ptr, i32::from(data[0])) } == 0 {
         unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
     }
+    sync_struct_colorspace_from_info(png_ptr, info_ptr);
 }
 
 unsafe fn parse_sbit_chunk(
@@ -1147,6 +1161,8 @@ unsafe fn parse_iccp_chunk(
     {
         unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
     }
+
+    sync_struct_colorspace_from_info(png_ptr, info_ptr);
 }
 
 unsafe fn parse_hist_chunk(
@@ -1523,6 +1539,9 @@ unsafe fn read_info_loop(
             unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, &snapshot, name, length) }
         {
             unsafe { parse_known_chunk(png_ptr, info_ptr, &snapshot, name, &data) };
+            if !info_ptr.is_null() {
+                unsafe { png_safe_sync_png_info_aliases(png_ptr, info_ptr) };
+            }
         }
 
         if chunk_name == PNG_IEND {
@@ -1561,6 +1580,13 @@ unsafe fn read_end_loop(
     if core.color_type == 3 && core.num_palette_max >= i32::from(info.num_palette) {
         let _ = unsafe { call_benign_error(png_ptr, b"Read palette index exceeding num_palette\0") };
     }
+    state::update_png(png_ptr, |png_state| {
+        if png_state.check_for_invalid_index > 0 {
+            png_state.palette_max = core.num_palette_max;
+        } else {
+            png_state.palette_max = -1;
+        }
+    });
 
     loop {
         let snapshot = unsafe { snapshot_parse_state(png_ptr, info_ptr) };
@@ -1601,6 +1627,9 @@ unsafe fn read_end_loop(
             unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, &snapshot, name, length) }
         {
             unsafe { parse_known_chunk(png_ptr, info_ptr, &snapshot, name, &data) };
+            if !info_ptr.is_null() {
+                unsafe { png_safe_sync_png_info_aliases(png_ptr, info_ptr) };
+            }
         }
 
         if chunk_name == PNG_IEND {
