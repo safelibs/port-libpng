@@ -1,5 +1,6 @@
 #include <setjmp.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 #include "pngpriv.h"
 
@@ -7,8 +8,120 @@ extern void upstream_png_set_quantize(png_structrp png_ptr, png_colorp palette,
                                       int num_palette, int maximum_colors,
                                       png_const_uint_16p histogram,
                                       int full_quantize);
+extern void upstream_png_longjmp(png_const_structrp png_ptr, int val);
 extern void upstream_png_read_row(png_structrp png_ptr, png_bytep row,
                                   png_bytep display_row);
+extern int png_safe_rust_read_info(png_structrp png_ptr, png_inforp info_ptr);
+extern int png_safe_rust_read_update_info(png_structrp png_ptr,
+                                          png_inforp info_ptr);
+extern int png_safe_rust_start_read_image(png_structrp png_ptr);
+extern int png_safe_rust_read_row(png_structrp png_ptr, png_bytep row,
+                                  png_bytep display_row);
+extern int png_safe_rust_read_rows(png_structrp png_ptr, png_bytepp row,
+                                   png_bytepp display_row,
+                                   png_uint_32 num_rows);
+extern int png_safe_rust_read_image(png_structrp png_ptr, png_bytepp image);
+extern int png_safe_rust_read_end(png_structrp png_ptr, png_inforp info_ptr);
+extern void upstream_png_process_data(png_structrp png_ptr, png_inforp info_ptr,
+                                      png_bytep buffer, size_t buffer_size);
+extern int png_safe_rust_progressive_buffer_read(png_structp png_ptr,
+                                                 png_bytep out, size_t length);
+
+static void png_safe_rethrow_to_application(png_structrp png_ptr) {
+    if (png_ptr != NULL) {
+        upstream_png_longjmp(png_ptr, 1);
+    }
+
+    abort();
+}
+
+void PNGAPI png_read_info(png_structrp png_ptr, png_inforp info_ptr) {
+    if (png_ptr == NULL || info_ptr == NULL) {
+        return;
+    }
+
+    if (png_safe_rust_read_info(png_ptr, info_ptr) == 0) {
+        png_safe_rethrow_to_application(png_ptr);
+    }
+}
+
+void PNGAPI png_read_update_info(png_structrp png_ptr, png_inforp info_ptr) {
+    if (png_ptr == NULL) {
+        return;
+    }
+
+    if (png_safe_rust_read_update_info(png_ptr, info_ptr) == 0) {
+        png_safe_rethrow_to_application(png_ptr);
+    }
+}
+
+void PNGAPI png_start_read_image(png_structrp png_ptr) {
+    if (png_ptr == NULL) {
+        return;
+    }
+
+    if (png_safe_rust_start_read_image(png_ptr) == 0) {
+        png_safe_rethrow_to_application(png_ptr);
+    }
+}
+
+void PNGAPI png_read_row(png_structrp png_ptr, png_bytep row,
+                         png_bytep display_row) {
+    if (png_ptr == NULL) {
+        return;
+    }
+
+    if (png_safe_rust_read_row(png_ptr, row, display_row) == 0) {
+        png_safe_rethrow_to_application(png_ptr);
+    }
+}
+
+void PNGAPI png_read_rows(png_structrp png_ptr, png_bytepp row,
+                          png_bytepp display_row, png_uint_32 num_rows) {
+    if (png_ptr == NULL) {
+        return;
+    }
+
+    if (png_safe_rust_read_rows(png_ptr, row, display_row, num_rows) == 0) {
+        png_safe_rethrow_to_application(png_ptr);
+    }
+}
+
+void PNGAPI png_read_image(png_structrp png_ptr, png_bytepp image) {
+    if (png_ptr == NULL || image == NULL) {
+        return;
+    }
+
+    if (png_safe_rust_read_image(png_ptr, image) == 0) {
+        png_safe_rethrow_to_application(png_ptr);
+    }
+}
+
+void PNGAPI png_read_end(png_structrp png_ptr, png_inforp info_ptr) {
+    if (png_ptr == NULL) {
+        return;
+    }
+
+    if (png_safe_rust_read_end(png_ptr, info_ptr) == 0) {
+        png_safe_rethrow_to_application(png_ptr);
+    }
+}
+
+void PNGAPI png_process_data(png_structrp png_ptr, png_inforp info_ptr,
+                             png_bytep buffer, size_t buffer_size) {
+    if (png_ptr == NULL || info_ptr == NULL) {
+        return;
+    }
+
+    upstream_png_process_data(png_ptr, info_ptr, buffer, buffer_size);
+}
+
+void png_safe_progressive_buffer_read_bridge(png_structp png_ptr, png_bytep out,
+                                             size_t length) {
+    if (png_safe_rust_progressive_buffer_read(png_ptr, out, length) == 0) {
+        png_safe_rethrow_to_application(png_ptr);
+    }
+}
 
 size_t png_safe_longjmp_state_size(void) {
     return sizeof(jmp_buf);
@@ -57,13 +170,43 @@ void png_safe_longjmp_call(png_const_structrp png_ptr, int val) {
     png_ptr->longjmp_fn(*png_ptr->jmp_buf_ptr, val);
 }
 
-int png_safe_call_read_data(png_structrp png_ptr, png_bytep buffer, size_t size) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
+typedef struct png_safe_saved_longjmp {
+    png_longjmp_ptr longjmp_fn;
+    jmp_buf *jmp_buf_ptr;
+    size_t jmp_buf_size;
+} png_safe_saved_longjmp;
+
+static void png_safe_save_longjmp(png_structrp png_ptr,
+                                  png_safe_saved_longjmp *saved) {
+    saved->longjmp_fn = png_ptr->longjmp_fn;
+    saved->jmp_buf_ptr = png_ptr->jmp_buf_ptr;
+    saved->jmp_buf_size = png_ptr->jmp_buf_size;
+}
+
+static void png_safe_restore_longjmp(png_structrp png_ptr,
+                                     const png_safe_saved_longjmp *saved) {
+    png_safe_longjmp_set_fields(png_ptr, saved->longjmp_fn, saved->jmp_buf_ptr,
+                                saved->jmp_buf_size);
+}
+
+#define PNG_SAFE_SETJMP_BEGIN(png_ptr) \
+    png_safe_saved_longjmp saved_longjmp; \
+    jmp_buf local_jmp_buf; \
+    png_safe_save_longjmp((png_ptr), &saved_longjmp); \
+    png_safe_longjmp_set_fields((png_ptr), longjmp, &local_jmp_buf, 0); \
+    if (setjmp(local_jmp_buf) != 0) { \
+        png_safe_restore_longjmp((png_ptr), &saved_longjmp); \
+        return 0; \
     }
 
-    png_read_data(png_ptr, buffer, size);
+#define PNG_SAFE_SETJMP_END(png_ptr) \
+    png_safe_restore_longjmp((png_ptr), &saved_longjmp); \
     return 1;
+
+int png_safe_call_read_data(png_structrp png_ptr, png_bytep buffer, size_t size) {
+    PNG_SAFE_SETJMP_BEGIN(png_ptr)
+    png_read_data(png_ptr, buffer, size);
+    PNG_SAFE_SETJMP_END(png_ptr)
 }
 
 int png_safe_prepare_idat(png_structrp png_ptr, png_uint_32 length) {
@@ -84,12 +227,9 @@ int png_safe_prepare_idat(png_structrp png_ptr, png_uint_32 length) {
 }
 
 int png_safe_complete_idat(png_structrp png_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
+    PNG_SAFE_SETJMP_BEGIN(png_ptr)
     png_read_finish_IDAT(png_ptr);
-    return 1;
+    PNG_SAFE_SETJMP_END(png_ptr)
 }
 
 void png_safe_resume_finish_idat(png_structrp png_ptr) {
@@ -103,39 +243,28 @@ void png_safe_resume_finish_idat(png_structrp png_ptr) {
 }
 
 int png_safe_call_read_row(png_structrp png_ptr, png_bytep row, png_bytep display_row) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
+    PNG_SAFE_SETJMP_BEGIN(png_ptr)
     upstream_png_read_row(png_ptr, row, display_row);
-    return 1;
+    PNG_SAFE_SETJMP_END(png_ptr)
 }
 
 int png_safe_call_read_start_row(png_structrp png_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
+    PNG_SAFE_SETJMP_BEGIN(png_ptr)
     png_read_start_row(png_ptr);
-    return 1;
+    PNG_SAFE_SETJMP_END(png_ptr)
 }
 
 int png_safe_call_read_transform_info(png_structrp png_ptr, png_inforp info_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
+    PNG_SAFE_SETJMP_BEGIN(png_ptr)
     png_read_transform_info(png_ptr, info_ptr);
-    return 1;
+    PNG_SAFE_SETJMP_END(png_ptr)
 }
 
 #define PNG_SAFE_WRAP_SETTER(fn, args, call) \
 int fn args { \
-    if (setjmp(png_jmpbuf((png_structrp)png_ptr)) != 0) { \
-        return 0; \
-    } \
+    PNG_SAFE_SETJMP_BEGIN((png_structrp)png_ptr) \
     call; \
-    return 1; \
+    PNG_SAFE_SETJMP_END((png_structrp)png_ptr) \
 }
 
 PNG_SAFE_WRAP_SETTER(
@@ -266,29 +395,21 @@ int png_safe_call_warning(png_structrp png_ptr, png_const_charp message) {
 }
 
 int png_safe_call_benign_error(png_structrp png_ptr, png_const_charp message) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
+    PNG_SAFE_SETJMP_BEGIN(png_ptr)
     png_benign_error(png_ptr, message);
-    return 1;
+    PNG_SAFE_SETJMP_END(png_ptr)
 }
 
 int png_safe_call_app_error(png_structrp png_ptr, png_const_charp message) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
+    PNG_SAFE_SETJMP_BEGIN(png_ptr)
     png_app_error(png_ptr, message);
-    return 1;
+    PNG_SAFE_SETJMP_END(png_ptr)
 }
 
 int png_safe_call_error(png_structrp png_ptr, png_const_charp message) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
+    PNG_SAFE_SETJMP_BEGIN(png_ptr)
     png_error(png_ptr, message);
+    png_safe_restore_longjmp(png_ptr, &saved_longjmp);
     return 0;
 }
 
@@ -296,11 +417,11 @@ int png_safe_call_set_quantize(png_structrp png_ptr, png_colorp palette,
                                int num_palette, int maximum_colors,
                                png_const_uint_16p histogram,
                                int full_quantize) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
+    PNG_SAFE_SETJMP_BEGIN(png_ptr)
     upstream_png_set_quantize(png_ptr, palette, num_palette, maximum_colors,
                               histogram, full_quantize);
-    return 1;
+    PNG_SAFE_SETJMP_END(png_ptr)
 }
+
+#undef PNG_SAFE_SETJMP_BEGIN
+#undef PNG_SAFE_SETJMP_END

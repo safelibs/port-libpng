@@ -795,4 +795,6 @@ void png_safe_sync_png_info_aliases(png_structrp png_ptr, png_const_inforp info_
     png_ptr->num_palette = info_ptr->num_palette;
     png_ptr->trans_alpha = info_ptr->trans_alpha;
     png_ptr->num_trans = info_ptr->num_trans;
+    png_ptr->trans_color = info_ptr->trans_color;
+    png_ptr->sig_bit = info_ptr->sig_bit;
 }

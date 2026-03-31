@@ -136,10 +136,21 @@ that still need `setjmp` containment during the read-core transition:
 - the public `png_jmpbuf` macro in the shipped headers now lands on the
   Rust-owned `png_set_longjmp_fn`, but still receives a real `jmp_buf *`
   compatible with application `setjmp`
+- public `png_read_info`, `png_read_update_info`, `png_start_read_image`,
+  `png_read_row`, `png_read_rows`, `png_read_image`, and `png_read_end` now
+  stop at this C shim first; the shim calls the Rust-owned read core helpers,
+  then performs the ABI-visible `longjmp` itself if the Rust side reports a
+  fatal read failure
+- progressive `png_process_data`, `png_process_data_pause`, and
+  `png_process_data_skip` delegate back to the upstream push reader in this
+  phase so the public suspend or resume ABI continues to use the proven native
+  buffer and zlib state machine
 - the remaining containment-only shims for upstream `png_set_*`,
   `png_read_start_row`, `png_read_transform_info`, `png_read_row`,
-  `png_read_finish_IDAT`, and error-reporting helpers also live here so Rust
-  never crosses an uncontrolled libpng longjmp
+  `png_read_finish_IDAT`, the dormant progressive buffer callback, and
+  error-reporting helpers also live here; each temporary `setjmp` now
+  snapshots and restores the caller's registered `jmp_buf` before returning so
+  Rust never rethrows to a stale stack frame
 
 `safe/cshim/read_phase_bridge.c` now only handles private-layout mirror helpers
 and rollback snapshots for read-side `png_info` state. Rust-owned rollback

@@ -15,8 +15,9 @@ use crate::read_util::{
 use crate::state;
 use crate::types::*;
 use crate::zlib;
-use core::ffi::c_void;
+use core::ffi::{c_int, c_void};
 use core::ptr;
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 
 const PNG_INTERLACE_TRANSFORM: png_uint_32 = 0x0002;
 const PNG_HAVE_IHDR: png_uint_32 = 0x01;
@@ -206,7 +207,27 @@ pub(crate) struct ParseSnapshot {
 }
 
 #[derive(Debug)]
+pub(crate) struct ReadLongjmp;
+
+#[derive(Debug)]
 pub(crate) struct ProgressiveSuspend;
+
+pub(crate) fn raise_read_longjmp() -> ! {
+    resume_unwind(Box::new(ReadLongjmp));
+}
+
+pub(crate) fn catch_read_status(body: impl FnOnce()) -> c_int {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(()) => 1,
+        Err(payload) => {
+            if payload.is::<ReadLongjmp>() {
+                return 0;
+            }
+
+            std::process::abort();
+        }
+    }
+}
 
 pub(crate) unsafe fn snapshot_parse_state(
     png_ptr: png_structrp,
@@ -219,7 +240,7 @@ pub(crate) unsafe fn snapshot_parse_state(
     };
     if !info_ptr.is_null() && native.is_null() {
         let _ = unsafe { call_error(png_ptr, b"insufficient memory for parse snapshot\0") };
-        unsafe { crate::error::png_longjmp(png_ptr, 1) }
+        raise_read_longjmp();
     }
 
     ParseSnapshot {
@@ -280,7 +301,7 @@ unsafe fn rollback_and_rethrow(
 ) -> ! {
     unsafe { rollback_parse_state(png_ptr, info_ptr, snapshot) };
     unsafe { free_parse_snapshot(snapshot) };
-    crate::error::png_longjmp(png_ptr, 1)
+    raise_read_longjmp()
 }
 
 unsafe fn error_and_rethrow(
@@ -1661,21 +1682,25 @@ pub(crate) unsafe fn read_end_impl(png_ptr: png_structrp, info_ptr: png_inforp) 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_read_info(png_ptr: png_structrp, info_ptr: png_inforp) {
-    crate::abi_guard!(png_ptr, unsafe {
-        read_info_impl(png_ptr, info_ptr);
-    });
+pub unsafe extern "C" fn png_safe_rust_read_info(
+    png_ptr: png_structrp,
+    info_ptr: png_inforp,
+) -> c_int {
+    if png_ptr.is_null() {
+        return 1;
+    }
+
+    catch_read_status(|| unsafe { read_info_impl(png_ptr, info_ptr) })
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_read_update_info(png_ptr: png_structrp, info_ptr: png_inforp) {
-    crate::abi_guard!(png_ptr, unsafe {
+pub(crate) unsafe fn read_update_info_impl(png_ptr: png_structrp, info_ptr: png_inforp) {
+    unsafe {
         if (read_core(png_ptr).flags & PNG_FLAG_ROW_INIT) == 0 {
             if png_safe_call_read_start_row(png_ptr) == 0 {
-                crate::error::png_longjmp(png_ptr, 1);
+                raise_read_longjmp();
             }
             if png_safe_call_read_transform_info(png_ptr, info_ptr) == 0 {
-                crate::error::png_longjmp(png_ptr, 1);
+                raise_read_longjmp();
             }
         } else {
             let _ = call_app_error(
@@ -1686,15 +1711,26 @@ pub unsafe extern "C" fn png_read_update_info(png_ptr: png_structrp, info_ptr: p
 
         let core = read_core(png_ptr);
         set_read_phase(png_ptr, update_phase_from_row_state(png_ptr, &core));
-    });
+    }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_start_read_image(png_ptr: png_structrp) {
-    crate::abi_guard!(png_ptr, unsafe {
+pub unsafe extern "C" fn png_safe_rust_read_update_info(
+    png_ptr: png_structrp,
+    info_ptr: png_inforp,
+) -> c_int {
+    if png_ptr.is_null() {
+        return 1;
+    }
+
+    catch_read_status(|| unsafe { read_update_info_impl(png_ptr, info_ptr) })
+}
+
+pub(crate) unsafe fn start_read_image_impl(png_ptr: png_structrp) {
+    unsafe {
         if (read_core(png_ptr).flags & PNG_FLAG_ROW_INIT) == 0 {
             if png_safe_call_read_start_row(png_ptr) == 0 {
-                crate::error::png_longjmp(png_ptr, 1);
+                raise_read_longjmp();
             }
         } else {
             let _ = call_app_error(
@@ -1705,39 +1741,55 @@ pub unsafe extern "C" fn png_start_read_image(png_ptr: png_structrp) {
 
         let core = read_core(png_ptr);
         set_read_phase(png_ptr, update_phase_from_row_state(png_ptr, &core));
-    });
+    }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_read_row(
+pub unsafe extern "C" fn png_safe_rust_start_read_image(png_ptr: png_structrp) -> c_int {
+    if png_ptr.is_null() {
+        return 1;
+    }
+
+    catch_read_status(|| unsafe { start_read_image_impl(png_ptr) })
+}
+
+pub(crate) unsafe fn read_row_impl(
     png_ptr: png_structrp,
     row: png_bytep,
     display_row: png_bytep,
 ) {
-    crate::abi_guard!(png_ptr, unsafe {
+    unsafe {
         if png_safe_call_read_row(png_ptr, row, display_row) == 0 {
-            crate::error::png_longjmp(png_ptr, 1);
+            raise_read_longjmp();
         }
         if !(row.is_null() && display_row.is_null()) {
             interlace::sanitize_row_padding(png_ptr, row, display_row);
         }
         let core = read_core(png_ptr);
         set_read_phase(png_ptr, update_phase_from_row_state(png_ptr, &core));
-    });
+    }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_read_rows(
+pub unsafe extern "C" fn png_safe_rust_read_row(
+    png_ptr: png_structrp,
+    row: png_bytep,
+    display_row: png_bytep,
+) -> c_int {
+    if png_ptr.is_null() {
+        return 1;
+    }
+
+    catch_read_status(|| unsafe { read_row_impl(png_ptr, row, display_row) })
+}
+
+pub(crate) unsafe fn read_rows_impl(
     png_ptr: png_structrp,
     row: png_bytepp,
     display_row: png_bytepp,
     num_rows: png_uint_32,
 ) {
-    crate::abi_guard!(png_ptr, unsafe {
-        if png_ptr.is_null() {
-            return;
-        }
-
+    unsafe {
         let mut rp = row;
         let mut dp = display_row;
         for _ in 0..num_rows {
@@ -1755,22 +1807,31 @@ pub unsafe extern "C" fn png_read_rows(
                 dp = dp.add(1);
                 value
             };
-            png_read_row(png_ptr, rptr, dptr);
+            read_row_impl(png_ptr, rptr, dptr);
         }
-    });
+    }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_read_image(png_ptr: png_structrp, image: png_bytepp) {
-    crate::abi_guard!(png_ptr, unsafe {
-        if png_ptr.is_null() || image.is_null() {
-            return;
-        }
+pub unsafe extern "C" fn png_safe_rust_read_rows(
+    png_ptr: png_structrp,
+    row: png_bytepp,
+    display_row: png_bytepp,
+    num_rows: png_uint_32,
+) -> c_int {
+    if png_ptr.is_null() {
+        return 1;
+    }
 
+    catch_read_status(|| unsafe { read_rows_impl(png_ptr, row, display_row, num_rows) })
+}
+
+pub(crate) unsafe fn read_image_impl(png_ptr: png_structrp, image: png_bytepp) {
+    unsafe {
         let mut core = read_core(png_ptr);
         let passes = if (core.flags & crate::common::PNG_FLAG_ROW_INIT) == 0 {
             let passes = crate::interlace::png_set_interlace_handling(png_ptr);
-            png_start_read_image(png_ptr);
+            start_read_image_impl(png_ptr);
             passes
         } else {
             if core.interlaced != 0 && (core.transformations & PNG_INTERLACE_TRANSFORM) == 0 {
@@ -1789,16 +1850,33 @@ pub unsafe extern "C" fn png_read_image(png_ptr: png_structrp, image: png_bytepp
         for _pass in 0..passes {
             let mut rows = image;
             for _ in 0..image_height {
-                png_read_row(png_ptr, *rows, ptr::null_mut());
+                read_row_impl(png_ptr, *rows, ptr::null_mut());
                 rows = rows.add(1);
             }
         }
-    });
+    }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_read_end(png_ptr: png_structrp, info_ptr: png_inforp) {
-    crate::abi_guard!(png_ptr, unsafe {
-        read_end_impl(png_ptr, info_ptr);
-    });
+pub unsafe extern "C" fn png_safe_rust_read_image(
+    png_ptr: png_structrp,
+    image: png_bytepp,
+) -> c_int {
+    if png_ptr.is_null() || image.is_null() {
+        return 1;
+    }
+
+    catch_read_status(|| unsafe { read_image_impl(png_ptr, image) })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_safe_rust_read_end(
+    png_ptr: png_structrp,
+    info_ptr: png_inforp,
+) -> c_int {
+    if png_ptr.is_null() {
+        return 1;
+    }
+
+    catch_read_status(|| unsafe { read_end_impl(png_ptr, info_ptr) })
 }

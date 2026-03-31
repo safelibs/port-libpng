@@ -1,4 +1,4 @@
-use crate::chunks::{call_warning, read_core, read_info_core};
+use crate::chunks::{read_core, read_info_core};
 use crate::common::PNG_FLAG_ROW_INIT;
 use crate::state;
 use crate::types::*;
@@ -7,6 +7,8 @@ use core::ptr;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 
 unsafe extern "C" {
+    fn upstream_png_process_data_pause(png_ptr: png_structrp, save: c_int) -> usize;
+    fn upstream_png_process_data_skip(png_ptr: png_structrp) -> png_uint_32;
     fn upstream_png_set_read_fn(
         png_ptr: png_structrp,
         io_ptr: png_voidp,
@@ -18,13 +20,23 @@ unsafe extern "C" {
         display_row: png_bytep,
     ) -> c_int;
     fn png_safe_resume_finish_idat(png_ptr: png_structrp);
+    fn png_safe_progressive_buffer_read_bridge(
+        png_ptr: png_structp,
+        out: png_bytep,
+        length: usize,
+    );
 }
 
-unsafe extern "C" fn png_safe_progressive_buffer_read(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_safe_rust_progressive_buffer_read(
     png_ptr: png_structp,
     out: png_bytep,
     length: usize,
-) {
+) -> c_int {
+    if png_ptr.is_null() {
+        return 0;
+    }
+
     let mut short_read = false;
 
     state::update_png(png_ptr, |png_state| {
@@ -47,8 +59,10 @@ unsafe extern "C" fn png_safe_progressive_buffer_read(
     });
 
     if short_read {
-        unsafe { crate::error::png_longjmp(png_ptr, 1) };
+        return 0;
     }
+
+    1
 }
 
 fn unread_bytes_from_last_call(progressive: &crate::read_util::ProgressiveReadState) -> usize {
@@ -261,9 +275,6 @@ unsafe fn read_row_or_suspend(
         if row_completed {
             unsafe { png_safe_resume_finish_idat(png_ptr) };
         }
-        if core_before.idat_size == 0 && core_after.idat_size == 0 && !row_completed {
-            unsafe { crate::read::rollback_parse_state(png_ptr, ptr::null_mut(), &snapshot) };
-        }
         unsafe { crate::read::free_parse_snapshot(&snapshot) };
         return if row_completed {
             RowReadOutcome::CompletedThenSuspended
@@ -273,7 +284,7 @@ unsafe fn read_row_or_suspend(
     }
 
     unsafe { crate::read::free_parse_snapshot(&snapshot) };
-    unsafe { crate::error::png_longjmp(png_ptr, 1) }
+    crate::read::raise_read_longjmp()
 }
 
 unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) {
@@ -281,7 +292,7 @@ unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) 
         upstream_png_set_read_fn(
             png_ptr,
             ptr::null_mut(),
-            Some(png_safe_progressive_buffer_read),
+            Some(png_safe_progressive_buffer_read_bridge),
         );
     }
 
@@ -333,17 +344,26 @@ unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) 
                 break;
             }
 
-            let row_num = core.row_number;
-            let pass = core.pass;
             let mut row = vec![0; rowbytes];
             let row_outcome = unsafe { read_row_or_suspend(png_ptr, row.as_mut_ptr(), ptr::null_mut()) };
             if row_outcome == RowReadOutcome::SuspendedBeforeRow {
                 break;
             }
 
+            let core_after = read_core(png_ptr);
+            let row_num = core.row_number;
+            let pass = core.pass;
+
             crate::interlace::sanitize_row_padding(png_ptr, row.as_mut_ptr(), ptr::null_mut());
 
-            if unsafe { emit_row_callback(png_ptr, &mut row, row_num, pass) } {
+            let mut callback_core = core_after;
+            callback_core.row_number = row_num;
+            callback_core.pass = pass;
+            crate::chunks::write_core(png_ptr, &callback_core);
+            let pause_requested = unsafe { emit_row_callback(png_ptr, &mut row, row_num, pass) };
+            crate::chunks::write_core(png_ptr, &core_after);
+
+            if pause_requested {
                 break;
             }
 
@@ -371,17 +391,17 @@ unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_process_data(
+pub unsafe extern "C" fn png_safe_rust_process_data(
     png_ptr: png_structrp,
     info_ptr: png_inforp,
     buffer: png_bytep,
     buffer_size: usize,
-) {
-    crate::abi_guard!(png_ptr, unsafe {
-        if png_ptr.is_null() || info_ptr.is_null() {
-            return;
-        }
+) -> c_int {
+    if png_ptr.is_null() || info_ptr.is_null() {
+        return 1;
+    }
 
+    crate::read::catch_read_status(|| unsafe {
         if !buffer.is_null() && buffer_size != 0 {
             let input = core::slice::from_raw_parts(buffer, buffer_size);
             state::update_png(png_ptr, |png_state| {
@@ -399,7 +419,7 @@ pub unsafe extern "C" fn png_process_data(
         }
 
         drive_progressive_decode(png_ptr, info_ptr);
-    });
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -407,35 +427,10 @@ pub unsafe extern "C" fn png_process_data_pause(
     png_ptr: png_structrp,
     save: core::ffi::c_int,
 ) -> usize {
-    crate::abi_guard!(png_ptr, {
-        if state::get_png(png_ptr)
-            .map(|png_state| png_state.progressive_state.decoded)
-            .unwrap_or(false)
-        {
-            state::update_png(png_ptr, |png_state| {
-                png_state.progressive_state.last_pause_bytes = 0;
-                png_state.progressive_state.paused_with_save = save != 0;
-                png_state.progressive_state.pause_requested = false;
-            });
-            return 0;
-        }
-
-        note_progressive_pause_bytes(png_ptr, save != 0)
-    })
+    crate::abi_guard!(png_ptr, unsafe { upstream_png_process_data_pause(png_ptr, save) })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_process_data_skip(png_ptr: png_structrp) -> png_uint_32 {
-    crate::abi_guard!(png_ptr, {
-        let _ = unsafe {
-            call_warning(
-                png_ptr,
-                b"png_process_data_skip is ignored by the Rust progressive reader\0",
-            )
-        };
-        state::update_png(png_ptr, |png_state| {
-            png_state.progressive_state.last_skip_bytes = 0;
-        });
-        0
-    })
+    crate::abi_guard!(png_ptr, unsafe { upstream_png_process_data_skip(png_ptr) })
 }
