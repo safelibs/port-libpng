@@ -35,7 +35,8 @@ now wires these Rust implementation modules into the shipped ABI:
 - [safe/src/interlace.rs](/home/yans/code/safelibs/ported/libpng/safe/src/interlace.rs):
   `png_set_interlace_handling`.
 - [safe/src/simplified.rs](/home/yans/code/safelibs/ported/libpng/safe/src/simplified.rs):
-  `png_image_*` simplified read entry points.
+  `png_image_*` panic-guarded trampolines to the renamed upstream simplified
+  implementation.
 
 At the time of this phase, that compiled Rust set owns 114 exported `png_*`
 entry points. The remaining exported ABI continues to come from upstream C
@@ -64,38 +65,53 @@ model without changing the libpng ABI contract:
 - C ABI entry points:
   exported `extern "C"` functions accept raw `png_struct*`, `png_info*`,
   caller buffers, and callback pointers from foreign code.
-- Callback interop:
-  [safe/src/error.rs](/home/yans/code/safelibs/ported/libpng/safe/src/error.rs)
-  and [safe/src/io.rs](/home/yans/code/safelibs/ported/libpng/safe/src/io.rs)
-  store and invoke user-supplied callbacks whose aliasing, lifetime, and panic
-  behavior Rust cannot prove.
-- `setjmp` or `longjmp` interop:
-  [safe/cshim/longjmp_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/longjmp_bridge.c),
-  [safe/cshim/read_phase_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/read_phase_bridge.c),
-  and [safe/src/state.rs](/home/yans/code/safelibs/ported/libpng/safe/src/state.rs)
-  are required because portable `jmp_buf` handling is not expressible in Rust.
+- Upstream trampoline calls:
+  [safe/src/memory.rs](/home/yans/code/safelibs/ported/libpng/safe/src/memory.rs),
+  [safe/src/io.rs](/home/yans/code/safelibs/ported/libpng/safe/src/io.rs),
+  [safe/src/get.rs](/home/yans/code/safelibs/ported/libpng/safe/src/get.rs),
+  [safe/src/set.rs](/home/yans/code/safelibs/ported/libpng/safe/src/set.rs),
+  [safe/src/error.rs](/home/yans/code/safelibs/ported/libpng/safe/src/error.rs),
+  [safe/src/common.rs](/home/yans/code/safelibs/ported/libpng/safe/src/common.rs),
+  and [safe/src/simplified.rs](/home/yans/code/safelibs/ported/libpng/safe/src/simplified.rs)
+  call renamed `upstream_*` functions through FFI. That requires raw pointers
+  and foreign function signatures on both the entry-point and callee sides.
 - Foreign allocator ownership:
   [safe/src/memory.rs](/home/yans/code/safelibs/ported/libpng/safe/src/memory.rs)
-  must call user-provided allocators and frees through raw pointers; allocator
-  identity and ownership are controlled by the C caller.
-- Caller-provided image buffers:
-  [safe/src/simplified.rs](/home/yans/code/safelibs/ported/libpng/safe/src/simplified.rs)
-  writes decoded rows into foreign output buffers and row-pointer tables after
-  runtime bounds and format checks.
-- `#[repr(C)]` state mirrors:
-  [safe/src/state.rs](/home/yans/code/safelibs/ported/libpng/safe/src/state.rs)
-  zero-initializes and reinterprets opaque libpng storage because the ABI
-  requires C-compatible object layout and out-of-band state slots.
+  forwards allocator registration, allocation, and free calls across the C ABI;
+  allocator identity and ownership are controlled by the foreign caller.
+- Callback-pointer interop:
+  [safe/src/io.rs](/home/yans/code/safelibs/ported/libpng/safe/src/io.rs) and
+  [safe/src/error.rs](/home/yans/code/safelibs/ported/libpng/safe/src/error.rs)
+  forward callback pointers and callback state that Rust cannot type-check for
+  aliasing, lifetime, or unwind behavior.
+- Raw buffer and struct-pointer access:
+  [safe/src/common.rs](/home/yans/code/safelibs/ported/libpng/safe/src/common.rs),
+  [safe/src/colorspace.rs](/home/yans/code/safelibs/ported/libpng/safe/src/colorspace.rs),
+  [safe/src/interlace.rs](/home/yans/code/safelibs/ported/libpng/safe/src/interlace.rs),
+  [safe/src/chunks.rs](/home/yans/code/safelibs/ported/libpng/safe/src/chunks.rs),
+  and [safe/src/read_transform.rs](/home/yans/code/safelibs/ported/libpng/safe/src/read_transform.rs)
+  dereference caller-provided pointers or reinterpret row buffers in order to
+  preserve the libpng C ABI.
+- `setjmp` or `longjmp` interop:
+  [safe/cshim/longjmp_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/longjmp_bridge.c)
+  and [safe/cshim/read_phase_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/read_phase_bridge.c)
+  are still required because portable `jmp_buf` handling is not expressible in Rust.
 
 ## Explicit Non-Goals And Exclusions
 
 - There is no remaining custom `unsafe impl` for linker-retention statics.
   `KeepSymbol` is now `AtomicPtr<()>`, so the old unjustified `unsafe impl Sync`
   is gone.
+- The old manual simplified-reader experiment was removed from the compiled
+  surface. [safe/src/simplified.rs](/home/yans/code/safelibs/ported/libpng/safe/src/simplified.rs)
+  now contains only the active exported trampolines.
 - [safe/src/read.rs](/home/yans/code/safelibs/ported/libpng/safe/src/read.rs)
   remains in the tree as an inactive shim experiment, but it is not wired into
   [safe/src/lib.rs](/home/yans/code/safelibs/ported/libpng/safe/src/lib.rs) and
   is not part of the shipped ABI in this phase.
+- [safe/src/state.rs](/home/yans/code/safelibs/ported/libpng/safe/src/state.rs)
+  also remains only as a dormant reference file and is not compiled into the
+  shipped build.
 
 Any new `unsafe` in compiled Rust should fit one of the categories above. If it
 does not, it should be removed or documented with a narrower justification.

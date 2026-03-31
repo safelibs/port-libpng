@@ -17,7 +17,6 @@ mod read_transform;
 mod read_util;
 mod set;
 mod simplified;
-mod state;
 mod types;
 mod write;
 mod write_transform;

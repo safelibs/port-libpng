@@ -4,32 +4,32 @@ Binary: libpng-dev libpng-tools libpng-tools-dbgsym libpng16-16-udeb libpng16-16
 Architecture: amd64 source
 Version: 1.6.43-5ubuntu0.5+safelibs1
 Checksums-Md5:
- 73d7542d41d918d7fc7618f228b3df79 1560 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
- f00c8844e4525ffaf36dfc7c7cbb1bb8 3697708 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ eafecd46aaaf9f8b74b407b42daab743 1560 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 97892a630f642203979903cf4e320d1f 3697836 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
  f06e321142ade8f8201d1e6bbcfa98b5 51734 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
  f159c580e32ab41bfefa0db347bb569c 30968 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
- 1940b2075b2392dd26f8cda7295de541 487772 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
- 30d3068062b88a94aca27e3b9199ea8c 1428850 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 207738af3ae377e197d49cd68bf26511 616300 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 1dc94a1358eea12ab799dea44395e5c3 486872 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
+ 2b0c4a5206fd87c8cf9eca916ddc4e57 1428880 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+ cf32d5d6bb1c96905c0a2883f531079d 616224 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
 Checksums-Sha1:
- 6db67501171ec3d0f8445b9eedbc99db6ecd8386 1560 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
- e263efa56709157f9a1fbf871de8e624739ae013 3697708 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 45445655a64e0b0c117db96fd3aca6f0aac2ec6c 1560 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 41727158e5c72d376fe4f38f39385ae86a276e85 3697836 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
  9607472e36eb64ddd8255625d2416dcdd4779c3d 51734 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
  d7dffcc2d2b79903a36c3e29108018e0c1474e75 30968 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
- 19c5b6e4dd8375a1befef6154666c7f4ad4d7118 487772 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
- 887eb42b2cdb955f7ab6bcc1c8d2e58de5a83d8a 1428850 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- ae57edbb253705e67d24a372a63638c38622ce46 616300 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ fc935e948f2746048ce46cf43a76c4a17fea8067 486872 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
+ 86a1a51c0814ccc3fcce669a966fddff94366a7c 1428880 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+ c1c3295d356821b82cc14086fff9ad27befecba1 616224 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
 Checksums-Sha256:
- 763d18c3f974abbeef2236acdfee52eeb2e7195ba2adfd603812b5a5af4c9663 1560 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
- cb3aa20bb534de7c978573686fd299777edfd50dd805d3a9f78a0d046b8457fe 3697708 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 00f44a3c5d104549ef7e1aa652d46d6c13bddf07169575d4975a04191b0d2af3 1560 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ dec736bc26f13304e318df519995388afdea864750e9f9834113522486afadd4 3697836 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
  7556ee91da12df17db8e6f16e1e7857b05408ff4b355bf7c484e03835157ea66 51734 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
  09baa80088bd7664b64f43b604239d84f40bcc817355b19ed6df7d1b2ffa1ff7 30968 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
- e5cf7db89c37fe8c25aafe157417fe9094df5a2ba43b5ccef3a79faf8b7f7ef8 487772 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
- 3cc093a4c9e77fb7955907f32a0571353ae7edfa0b4434638d345a66f768a573 1428850 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 4f1a6b891d24738e669cd8876515d16e529fba120635ee7cb452dab2c58110d2 616300 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 819a56313eacbf15c91ef2c66c22623323588e0a1d1373a9cda82d29c56d4acf 486872 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
+ ecbe3fa63e582d7ec20ddf46003897cf8ed335cdec38bdc8aff41f590a40fc95 1428880 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+ 94b43fa5e1b6960d03c0d94fc095418c8bc5c0818d7e737d63ecdac5e26d7ede 616224 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
 Build-Origin: Ubuntu
 Build-Architecture: amd64
-Build-Date: Mon, 30 Mar 2026 21:33:04 -0700
+Build-Date: Mon, 30 Mar 2026 21:47:43 -0700
 Build-Tainted-By:
  merged-usr-via-aliased-dirs
 Installed-Build-Depends:

@@ -167,7 +167,8 @@ pub fn matches_version(user_png_ver: png_const_charp) -> bool {
         return false;
     }
 
-    let expected = unsafe { CStr::from_bytes_with_nul_unchecked(PNG_LIBPNG_VER_STRING) };
+    let expected = CStr::from_bytes_with_nul(PNG_LIBPNG_VER_STRING)
+        .expect("PNG_LIBPNG_VER_STRING must be a valid C string");
     let supplied = unsafe { CStr::from_ptr(user_png_ver) };
     let expected = expected.to_bytes();
     let supplied = supplied.to_bytes();
