@@ -34,6 +34,8 @@ pub(crate) struct ProgressiveReadState {
     pub last_pause_bytes: usize,
     pub last_skip_bytes: png_uint_32,
     pub paused_with_save: bool,
+    pub pause_requested: bool,
+    pub short_read: bool,
     pub buffered: Vec<png_byte>,
     pub decode_offset: usize,
     pub current_input_start: usize,

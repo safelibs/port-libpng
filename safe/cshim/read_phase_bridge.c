@@ -67,11 +67,523 @@ typedef struct png_safe_info_core {
 } png_safe_info_core;
 
 typedef struct png_safe_parse_snapshot {
+    png_const_structrp alloc_png_ptr;
     int has_png;
     png_struct png;
     int has_info;
     png_info info;
 } png_safe_parse_snapshot;
+
+static png_voidp
+png_safe_snapshot_alloc(png_const_structrp png_ptr, size_t size) {
+    png_voidp block = png_malloc_base(png_ptr, (png_alloc_size_t)size);
+    if (block != NULL) {
+        memset(block, 0, size);
+    }
+    return block;
+}
+
+static int
+png_safe_snapshot_mul_size(size_t a, size_t b, size_t *out) {
+    if (a != 0 && b > PNG_SIZE_MAX / a) {
+        return 0;
+    }
+
+    *out = a * b;
+    return 1;
+}
+
+static png_voidp
+png_safe_snapshot_dup_bytes(png_const_structrp png_ptr, png_const_voidp src,
+                            size_t size) {
+    png_voidp dst;
+
+    if (src == NULL || size == 0) {
+        return NULL;
+    }
+
+    dst = png_malloc_base(png_ptr, (png_alloc_size_t)size);
+    if (dst != NULL) {
+        memcpy(dst, src, size);
+    }
+
+    return dst;
+}
+
+static png_charp
+png_safe_snapshot_dup_string(png_const_structrp png_ptr, png_const_charp src) {
+    size_t length;
+    png_charp dst;
+
+    if (src == NULL) {
+        return NULL;
+    }
+
+    length = strlen(src) + 1;
+    dst = png_voidcast(png_charp, png_malloc_base(png_ptr, (png_alloc_size_t)length));
+    if (dst != NULL) {
+        memcpy(dst, src, length);
+    }
+
+    return dst;
+}
+
+static int
+png_safe_snapshot_clone_text(png_const_structrp png_ptr, png_info *info) {
+#ifdef PNG_TEXT_SUPPORTED
+    png_textp cloned_text;
+    int count, i;
+    size_t bytes;
+
+    if (info->text == NULL || info->num_text <= 0) {
+        info->text = NULL;
+        info->num_text = 0;
+        info->max_text = 0;
+        return 1;
+    }
+
+    count = info->max_text;
+    if (count < info->num_text) {
+        count = info->num_text;
+    }
+
+    if (count <= 0 || !png_safe_snapshot_mul_size((size_t)count, sizeof(*cloned_text), &bytes)) {
+        return 0;
+    }
+
+    cloned_text = png_voidcast(png_textp, png_safe_snapshot_alloc(png_ptr, bytes));
+    if (cloned_text == NULL) {
+        return 0;
+    }
+
+    for (i = 0; i < info->num_text; ++i) {
+        png_const_textp src = info->text + i;
+        png_textp dst = cloned_text + i;
+        size_t key_len, lang_len, lang_key_len, text_len, total;
+        png_charp block, cursor;
+
+        *dst = *src;
+
+        if (src->key == NULL) {
+            dst->lang = NULL;
+            dst->lang_key = NULL;
+            dst->text = NULL;
+            continue;
+        }
+
+        key_len = strlen(src->key) + 1;
+        lang_len = 0;
+        lang_key_len = 0;
+        text_len = 1;
+
+        if (src->compression > 0) {
+            if (src->lang != NULL) {
+                lang_len = strlen(src->lang) + 1;
+            }
+            if (src->lang_key != NULL) {
+                lang_key_len = strlen(src->lang_key) + 1;
+            }
+            text_len = (size_t)src->itxt_length + 1;
+        } else {
+            text_len = (size_t)src->text_length + 1;
+        }
+
+        total = key_len + lang_len + lang_key_len + text_len;
+        block = png_voidcast(png_charp, png_malloc_base(png_ptr, (png_alloc_size_t)total));
+        if (block == NULL) {
+            int j;
+
+            for (j = 0; j < i; ++j) {
+                png_free(png_ptr, cloned_text[j].key);
+            }
+            png_free(png_ptr, cloned_text);
+            return 0;
+        }
+
+        cursor = block;
+        memcpy(cursor, src->key, key_len);
+        dst->key = cursor;
+        cursor += key_len;
+
+        if (src->compression > 0) {
+            if (lang_len != 0) {
+                memcpy(cursor, src->lang, lang_len);
+                dst->lang = cursor;
+                cursor += lang_len;
+            } else {
+                *cursor = 0;
+                dst->lang = cursor;
+                cursor += 1;
+            }
+
+            if (lang_key_len != 0) {
+                memcpy(cursor, src->lang_key, lang_key_len);
+                dst->lang_key = cursor;
+                cursor += lang_key_len;
+            } else {
+                *cursor = 0;
+                dst->lang_key = cursor;
+                cursor += 1;
+            }
+        } else {
+            dst->lang = NULL;
+            dst->lang_key = NULL;
+        }
+
+        if (src->text != NULL) {
+            memcpy(cursor, src->text, text_len);
+        } else {
+            *cursor = 0;
+        }
+        dst->text = cursor;
+    }
+
+    info->text = cloned_text;
+    return 1;
+#else
+    PNG_UNUSED(png_ptr)
+    PNG_UNUSED(info)
+    return 1;
+#endif
+}
+
+static int
+png_safe_snapshot_clone_unknowns(png_const_structrp png_ptr, png_info *info) {
+#ifdef PNG_STORE_UNKNOWN_CHUNKS_SUPPORTED
+    png_unknown_chunkp cloned;
+    int i;
+    size_t bytes;
+
+    if (info->unknown_chunks == NULL || info->unknown_chunks_num <= 0) {
+        info->unknown_chunks = NULL;
+        info->unknown_chunks_num = 0;
+        return 1;
+    }
+
+    if (!png_safe_snapshot_mul_size((size_t)info->unknown_chunks_num, sizeof(*cloned), &bytes)) {
+        return 0;
+    }
+
+    cloned = png_voidcast(png_unknown_chunkp, png_safe_snapshot_alloc(png_ptr, bytes));
+    if (cloned == NULL) {
+        return 0;
+    }
+
+    for (i = 0; i < info->unknown_chunks_num; ++i) {
+        cloned[i] = info->unknown_chunks[i];
+        if (info->unknown_chunks[i].size != 0 && info->unknown_chunks[i].data != NULL) {
+            cloned[i].data = png_voidcast(
+                png_bytep,
+                png_safe_snapshot_dup_bytes(
+                    png_ptr, info->unknown_chunks[i].data, info->unknown_chunks[i].size));
+            if (cloned[i].data == NULL) {
+                int j;
+
+                for (j = 0; j < i; ++j) {
+                    png_free(png_ptr, cloned[j].data);
+                }
+                png_free(png_ptr, cloned);
+                return 0;
+            }
+        } else {
+            cloned[i].data = NULL;
+            cloned[i].size = 0;
+        }
+    }
+
+    info->unknown_chunks = cloned;
+    return 1;
+#else
+    PNG_UNUSED(png_ptr)
+    PNG_UNUSED(info)
+    return 1;
+#endif
+}
+
+static int
+png_safe_snapshot_clone_splt(png_const_structrp png_ptr, png_info *info) {
+#ifdef PNG_sPLT_SUPPORTED
+    png_sPLT_tp cloned;
+    int i;
+    size_t bytes, entry_bytes;
+
+    if (info->splt_palettes == NULL || info->splt_palettes_num <= 0) {
+        info->splt_palettes = NULL;
+        info->splt_palettes_num = 0;
+        return 1;
+    }
+
+    if (!png_safe_snapshot_mul_size((size_t)info->splt_palettes_num, sizeof(*cloned), &bytes)) {
+        return 0;
+    }
+
+    cloned = png_voidcast(png_sPLT_tp, png_safe_snapshot_alloc(png_ptr, bytes));
+    if (cloned == NULL) {
+        return 0;
+    }
+
+    for (i = 0; i < info->splt_palettes_num; ++i) {
+        cloned[i] = info->splt_palettes[i];
+        cloned[i].name = png_safe_snapshot_dup_string(png_ptr, info->splt_palettes[i].name);
+        if (info->splt_palettes[i].name != NULL && cloned[i].name == NULL) {
+            int j;
+
+            for (j = 0; j < i; ++j) {
+                png_free(png_ptr, cloned[j].name);
+                png_free(png_ptr, cloned[j].entries);
+            }
+            png_free(png_ptr, cloned);
+            return 0;
+        }
+
+        if (info->splt_palettes[i].entries != NULL && info->splt_palettes[i].nentries > 0) {
+            if (!png_safe_snapshot_mul_size((size_t)info->splt_palettes[i].nentries,
+                                            sizeof(png_sPLT_entry), &entry_bytes)) {
+                png_free(png_ptr, cloned);
+                return 0;
+            }
+
+            cloned[i].entries = png_voidcast(
+                png_sPLT_entryp,
+                png_safe_snapshot_dup_bytes(
+                    png_ptr, info->splt_palettes[i].entries, entry_bytes));
+            if (cloned[i].entries == NULL) {
+                int j;
+
+                png_free(png_ptr, cloned[i].name);
+                for (j = 0; j < i; ++j) {
+                    png_free(png_ptr, cloned[j].name);
+                    png_free(png_ptr, cloned[j].entries);
+                }
+                png_free(png_ptr, cloned);
+                return 0;
+            }
+        } else {
+            cloned[i].entries = NULL;
+            cloned[i].nentries = 0;
+        }
+    }
+
+    info->splt_palettes = cloned;
+    return 1;
+#else
+    PNG_UNUSED(png_ptr)
+    PNG_UNUSED(info)
+    return 1;
+#endif
+}
+
+static int
+png_safe_snapshot_clone_pcal(png_const_structrp png_ptr, png_info *info) {
+#ifdef PNG_pCAL_SUPPORTED
+    png_charpp params;
+    int i;
+    size_t bytes;
+
+    {
+        png_charp original_purpose = info->pcal_purpose;
+        info->pcal_purpose = png_safe_snapshot_dup_string(png_ptr, original_purpose);
+        if (original_purpose != NULL && info->pcal_purpose == NULL) {
+            return 0;
+        }
+    }
+
+    {
+        png_charp original_units = info->pcal_units;
+        info->pcal_units = png_safe_snapshot_dup_string(png_ptr, original_units);
+        if (original_units != NULL && info->pcal_units == NULL) {
+            png_free(png_ptr, info->pcal_purpose);
+            info->pcal_purpose = NULL;
+            return 0;
+        }
+    }
+
+    if (info->pcal_params == NULL || info->pcal_nparams == 0) {
+        info->pcal_params = NULL;
+        return 1;
+    }
+
+    if (!png_safe_snapshot_mul_size((size_t)info->pcal_nparams, sizeof(*params), &bytes)) {
+        return 0;
+    }
+
+    params = png_voidcast(png_charpp, png_safe_snapshot_alloc(png_ptr, bytes));
+    if (params == NULL) {
+        png_free(png_ptr, info->pcal_purpose);
+        png_free(png_ptr, info->pcal_units);
+        info->pcal_purpose = NULL;
+        info->pcal_units = NULL;
+        return 0;
+    }
+
+    for (i = 0; i < info->pcal_nparams; ++i) {
+        params[i] = png_safe_snapshot_dup_string(png_ptr, info->pcal_params[i]);
+        if (info->pcal_params[i] != NULL && params[i] == NULL) {
+            int j;
+
+            for (j = 0; j < i; ++j) {
+                png_free(png_ptr, params[j]);
+            }
+            png_free(png_ptr, params);
+            png_free(png_ptr, info->pcal_purpose);
+            png_free(png_ptr, info->pcal_units);
+            info->pcal_purpose = NULL;
+            info->pcal_units = NULL;
+            return 0;
+        }
+    }
+
+    info->pcal_params = params;
+    return 1;
+#else
+    PNG_UNUSED(png_ptr)
+    PNG_UNUSED(info)
+    return 1;
+#endif
+}
+
+static int
+png_safe_snapshot_clone_info(png_const_structrp png_ptr,
+                             png_safe_parse_snapshot *snapshot,
+                             png_const_inforp info_ptr) {
+    snapshot->info = *info_ptr;
+
+#ifdef PNG_INFO_IMAGE_SUPPORTED
+    snapshot->info.row_pointers = NULL;
+    snapshot->info.free_me &= ~PNG_FREE_ROWS;
+#endif
+
+    if ((snapshot->info.free_me & PNG_FREE_PLTE) != 0 && snapshot->info.palette != NULL) {
+        size_t palette_bytes;
+
+        if (!png_safe_snapshot_mul_size((size_t)snapshot->info.num_palette,
+                                        sizeof(png_color), &palette_bytes)) {
+            return 0;
+        }
+
+        snapshot->info.palette = png_voidcast(
+            png_colorp,
+            png_safe_snapshot_dup_bytes(png_ptr, info_ptr->palette, palette_bytes));
+        if (snapshot->info.palette == NULL) {
+            return 0;
+        }
+    }
+
+    if ((snapshot->info.free_me & PNG_FREE_TRNS) != 0 && snapshot->info.trans_alpha != NULL) {
+        snapshot->info.trans_alpha = png_voidcast(
+            png_bytep,
+            png_safe_snapshot_dup_bytes(
+                png_ptr, info_ptr->trans_alpha, PNG_MAX_PALETTE_LENGTH));
+        if (snapshot->info.trans_alpha == NULL) {
+            return 0;
+        }
+    }
+
+    if ((snapshot->info.free_me & PNG_FREE_HIST) != 0 && snapshot->info.hist != NULL) {
+        size_t hist_bytes;
+
+        if (!png_safe_snapshot_mul_size((size_t)snapshot->info.num_palette,
+                                        sizeof(png_uint_16), &hist_bytes)) {
+            return 0;
+        }
+
+        snapshot->info.hist = png_voidcast(
+            png_uint_16p,
+            png_safe_snapshot_dup_bytes(png_ptr, info_ptr->hist, hist_bytes));
+        if (snapshot->info.hist == NULL) {
+            return 0;
+        }
+    }
+
+    if ((snapshot->info.free_me & PNG_FREE_ICCP) != 0) {
+        snapshot->info.iccp_name =
+            png_safe_snapshot_dup_string(png_ptr, info_ptr->iccp_name);
+        if (info_ptr->iccp_name != NULL && snapshot->info.iccp_name == NULL) {
+            return 0;
+        }
+
+        snapshot->info.iccp_profile = png_voidcast(
+            png_bytep,
+            png_safe_snapshot_dup_bytes(
+                png_ptr, info_ptr->iccp_profile, info_ptr->iccp_proflen));
+        if (info_ptr->iccp_profile != NULL && snapshot->info.iccp_profile == NULL) {
+            return 0;
+        }
+    }
+
+    if ((snapshot->info.free_me & PNG_FREE_TEXT) != 0 &&
+        !png_safe_snapshot_clone_text(png_ptr, &snapshot->info)) {
+        return 0;
+    }
+
+    if ((snapshot->info.free_me & PNG_FREE_SCAL) != 0) {
+        snapshot->info.scal_s_width =
+            png_safe_snapshot_dup_string(png_ptr, info_ptr->scal_s_width);
+        if (info_ptr->scal_s_width != NULL && snapshot->info.scal_s_width == NULL) {
+            return 0;
+        }
+
+        snapshot->info.scal_s_height =
+            png_safe_snapshot_dup_string(png_ptr, info_ptr->scal_s_height);
+        if (info_ptr->scal_s_height != NULL && snapshot->info.scal_s_height == NULL) {
+            return 0;
+        }
+    }
+
+    if ((snapshot->info.free_me & PNG_FREE_PCAL) != 0 &&
+        !png_safe_snapshot_clone_pcal(png_ptr, &snapshot->info)) {
+        return 0;
+    }
+
+    if ((snapshot->info.free_me & PNG_FREE_UNKN) != 0 &&
+        !png_safe_snapshot_clone_unknowns(png_ptr, &snapshot->info)) {
+        return 0;
+    }
+
+    if ((snapshot->info.free_me & PNG_FREE_SPLT) != 0 &&
+        !png_safe_snapshot_clone_splt(png_ptr, &snapshot->info)) {
+        return 0;
+    }
+
+    if ((snapshot->info.free_me & PNG_FREE_EXIF) != 0) {
+        snapshot->info.exif = png_voidcast(
+            png_bytep,
+            png_safe_snapshot_dup_bytes(png_ptr, info_ptr->exif, info_ptr->num_exif));
+        if (info_ptr->exif != NULL && snapshot->info.exif == NULL) {
+            return 0;
+        }
+#ifdef PNG_READ_eXIf_SUPPORTED
+        snapshot->info.eXIf_buf = png_voidcast(
+            png_bytep,
+            png_safe_snapshot_dup_bytes(png_ptr, info_ptr->eXIf_buf, info_ptr->num_exif));
+        if (info_ptr->eXIf_buf != NULL && snapshot->info.eXIf_buf == NULL) {
+            return 0;
+        }
+#endif
+    }
+
+    if (snapshot->has_png) {
+        if (snapshot->png.palette == info_ptr->palette) {
+            snapshot->png.palette = snapshot->info.palette;
+        }
+        if (snapshot->png.trans_alpha == info_ptr->trans_alpha) {
+            snapshot->png.trans_alpha = snapshot->info.trans_alpha;
+        }
+    }
+
+    return 1;
+}
+
+static void
+png_safe_snapshot_release_info(png_safe_parse_snapshot *snapshot) {
+    if (snapshot == NULL || !snapshot->has_info) {
+        return;
+    }
+
+    png_free_data(snapshot->alloc_png_ptr, &snapshot->info, PNG_FREE_ALL, -1);
+    memset(&snapshot->info, 0, sizeof(snapshot->info));
+    snapshot->has_info = 0;
+}
 
 extern void upstream_png_set_quantize(png_structrp png_ptr, png_colorp palette,
                                       int num_palette, int maximum_colors,
@@ -89,6 +601,8 @@ void *png_safe_parse_snapshot_capture(png_const_structrp png_ptr,
         return NULL;
     }
 
+    snapshot->alloc_png_ptr = png_ptr;
+
     if (png_ptr != NULL) {
         snapshot->has_png = 1;
         snapshot->png = *png_ptr;
@@ -96,7 +610,11 @@ void *png_safe_parse_snapshot_capture(png_const_structrp png_ptr,
 
     if (info_ptr != NULL) {
         snapshot->has_info = 1;
-        snapshot->info = *info_ptr;
+        if (!png_safe_snapshot_clone_info(png_ptr, snapshot, info_ptr)) {
+            png_safe_snapshot_release_info(snapshot);
+            free(snapshot);
+            return NULL;
+        }
     }
 
     return snapshot;
@@ -112,15 +630,46 @@ void png_safe_parse_snapshot_restore(png_structrp png_ptr, png_inforp info_ptr,
     }
 
     if (png_ptr != NULL && snapshot->has_png) {
+#ifdef PNG_SETJMP_SUPPORTED
+        jmp_buf current_jmp_buf_local;
+        png_longjmp_ptr current_longjmp_fn = png_ptr->longjmp_fn;
+        jmp_buf *current_jmp_buf_ptr = png_ptr->jmp_buf_ptr;
+        size_t current_jmp_buf_size = png_ptr->jmp_buf_size;
+
+        memcpy(current_jmp_buf_local, png_ptr->jmp_buf_local,
+               sizeof(current_jmp_buf_local));
+#endif
         *png_ptr = snapshot->png;
+#ifdef PNG_SETJMP_SUPPORTED
+        memcpy(png_ptr->jmp_buf_local, current_jmp_buf_local,
+               sizeof(current_jmp_buf_local));
+        png_ptr->longjmp_fn = current_longjmp_fn;
+        png_ptr->jmp_buf_ptr = current_jmp_buf_ptr;
+        png_ptr->jmp_buf_size = current_jmp_buf_size;
+#endif
     }
 
     if (info_ptr != NULL && snapshot->has_info) {
+        png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
         *info_ptr = snapshot->info;
+        {
+            png_safe_parse_snapshot *snapshot_mut =
+                (png_safe_parse_snapshot *)snapshot_ptr;
+            memset(&snapshot_mut->info, 0, sizeof(snapshot_mut->info));
+            snapshot_mut->has_info = 0;
+        }
     }
 }
 
 void png_safe_parse_snapshot_free(void *snapshot_ptr) {
+    png_safe_parse_snapshot *snapshot =
+        (png_safe_parse_snapshot *)snapshot_ptr;
+
+    if (snapshot == NULL) {
+        return;
+    }
+
+    png_safe_snapshot_release_info(snapshot);
     free(snapshot_ptr);
 }
 
@@ -317,6 +866,16 @@ int png_safe_complete_idat(png_structrp png_ptr) {
     return 1;
 }
 
+void png_safe_resume_finish_idat(png_structrp png_ptr) {
+    if (png_ptr == NULL) {
+        return;
+    }
+
+    if ((png_ptr->flags & PNG_FLAG_ZSTREAM_ENDED) != 0 && png_ptr->zowner == 0) {
+        png_ptr->zowner = png_IDAT;
+    }
+}
+
 int png_safe_call_read_row(png_structrp png_ptr, png_bytep row, png_bytep display_row) {
     if (setjmp(png_jmpbuf(png_ptr)) != 0) {
         return 0;
@@ -341,6 +900,34 @@ int png_safe_call_read_transform_info(png_structrp png_ptr, png_inforp info_ptr)
     }
 
     png_read_transform_info(png_ptr, info_ptr);
+    return 1;
+}
+
+int png_safe_call_rust_read_info(png_structrp png_ptr, png_inforp info_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_read_info(png_ptr, info_ptr);
+    return 1;
+}
+
+int png_safe_call_rust_read_end(png_structrp png_ptr, png_inforp info_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_read_end(png_ptr, info_ptr);
+    return 1;
+}
+
+int png_safe_call_rust_read_row(png_structrp png_ptr, png_bytep row,
+                                png_bytep display_row) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_read_row(png_ptr, row, display_row);
     return 1;
 }
 

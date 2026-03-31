@@ -197,13 +197,19 @@ unsafe extern "C" {
     fn png_safe_parse_snapshot_free(snapshot: *mut c_void);
 }
 
-struct ParseSnapshot {
+pub(crate) struct ParseSnapshot {
     native: *mut c_void,
     png_state: Option<state::PngStructState>,
     info_state: Option<state::PngInfoState>,
 }
 
-unsafe fn snapshot_parse_state(png_ptr: png_structrp, info_ptr: png_inforp) -> ParseSnapshot {
+#[derive(Debug)]
+pub(crate) struct ProgressiveSuspend;
+
+pub(crate) unsafe fn snapshot_parse_state(
+    png_ptr: png_structrp,
+    info_ptr: png_inforp,
+) -> ParseSnapshot {
     let native = unsafe { png_safe_parse_snapshot_capture(png_ptr, info_ptr) };
     if native.is_null() {
         let _ = unsafe { call_error(png_ptr, b"insufficient memory for parse snapshot\0") };
@@ -217,13 +223,21 @@ unsafe fn snapshot_parse_state(png_ptr: png_structrp, info_ptr: png_inforp) -> P
     }
 }
 
-unsafe fn free_parse_snapshot(snapshot: &ParseSnapshot) {
+pub(crate) unsafe fn free_parse_snapshot(snapshot: &ParseSnapshot) {
     if !snapshot.native.is_null() {
         unsafe { png_safe_parse_snapshot_free(snapshot.native) };
+        let snapshot_mut = snapshot as *const ParseSnapshot as *mut ParseSnapshot;
+        unsafe {
+            (*snapshot_mut).native = ptr::null_mut();
+        }
     }
 }
 
-unsafe fn rollback_parse_state(png_ptr: png_structrp, info_ptr: png_inforp, snapshot: &ParseSnapshot) {
+pub(crate) unsafe fn rollback_parse_state(
+    png_ptr: png_structrp,
+    info_ptr: png_inforp,
+    snapshot: &ParseSnapshot,
+) {
     unsafe { png_safe_parse_snapshot_restore(png_ptr, info_ptr, snapshot.native) };
     if let Some(png_state) = snapshot.png_state.clone() {
         state::register_png(png_ptr, png_state);
@@ -231,7 +245,6 @@ unsafe fn rollback_parse_state(png_ptr: png_structrp, info_ptr: png_inforp, snap
     if let Some(info_state) = snapshot.info_state {
         state::register_info(info_ptr, info_state);
     }
-    unsafe { free_parse_snapshot(snapshot) };
 }
 
 unsafe fn rollback_and_rethrow(
@@ -240,6 +253,7 @@ unsafe fn rollback_and_rethrow(
     snapshot: &ParseSnapshot,
 ) -> ! {
     unsafe { rollback_parse_state(png_ptr, info_ptr, snapshot) };
+    unsafe { free_parse_snapshot(snapshot) };
     crate::error::png_longjmp(png_ptr, 1)
 }
 
@@ -264,6 +278,14 @@ unsafe fn read_exact_or_rethrow(
     }
 
     if unsafe { png_safe_call_read_data(png_ptr, buffer.as_mut_ptr(), buffer.len()) } == 0 {
+        let progressive_short_read = state::get_png(png_ptr)
+            .map(|png_state| png_state.progressive_state.short_read)
+            .unwrap_or(false);
+        if progressive_short_read {
+            unsafe { rollback_parse_state(png_ptr, info_ptr, snapshot) };
+            unsafe { free_parse_snapshot(snapshot) };
+            std::panic::resume_unwind(Box::new(ProgressiveSuspend));
+        }
         unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
     }
 }
@@ -1168,7 +1190,20 @@ unsafe fn parse_splt_chunk(
         return;
     }
 
-    let mut entries = Vec::with_capacity(entry_bytes.len() / entry_size);
+    let entry_count = entry_bytes.len() / entry_size;
+    let requested_allocation = entry_count
+        .checked_mul(core::mem::size_of::<png_sPLT_entry>())
+        .unwrap_or(usize::MAX);
+    if let Err(message) = crate::chunks::validate_ancillary_chunk_limits(
+        png_ptr,
+        u32::try_from(data.len()).unwrap_or(u32::MAX),
+        requested_allocation,
+    ) {
+        unsafe { ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, message) };
+        return;
+    }
+
+    let mut entries = Vec::with_capacity(entry_count);
     for entry in entry_bytes.chunks_exact(entry_size) {
         let mut item = png_sPLT_entry::default();
         if depth == 8 {
@@ -1381,10 +1416,10 @@ unsafe fn parse_known_chunk(
 unsafe fn read_info_loop(
     png_ptr: png_structrp,
     info_ptr: png_inforp,
-    snapshot: &ParseSnapshot,
 ) {
     loop {
-        let (length, name) = unsafe { read_chunk_header_or_rethrow(png_ptr, info_ptr, snapshot) };
+        let snapshot = unsafe { snapshot_parse_state(png_ptr, info_ptr) };
+        let (length, name) = unsafe { read_chunk_header_or_rethrow(png_ptr, info_ptr, &snapshot) };
         let chunk_name = chunk_name_u32(name);
         let keep = keep_for_chunk(png_ptr, name);
         let known_chunk = is_known_chunk_name(name);
@@ -1392,9 +1427,23 @@ unsafe fn read_info_loop(
 
         if chunk_name == PNG_IDAT {
             if (core.mode & PNG_HAVE_IHDR) == 0 {
-                unsafe { error_and_rethrow(png_ptr, info_ptr, snapshot, b"Missing IHDR before IDAT\0") };
+                unsafe {
+                    error_and_rethrow(
+                        png_ptr,
+                        info_ptr,
+                        &snapshot,
+                        b"Missing IHDR before IDAT\0",
+                    )
+                };
             } else if core.color_type == 3 && (core.mode & PNG_HAVE_PLTE) == 0 {
-                unsafe { error_and_rethrow(png_ptr, info_ptr, snapshot, b"Missing PLTE before IDAT\0") };
+                unsafe {
+                    error_and_rethrow(
+                        png_ptr,
+                        info_ptr,
+                        &snapshot,
+                        b"Missing PLTE before IDAT\0",
+                    )
+                };
             }
             core.mode |= PNG_HAVE_IDAT;
             write_core(png_ptr, &core);
@@ -1404,8 +1453,12 @@ unsafe fn read_info_loop(
         }
 
         if keep != PNG_HANDLE_CHUNK_AS_DEFAULT || !known_chunk {
-            if let Some(data) = unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, snapshot, name, length) } {
-                unsafe { handle_unknown_chunk(png_ptr, info_ptr, snapshot, name, data, keep, known_chunk) };
+            if let Some(data) =
+                unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, &snapshot, name, length) }
+            {
+                unsafe {
+                    handle_unknown_chunk(png_ptr, info_ptr, &snapshot, name, data, keep, known_chunk)
+                };
             }
 
             if chunk_name == PNG_PLTE {
@@ -1417,13 +1470,16 @@ unsafe fn read_info_loop(
                 updated.idat_size = 0;
                 write_core(png_ptr, &updated);
                 set_read_phase(png_ptr, ReadPhase::ChunkHeader);
+                unsafe { free_parse_snapshot(&snapshot) };
                 break;
             } else if chunk_name == PNG_IEND {
                 set_read_phase(png_ptr, ReadPhase::Terminal);
+                unsafe { free_parse_snapshot(&snapshot) };
                 break;
             }
 
             set_read_phase(png_ptr, ReadPhase::ChunkHeader);
+            unsafe { free_parse_snapshot(&snapshot) };
             continue;
         }
 
@@ -1432,34 +1488,48 @@ unsafe fn read_info_loop(
             updated.idat_size = length;
             write_core(png_ptr, &updated);
             if unsafe { png_safe_prepare_idat(png_ptr, length) } == 0 {
-                unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
+                unsafe { rollback_and_rethrow(png_ptr, info_ptr, &snapshot) };
             }
             set_read_phase(png_ptr, ReadPhase::IdatStream);
+            unsafe { free_parse_snapshot(&snapshot) };
             break;
         }
 
-        if let Some(data) = unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, snapshot, name, length) } {
-            unsafe { parse_known_chunk(png_ptr, info_ptr, snapshot, name, &data) };
+        if let Some(data) =
+            unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, &snapshot, name, length) }
+        {
+            unsafe { parse_known_chunk(png_ptr, info_ptr, &snapshot, name, &data) };
         }
 
         if chunk_name == PNG_IEND {
             set_read_phase(png_ptr, ReadPhase::Terminal);
+            unsafe { free_parse_snapshot(&snapshot) };
             break;
         }
 
         set_read_phase(png_ptr, ReadPhase::ChunkHeader);
+        unsafe { free_parse_snapshot(&snapshot) };
     }
 }
 
 unsafe fn read_end_loop(
     png_ptr: png_structrp,
     info_ptr: png_inforp,
-    snapshot: &ParseSnapshot,
 ) {
-    if keep_for_chunk(png_ptr, *b"IDAT") == PNG_HANDLE_CHUNK_AS_DEFAULT
-        && unsafe { png_safe_complete_idat(png_ptr) } == 0
-    {
-        unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
+    if keep_for_chunk(png_ptr, *b"IDAT") == PNG_HANDLE_CHUNK_AS_DEFAULT {
+        let snapshot = unsafe { snapshot_parse_state(png_ptr, info_ptr) };
+        if unsafe { png_safe_complete_idat(png_ptr) } == 0 {
+            let progressive_short_read = state::get_png(png_ptr)
+                .map(|png_state| png_state.progressive_state.short_read)
+                .unwrap_or(false);
+            if progressive_short_read {
+                unsafe { rollback_parse_state(png_ptr, info_ptr, &snapshot) };
+                unsafe { free_parse_snapshot(&snapshot) };
+                std::panic::resume_unwind(Box::new(ProgressiveSuspend));
+            }
+            unsafe { rollback_and_rethrow(png_ptr, info_ptr, &snapshot) };
+        }
+        unsafe { free_parse_snapshot(&snapshot) };
     }
 
     let core = read_core(png_ptr);
@@ -1469,7 +1539,8 @@ unsafe fn read_end_loop(
     }
 
     loop {
-        let (length, name) = unsafe { read_chunk_header_or_rethrow(png_ptr, info_ptr, snapshot) };
+        let snapshot = unsafe { snapshot_parse_state(png_ptr, info_ptr) };
+        let (length, name) = unsafe { read_chunk_header_or_rethrow(png_ptr, info_ptr, &snapshot) };
         let chunk_name = chunk_name_u32(name);
         let known_chunk = is_known_chunk_name(name);
         let keep = keep_for_chunk(png_ptr, name);
@@ -1487,33 +1558,59 @@ unsafe fn read_end_loop(
         }
 
         if info_ptr.is_null() && chunk_name != PNG_IEND && chunk_name != PNG_IHDR {
-            let _ = unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, snapshot, name, length) };
+            let _ =
+                unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, &snapshot, name, length) };
             set_read_phase(png_ptr, ReadPhase::ChunkHeader);
+            unsafe { free_parse_snapshot(&snapshot) };
             continue;
         }
 
         if keep != PNG_HANDLE_CHUNK_AS_DEFAULT || !known_chunk {
-            if let Some(data) = unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, snapshot, name, length) } {
-                unsafe { handle_unknown_chunk(png_ptr, info_ptr, snapshot, name, data, keep, known_chunk) };
+            if let Some(data) =
+                unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, &snapshot, name, length) }
+            {
+                unsafe {
+                    handle_unknown_chunk(png_ptr, info_ptr, &snapshot, name, data, keep, known_chunk)
+                };
             }
-        } else if let Some(data) = unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, snapshot, name, length) } {
-            unsafe { parse_known_chunk(png_ptr, info_ptr, snapshot, name, &data) };
+        } else if let Some(data) =
+            unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, &snapshot, name, length) }
+        {
+            unsafe { parse_known_chunk(png_ptr, info_ptr, &snapshot, name, &data) };
         }
 
         if chunk_name == PNG_IEND {
             set_read_phase(png_ptr, ReadPhase::Terminal);
+            unsafe { free_parse_snapshot(&snapshot) };
             break;
         }
+
+        unsafe { free_parse_snapshot(&snapshot) };
     }
+}
+
+pub(crate) unsafe fn read_info_impl(png_ptr: png_structrp, info_ptr: png_inforp) {
+    if state::get_png(png_ptr)
+        .map(|png_state| usize::try_from(png_state.sig_bytes).unwrap_or(0) < PNG_SIGNATURE.len())
+        .unwrap_or(true)
+    {
+        let snapshot = snapshot_parse_state(png_ptr, info_ptr);
+        read_signature_or_rethrow(png_ptr, info_ptr, &snapshot);
+        free_parse_snapshot(&snapshot);
+    }
+
+    read_info_loop(png_ptr, info_ptr);
+}
+
+pub(crate) unsafe fn read_end_impl(png_ptr: png_structrp, info_ptr: png_inforp) {
+    read_end_loop(png_ptr, info_ptr);
+    set_read_phase(png_ptr, ReadPhase::Terminal);
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_read_info(png_ptr: png_structrp, info_ptr: png_inforp) {
     crate::abi_guard!(png_ptr, unsafe {
-        let snapshot = snapshot_parse_state(png_ptr, info_ptr);
-        read_signature_or_rethrow(png_ptr, info_ptr, &snapshot);
-        read_info_loop(png_ptr, info_ptr, &snapshot);
-        free_parse_snapshot(&snapshot);
+        read_info_impl(png_ptr, info_ptr);
     });
 }
 
@@ -1655,9 +1752,6 @@ pub unsafe extern "C" fn png_read_image(png_ptr: png_structrp, image: png_bytepp
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_read_end(png_ptr: png_structrp, info_ptr: png_inforp) {
     crate::abi_guard!(png_ptr, unsafe {
-        let snapshot = snapshot_parse_state(png_ptr, info_ptr);
-        read_end_loop(png_ptr, info_ptr, &snapshot);
-        set_read_phase(png_ptr, ReadPhase::Terminal);
-        free_parse_snapshot(&snapshot);
+        read_end_impl(png_ptr, info_ptr);
     });
 }
