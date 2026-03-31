@@ -1,7 +1,0 @@
-libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb libdevel optional
-libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb debug optional automatic=yes
-libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb libdevel optional
-libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.buildinfo libs optional
-libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb debian-installer optional
-libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb debug optional automatic=yes
-libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb libs optional
