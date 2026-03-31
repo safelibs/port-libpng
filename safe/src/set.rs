@@ -7,30 +7,30 @@ use crate::types::*;
 use core::ffi::c_int;
 
 unsafe extern "C" {
-    fn runtime_png_set_sig_bytes(png_ptr: png_structrp, num_bytes: c_int);
-    fn runtime_png_set_rows(
+    fn bridge_png_set_sig_bytes(png_ptr: png_structrp, num_bytes: c_int);
+    fn bridge_png_set_rows(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         row_pointers: png_bytepp,
     );
-    fn runtime_png_set_user_limits(
+    fn bridge_png_set_user_limits(
         png_ptr: png_structrp,
         user_width_max: png_uint_32,
         user_height_max: png_uint_32,
     );
-    fn runtime_png_set_chunk_cache_max(png_ptr: png_structrp, user_chunk_cache_max: png_uint_32);
-    fn runtime_png_set_chunk_malloc_max(
+    fn bridge_png_set_chunk_cache_max(png_ptr: png_structrp, user_chunk_cache_max: png_uint_32);
+    fn bridge_png_set_chunk_malloc_max(
         png_ptr: png_structrp,
         user_chunk_malloc_max: png_alloc_size_t,
     );
-    fn runtime_png_set_benign_errors(png_ptr: png_structrp, allowed: c_int);
-    fn runtime_png_set_option(png_ptr: png_structrp, option: c_int, onoff: c_int) -> c_int;
-    fn runtime_png_set_bKGD(
+    fn bridge_png_set_benign_errors(png_ptr: png_structrp, allowed: c_int);
+    fn bridge_png_set_option(png_ptr: png_structrp, option: c_int, onoff: c_int) -> c_int;
+    fn bridge_png_set_bKGD(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         background: png_const_color_16p,
     );
-    fn runtime_png_set_cHRM(
+    fn bridge_png_set_cHRM(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         white_x: f64,
@@ -42,7 +42,7 @@ unsafe extern "C" {
         blue_x: f64,
         blue_y: f64,
     );
-    fn runtime_png_set_cHRM_fixed(
+    fn bridge_png_set_cHRM_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         white_x: png_fixed_point,
@@ -54,25 +54,25 @@ unsafe extern "C" {
         blue_x: png_fixed_point,
         blue_y: png_fixed_point,
     );
-    fn runtime_png_set_eXIf(png_ptr: png_const_structrp, info_ptr: png_inforp, exif: png_bytep);
-    fn runtime_png_set_eXIf_1(
+    fn bridge_png_set_eXIf(png_ptr: png_const_structrp, info_ptr: png_inforp, exif: png_bytep);
+    fn bridge_png_set_eXIf_1(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         num_exif: png_uint_32,
         exif: png_bytep,
     );
-    fn runtime_png_set_gAMA(png_ptr: png_const_structrp, info_ptr: png_inforp, file_gamma: f64);
-    fn runtime_png_set_gAMA_fixed(
+    fn bridge_png_set_gAMA(png_ptr: png_const_structrp, info_ptr: png_inforp, file_gamma: f64);
+    fn bridge_png_set_gAMA_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         file_gamma: png_fixed_point,
     );
-    fn runtime_png_set_hIST(
+    fn bridge_png_set_hIST(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         hist: png_const_uint_16p,
     );
-    fn runtime_png_set_IHDR(
+    fn bridge_png_set_IHDR(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         width: png_uint_32,
@@ -83,14 +83,14 @@ unsafe extern "C" {
         compression_method: c_int,
         filter_method: c_int,
     );
-    fn runtime_png_set_oFFs(
+    fn bridge_png_set_oFFs(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         offset_x: png_int_32,
         offset_y: png_int_32,
         unit_type: c_int,
     );
-    fn runtime_png_set_pCAL(
+    fn bridge_png_set_pCAL(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         purpose: png_const_charp,
@@ -101,31 +101,31 @@ unsafe extern "C" {
         units: png_const_charp,
         params: png_charpp,
     );
-    fn runtime_png_set_pHYs(
+    fn bridge_png_set_pHYs(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         res_x: png_uint_32,
         res_y: png_uint_32,
         unit_type: c_int,
     );
-    fn runtime_png_set_PLTE(
+    fn bridge_png_set_PLTE(
         png_ptr: png_structrp,
         info_ptr: png_inforp,
         palette: png_const_colorp,
         num_palette: c_int,
     );
-    fn runtime_png_set_sBIT(
+    fn bridge_png_set_sBIT(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         sig_bit: png_const_color_8p,
     );
-    fn runtime_png_set_sRGB(png_ptr: png_const_structrp, info_ptr: png_inforp, srgb_intent: c_int);
-    fn runtime_png_set_sRGB_gAMA_and_cHRM(
+    fn bridge_png_set_sRGB(png_ptr: png_const_structrp, info_ptr: png_inforp, srgb_intent: c_int);
+    fn bridge_png_set_sRGB_gAMA_and_cHRM(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         srgb_intent: c_int,
     );
-    fn runtime_png_set_iCCP(
+    fn bridge_png_set_iCCP(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         name: png_const_charp,
@@ -133,45 +133,45 @@ unsafe extern "C" {
         profile: png_const_bytep,
         proflen: png_uint_32,
     );
-    fn runtime_png_set_sPLT(
+    fn bridge_png_set_sPLT(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         entries: png_const_sPLT_tp,
         nentries: c_int,
     );
-    fn runtime_png_set_text(
+    fn bridge_png_set_text(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         text_ptr: png_const_textp,
         num_text: c_int,
     );
-    fn runtime_png_set_tIME(
+    fn bridge_png_set_tIME(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         mod_time: png_const_timep,
     );
-    fn runtime_png_set_tRNS(
+    fn bridge_png_set_tRNS(
         png_ptr: png_structrp,
         info_ptr: png_inforp,
         trans_alpha: png_const_bytep,
         num_trans: c_int,
         trans_color: png_const_color_16p,
     );
-    fn runtime_png_set_sCAL(
+    fn bridge_png_set_sCAL(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         unit: c_int,
         width: f64,
         height: f64,
     );
-    fn runtime_png_set_sCAL_fixed(
+    fn bridge_png_set_sCAL_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         unit: c_int,
         width: png_fixed_point,
         height: png_fixed_point,
     );
-    fn runtime_png_set_sCAL_s(
+    fn bridge_png_set_sCAL_s(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         unit: c_int,
@@ -180,7 +180,7 @@ unsafe extern "C" {
     );
 }
 
-fn sync_info_sidecar(info_ptr: png_inforp) {
+fn sync_info_registry(info_ptr: png_inforp) {
     if info_ptr.is_null() {
         return;
     }
@@ -207,7 +207,7 @@ macro_rules! delegate_info_setter {
             ) {
                 crate::abi_guard!($png_ptr as png_structrp, unsafe {
                     $upstream($png_ptr, $info_ptr $(, $arg)*);
-                    sync_info_sidecar($info_ptr);
+                    sync_info_registry($info_ptr);
                 });
             }
         )+
@@ -217,7 +217,7 @@ macro_rules! delegate_info_setter {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_set_sig_bytes(png_ptr: png_structrp, num_bytes: c_int) {
     crate::abi_guard!(png_ptr, unsafe {
-        runtime_png_set_sig_bytes(png_ptr, num_bytes);
+        bridge_png_set_sig_bytes(png_ptr, num_bytes);
         state::update_png(png_ptr, |state| {
             state.sig_bytes = num_bytes.clamp(0, 8);
         });
@@ -231,8 +231,8 @@ pub unsafe extern "C" fn png_set_rows(
     row_pointers: png_bytepp,
 ) {
     crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-        runtime_png_set_rows(png_ptr, info_ptr, row_pointers);
-        sync_info_sidecar(info_ptr);
+        bridge_png_set_rows(png_ptr, info_ptr, row_pointers);
+        sync_info_registry(info_ptr);
     });
 }
 
@@ -241,7 +241,7 @@ delegate_info_setter! {
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         background: png_const_color_16p
-    ) => runtime_png_set_bKGD;
+    ) => bridge_png_set_bKGD;
     fn png_set_cHRM(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
@@ -253,7 +253,7 @@ delegate_info_setter! {
         green_y: f64,
         blue_x: f64,
         blue_y: f64
-    ) => runtime_png_set_cHRM;
+    ) => bridge_png_set_cHRM;
     fn png_set_cHRM_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
@@ -265,33 +265,33 @@ delegate_info_setter! {
         green_y: png_fixed_point,
         blue_x: png_fixed_point,
         blue_y: png_fixed_point
-    ) => runtime_png_set_cHRM_fixed;
+    ) => bridge_png_set_cHRM_fixed;
     fn png_set_eXIf(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         exif: png_bytep
-    ) => runtime_png_set_eXIf;
+    ) => bridge_png_set_eXIf;
     fn png_set_eXIf_1(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         num_exif: png_uint_32,
         exif: png_bytep
-    ) => runtime_png_set_eXIf_1;
+    ) => bridge_png_set_eXIf_1;
     fn png_set_gAMA(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         file_gamma: f64
-    ) => runtime_png_set_gAMA;
+    ) => bridge_png_set_gAMA;
     fn png_set_gAMA_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         file_gamma: png_fixed_point
-    ) => runtime_png_set_gAMA_fixed;
+    ) => bridge_png_set_gAMA_fixed;
     fn png_set_hIST(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         hist: png_const_uint_16p
-    ) => runtime_png_set_hIST;
+    ) => bridge_png_set_hIST;
     fn png_set_IHDR(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
@@ -302,14 +302,14 @@ delegate_info_setter! {
         interlace_method: c_int,
         compression_method: c_int,
         filter_method: c_int
-    ) => runtime_png_set_IHDR;
+    ) => bridge_png_set_IHDR;
     fn png_set_oFFs(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         offset_x: png_int_32,
         offset_y: png_int_32,
         unit_type: c_int
-    ) => runtime_png_set_oFFs;
+    ) => bridge_png_set_oFFs;
     fn png_set_pCAL(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
@@ -320,35 +320,35 @@ delegate_info_setter! {
         nparams: c_int,
         units: png_const_charp,
         params: png_charpp
-    ) => runtime_png_set_pCAL;
+    ) => bridge_png_set_pCAL;
     fn png_set_pHYs(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         res_x: png_uint_32,
         res_y: png_uint_32,
         unit_type: c_int
-    ) => runtime_png_set_pHYs;
+    ) => bridge_png_set_pHYs;
     fn png_set_PLTE(
         png_ptr: png_structrp,
         info_ptr: png_inforp,
         palette: png_const_colorp,
         num_palette: c_int
-    ) => runtime_png_set_PLTE;
+    ) => bridge_png_set_PLTE;
     fn png_set_sBIT(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         sig_bit: png_const_color_8p
-    ) => runtime_png_set_sBIT;
+    ) => bridge_png_set_sBIT;
     fn png_set_sRGB(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         srgb_intent: c_int
-    ) => runtime_png_set_sRGB;
+    ) => bridge_png_set_sRGB;
     fn png_set_sRGB_gAMA_and_cHRM(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         srgb_intent: c_int
-    ) => runtime_png_set_sRGB_gAMA_and_cHRM;
+    ) => bridge_png_set_sRGB_gAMA_and_cHRM;
     fn png_set_iCCP(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
@@ -356,52 +356,52 @@ delegate_info_setter! {
         compression_type: c_int,
         profile: png_const_bytep,
         proflen: png_uint_32
-    ) => runtime_png_set_iCCP;
+    ) => bridge_png_set_iCCP;
     fn png_set_sPLT(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         entries: png_const_sPLT_tp,
         nentries: c_int
-    ) => runtime_png_set_sPLT;
+    ) => bridge_png_set_sPLT;
     fn png_set_text(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         text_ptr: png_const_textp,
         num_text: c_int
-    ) => runtime_png_set_text;
+    ) => bridge_png_set_text;
     fn png_set_tIME(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         mod_time: png_const_timep
-    ) => runtime_png_set_tIME;
+    ) => bridge_png_set_tIME;
     fn png_set_tRNS(
         png_ptr: png_structrp,
         info_ptr: png_inforp,
         trans_alpha: png_const_bytep,
         num_trans: c_int,
         trans_color: png_const_color_16p
-    ) => runtime_png_set_tRNS;
+    ) => bridge_png_set_tRNS;
     fn png_set_sCAL(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         unit: c_int,
         width: f64,
         height: f64
-    ) => runtime_png_set_sCAL;
+    ) => bridge_png_set_sCAL;
     fn png_set_sCAL_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         unit: c_int,
         width: png_fixed_point,
         height: png_fixed_point
-    ) => runtime_png_set_sCAL_fixed;
+    ) => bridge_png_set_sCAL_fixed;
     fn png_set_sCAL_s(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         unit: c_int,
         swidth: png_const_charp,
         sheight: png_const_charp
-    ) => runtime_png_set_sCAL_s;
+    ) => bridge_png_set_sCAL_s;
 }
 
 #[unsafe(no_mangle)]
@@ -411,7 +411,7 @@ pub unsafe extern "C" fn png_set_user_limits(
     user_height_max: png_uint_32,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        runtime_png_set_user_limits(png_ptr, user_width_max, user_height_max);
+        bridge_png_set_user_limits(png_ptr, user_width_max, user_height_max);
         state::update_png(png_ptr, |state| {
             state.user_width_max = user_width_max;
             state.user_height_max = user_height_max;
@@ -425,7 +425,7 @@ pub unsafe extern "C" fn png_set_chunk_cache_max(
     user_chunk_cache_max: png_uint_32,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        runtime_png_set_chunk_cache_max(png_ptr, user_chunk_cache_max);
+        bridge_png_set_chunk_cache_max(png_ptr, user_chunk_cache_max);
         state::update_png(png_ptr, |state| {
             state.user_chunk_cache_max = user_chunk_cache_max;
         });
@@ -438,7 +438,7 @@ pub unsafe extern "C" fn png_set_chunk_malloc_max(
     user_chunk_malloc_max: png_alloc_size_t,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        runtime_png_set_chunk_malloc_max(png_ptr, user_chunk_malloc_max);
+        bridge_png_set_chunk_malloc_max(png_ptr, user_chunk_malloc_max);
         state::update_png(png_ptr, |state| {
             state.user_chunk_malloc_max = user_chunk_malloc_max;
         });
@@ -501,7 +501,7 @@ pub unsafe extern "C" fn png_set_keep_unknown_chunks(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_set_benign_errors(png_ptr: png_structrp, allowed: c_int) {
     crate::abi_guard!(png_ptr, unsafe {
-        runtime_png_set_benign_errors(png_ptr, allowed);
+        bridge_png_set_benign_errors(png_ptr, allowed);
         state::update_png(png_ptr, |state| {
             state.benign_errors = if allowed != 0 { 1 } else { 0 };
         });
@@ -528,7 +528,7 @@ pub unsafe extern "C" fn png_set_option(
     onoff: c_int,
 ) -> c_int {
     crate::abi_guard!(png_ptr, unsafe {
-        let result = runtime_png_set_option(png_ptr, option, onoff);
+        let result = bridge_png_set_option(png_ptr, option, onoff);
         if result != PNG_OPTION_INVALID {
             state::update_png(png_ptr, |state| {
                 let mask = 3u32 << option;

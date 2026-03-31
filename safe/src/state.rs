@@ -7,6 +7,7 @@ use crate::read_util::{
 };
 use crate::types::*;
 use core::ffi::c_int;
+use core::num::NonZeroUsize;
 use core::ptr;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -138,13 +139,21 @@ pub(crate) struct PngInfoState {
 
 unsafe impl Send for PngInfoState {}
 
-fn png_struct_states() -> &'static Mutex<HashMap<usize, PngStructState>> {
-    static STATES: OnceLock<Mutex<HashMap<usize, PngStructState>>> = OnceLock::new();
+// Rust owns the handle registry for opaque libpng pointers and keys it by the
+// exported ABI value without exposing the registry shape to callers.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct PngHandleKey(NonZeroUsize);
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct InfoHandleKey(NonZeroUsize);
+
+fn png_struct_states() -> &'static Mutex<HashMap<PngHandleKey, PngStructState>> {
+    static STATES: OnceLock<Mutex<HashMap<PngHandleKey, PngStructState>>> = OnceLock::new();
     STATES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn png_info_states() -> &'static Mutex<HashMap<usize, PngInfoState>> {
-    static STATES: OnceLock<Mutex<HashMap<usize, PngInfoState>>> = OnceLock::new();
+fn png_info_states() -> &'static Mutex<HashMap<InfoHandleKey, PngInfoState>> {
+    static STATES: OnceLock<Mutex<HashMap<InfoHandleKey, PngInfoState>>> = OnceLock::new();
     STATES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -155,12 +164,12 @@ fn lock_recover<T>(mutex: &'static Mutex<T>) -> MutexGuard<'static, T> {
     }
 }
 
-fn png_key<T>(ptr: *mut T) -> Option<usize> {
-    (!ptr.is_null()).then_some(ptr as usize)
+fn png_key<T>(ptr: *mut T) -> Option<PngHandleKey> {
+    NonZeroUsize::new(ptr as usize).map(PngHandleKey)
 }
 
-fn info_key<T>(ptr: *mut T) -> Option<usize> {
-    (!ptr.is_null()).then_some(ptr as usize)
+fn info_key<T>(ptr: *mut T) -> Option<InfoHandleKey> {
+    NonZeroUsize::new(ptr as usize).map(InfoHandleKey)
 }
 
 pub(crate) fn register_png(png_ptr: png_structrp, state: PngStructState) {

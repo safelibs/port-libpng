@@ -1,3 +1,4 @@
+use crate::bridge_ffi::*;
 use crate::types::*;
 use core::ffi::{c_char, c_int};
 use libc::FILE;
@@ -9,52 +10,6 @@ const PNG_FORMAT_FLAG_ALPHA: png_uint_32 = 0x01;
 const PNG_FORMAT_FLAG_COLOR: png_uint_32 = 0x02;
 const PNG_FORMAT_FLAG_LINEAR: png_uint_32 = 0x04;
 const PNG_FORMAT_FLAG_COLORMAP: png_uint_32 = 0x08;
-
-unsafe extern "C" {
-    fn runtime_png_image_begin_read_from_file(
-        image: png_imagep,
-        file_name: png_const_charp,
-    ) -> c_int;
-    fn runtime_png_image_begin_read_from_stdio(image: png_imagep, file: *mut FILE) -> c_int;
-    fn runtime_png_image_begin_read_from_memory(
-        image: png_imagep,
-        memory: png_const_voidp,
-        size: usize,
-    ) -> c_int;
-    fn runtime_png_image_finish_read(
-        image: png_imagep,
-        background: png_const_colorp,
-        buffer: png_voidp,
-        row_stride: png_int_32,
-        colormap: png_voidp,
-    ) -> c_int;
-    fn runtime_png_image_write_to_file(
-        image: png_imagep,
-        file_name: png_const_charp,
-        convert_to_8bit: c_int,
-        buffer: png_const_voidp,
-        row_stride: png_int_32,
-        colormap: png_const_voidp,
-    ) -> c_int;
-    fn runtime_png_image_write_to_stdio(
-        image: png_imagep,
-        file: *mut FILE,
-        convert_to_8bit: c_int,
-        buffer: png_const_voidp,
-        row_stride: png_int_32,
-        colormap: png_const_voidp,
-    ) -> c_int;
-    fn runtime_png_image_write_to_memory(
-        image: png_imagep,
-        memory: png_voidp,
-        memory_bytes: *mut png_alloc_size_t,
-        convert_to_8bit: c_int,
-        buffer: png_const_voidp,
-        row_stride: png_int_32,
-        colormap: png_const_voidp,
-    ) -> c_int;
-    fn runtime_png_image_free(image: png_imagep);
-}
 
 fn sample_channels(format: png_uint_32) -> png_uint_32 {
     (format & (PNG_FORMAT_FLAG_COLOR | PNG_FORMAT_FLAG_ALPHA)) + 1
@@ -203,7 +158,7 @@ pub unsafe extern "C" fn png_image_begin_read_from_file(
     image: png_imagep,
     file_name: png_const_charp,
 ) -> c_int {
-    crate::abi_guard_no_png!(unsafe { runtime_png_image_begin_read_from_file(image, file_name) })
+    crate::abi_guard_no_png!(unsafe { image_begin_read_from_file(image, file_name) })
 }
 
 #[unsafe(no_mangle)]
@@ -211,7 +166,7 @@ pub unsafe extern "C" fn png_image_begin_read_from_stdio(
     image: png_imagep,
     file: *mut FILE,
 ) -> c_int {
-    crate::abi_guard_no_png!(unsafe { runtime_png_image_begin_read_from_stdio(image, file) })
+    crate::abi_guard_no_png!(unsafe { image_begin_read_from_stdio(image, file) })
 }
 
 #[unsafe(no_mangle)]
@@ -221,7 +176,7 @@ pub unsafe extern "C" fn png_image_begin_read_from_memory(
     size: usize,
 ) -> c_int {
     crate::abi_guard_no_png!(unsafe {
-        runtime_png_image_begin_read_from_memory(image, memory, size)
+        image_begin_read_from_memory(image, memory, size)
     })
 }
 
@@ -238,13 +193,13 @@ pub unsafe extern "C" fn png_image_finish_read(
             return result;
         }
 
-        unsafe { runtime_png_image_finish_read(image, background, buffer, row_stride, colormap) }
+        unsafe { image_finish_read(image, background, buffer, row_stride, colormap) }
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_image_free(image: png_imagep) {
-    crate::abi_guard_no_png!(unsafe { runtime_png_image_free(image) });
+    crate::abi_guard_no_png!(unsafe { image_free(image) });
 }
 
 #[unsafe(no_mangle)]
@@ -257,7 +212,7 @@ pub unsafe extern "C" fn png_image_write_to_file(
     colormap: png_const_voidp,
 ) -> c_int {
     crate::abi_guard_no_png!(unsafe {
-        runtime_png_image_write_to_file(
+        image_write_to_file(
             image,
             file_name,
             convert_to_8bit,
@@ -278,7 +233,7 @@ pub unsafe extern "C" fn png_image_write_to_stdio(
     colormap: png_const_voidp,
 ) -> c_int {
     crate::abi_guard_no_png!(unsafe {
-        runtime_png_image_write_to_stdio(
+        image_write_to_stdio(
             image,
             file,
             convert_to_8bit,
@@ -300,7 +255,7 @@ pub unsafe extern "C" fn png_image_write_to_memory(
     colormap: png_const_voidp,
 ) -> c_int {
     crate::abi_guard_no_png!(unsafe {
-        runtime_png_image_write_to_memory(
+        image_write_to_memory(
             image,
             memory,
             memory_bytes,

@@ -4,56 +4,56 @@ use crate::types::*;
 use core::ffi::c_int;
 
 unsafe extern "C" {
-    fn runtime_png_get_valid(
+    fn bridge_png_get_valid(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         flag: png_uint_32,
     ) -> png_uint_32;
-    fn runtime_png_get_rowbytes(png_ptr: png_const_structrp, info_ptr: png_const_inforp) -> usize;
-    fn runtime_png_get_rows(png_ptr: png_const_structrp, info_ptr: png_const_inforp)
+    fn bridge_png_get_rowbytes(png_ptr: png_const_structrp, info_ptr: png_const_inforp) -> usize;
+    fn bridge_png_get_rows(png_ptr: png_const_structrp, info_ptr: png_const_inforp)
     -> png_bytepp;
-    fn runtime_png_get_image_width(
+    fn bridge_png_get_image_width(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
     ) -> png_uint_32;
-    fn runtime_png_get_image_height(
+    fn bridge_png_get_image_height(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
     ) -> png_uint_32;
-    fn runtime_png_get_bit_depth(
+    fn bridge_png_get_bit_depth(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
     ) -> png_byte;
-    fn runtime_png_get_color_type(
+    fn bridge_png_get_color_type(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
     ) -> png_byte;
-    fn runtime_png_get_filter_type(
+    fn bridge_png_get_filter_type(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
     ) -> png_byte;
-    fn runtime_png_get_interlace_type(
+    fn bridge_png_get_interlace_type(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
     ) -> png_byte;
-    fn runtime_png_get_compression_type(
+    fn bridge_png_get_compression_type(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
     ) -> png_byte;
-    fn runtime_png_get_channels(
+    fn bridge_png_get_channels(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
     ) -> png_byte;
-    fn runtime_png_get_user_width_max(png_ptr: png_const_structrp) -> png_uint_32;
-    fn runtime_png_get_user_height_max(png_ptr: png_const_structrp) -> png_uint_32;
-    fn runtime_png_get_chunk_cache_max(png_ptr: png_const_structrp) -> png_uint_32;
-    fn runtime_png_get_chunk_malloc_max(png_ptr: png_const_structrp) -> png_alloc_size_t;
-    fn runtime_png_get_bKGD(
+    fn bridge_png_get_user_width_max(png_ptr: png_const_structrp) -> png_uint_32;
+    fn bridge_png_get_user_height_max(png_ptr: png_const_structrp) -> png_uint_32;
+    fn bridge_png_get_chunk_cache_max(png_ptr: png_const_structrp) -> png_uint_32;
+    fn bridge_png_get_chunk_malloc_max(png_ptr: png_const_structrp) -> png_alloc_size_t;
+    fn bridge_png_get_bKGD(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         background: *mut png_color_16p,
     ) -> png_uint_32;
-    fn runtime_png_get_cHRM(
+    fn bridge_png_get_cHRM(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         white_x: png_doublep,
@@ -65,7 +65,7 @@ unsafe extern "C" {
         blue_x: png_doublep,
         blue_y: png_doublep,
     ) -> png_uint_32;
-    fn runtime_png_get_cHRM_fixed(
+    fn bridge_png_get_cHRM_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         white_x: png_fixed_point_p,
@@ -77,33 +77,33 @@ unsafe extern "C" {
         blue_x: png_fixed_point_p,
         blue_y: png_fixed_point_p,
     ) -> png_uint_32;
-    fn runtime_png_get_eXIf(
+    fn bridge_png_get_eXIf(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         exif: *mut png_bytep,
     ) -> png_uint_32;
-    fn runtime_png_get_eXIf_1(
+    fn bridge_png_get_eXIf_1(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         num_exif: *mut png_uint_32,
         exif: *mut png_bytep,
     ) -> png_uint_32;
-    fn runtime_png_get_gAMA(
+    fn bridge_png_get_gAMA(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         file_gamma: png_doublep,
     ) -> png_uint_32;
-    fn runtime_png_get_gAMA_fixed(
+    fn bridge_png_get_gAMA_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         file_gamma: png_fixed_point_p,
     ) -> png_uint_32;
-    fn runtime_png_get_hIST(
+    fn bridge_png_get_hIST(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         hist: *mut png_uint_16p,
     ) -> png_uint_32;
-    fn runtime_png_get_IHDR(
+    fn bridge_png_get_IHDR(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         width: *mut png_uint_32,
@@ -114,14 +114,14 @@ unsafe extern "C" {
         compression_method: *mut c_int,
         filter_method: *mut c_int,
     ) -> png_uint_32;
-    fn runtime_png_get_oFFs(
+    fn bridge_png_get_oFFs(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         offset_x: *mut png_int_32,
         offset_y: *mut png_int_32,
         unit_type: *mut c_int,
     ) -> png_uint_32;
-    fn runtime_png_get_pCAL(
+    fn bridge_png_get_pCAL(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         purpose: *mut png_charp,
@@ -132,30 +132,30 @@ unsafe extern "C" {
         units: *mut png_charp,
         params: *mut png_charpp,
     ) -> png_uint_32;
-    fn runtime_png_get_pHYs(
+    fn bridge_png_get_pHYs(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         res_x: *mut png_uint_32,
         res_y: *mut png_uint_32,
         unit_type: *mut c_int,
     ) -> png_uint_32;
-    fn runtime_png_get_PLTE(
+    fn bridge_png_get_PLTE(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         palette: *mut png_colorp,
         num_palette: *mut c_int,
     ) -> png_uint_32;
-    fn runtime_png_get_sBIT(
+    fn bridge_png_get_sBIT(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         sig_bit: *mut png_color_8p,
     ) -> png_uint_32;
-    fn runtime_png_get_sRGB(
+    fn bridge_png_get_sRGB(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         file_srgb_intent: *mut c_int,
     ) -> png_uint_32;
-    fn runtime_png_get_iCCP(
+    fn bridge_png_get_iCCP(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         name: *mut png_charp,
@@ -163,44 +163,44 @@ unsafe extern "C" {
         profile: *mut png_bytep,
         proflen: *mut png_uint_32,
     ) -> png_uint_32;
-    fn runtime_png_get_sPLT(
+    fn bridge_png_get_sPLT(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         entries: png_sPLT_tpp,
     ) -> c_int;
-    fn runtime_png_get_text(
+    fn bridge_png_get_text(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         text_ptr: *mut png_textp,
         num_text: *mut c_int,
     ) -> c_int;
-    fn runtime_png_get_tIME(
+    fn bridge_png_get_tIME(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         mod_time: *mut png_timep,
     ) -> png_uint_32;
-    fn runtime_png_get_tRNS(
+    fn bridge_png_get_tRNS(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         trans_alpha: *mut png_bytep,
         num_trans: *mut c_int,
         trans_color: *mut png_color_16p,
     ) -> png_uint_32;
-    fn runtime_png_get_sCAL(
+    fn bridge_png_get_sCAL(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         unit: *mut c_int,
         width: png_doublep,
         height: png_doublep,
     ) -> png_uint_32;
-    fn runtime_png_get_sCAL_fixed(
+    fn bridge_png_get_sCAL_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         unit: *mut c_int,
         width: png_fixed_point_p,
         height: png_fixed_point_p,
     ) -> png_uint_32;
-    fn runtime_png_get_sCAL_s(
+    fn bridge_png_get_sCAL_s(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         unit: *mut c_int,
@@ -231,48 +231,48 @@ delegate_getter! {
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         flag: png_uint_32,
-    ) -> png_uint_32 => runtime_png_get_valid;
+    ) -> png_uint_32 => bridge_png_get_valid;
     fn png_get_rowbytes(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
-    ) -> usize => runtime_png_get_rowbytes;
+    ) -> usize => bridge_png_get_rowbytes;
     fn png_get_image_width(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
-    ) -> png_uint_32 => runtime_png_get_image_width;
+    ) -> png_uint_32 => bridge_png_get_image_width;
     fn png_get_image_height(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
-    ) -> png_uint_32 => runtime_png_get_image_height;
+    ) -> png_uint_32 => bridge_png_get_image_height;
     fn png_get_bit_depth(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
-    ) -> png_byte => runtime_png_get_bit_depth;
+    ) -> png_byte => bridge_png_get_bit_depth;
     fn png_get_color_type(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
-    ) -> png_byte => runtime_png_get_color_type;
+    ) -> png_byte => bridge_png_get_color_type;
     fn png_get_filter_type(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
-    ) -> png_byte => runtime_png_get_filter_type;
+    ) -> png_byte => bridge_png_get_filter_type;
     fn png_get_interlace_type(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
-    ) -> png_byte => runtime_png_get_interlace_type;
+    ) -> png_byte => bridge_png_get_interlace_type;
     fn png_get_compression_type(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
-    ) -> png_byte => runtime_png_get_compression_type;
+    ) -> png_byte => bridge_png_get_compression_type;
     fn png_get_channels(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
-    ) -> png_byte => runtime_png_get_channels;
+    ) -> png_byte => bridge_png_get_channels;
     fn png_get_bKGD(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         background: *mut png_color_16p,
-    ) -> png_uint_32 => runtime_png_get_bKGD;
+    ) -> png_uint_32 => bridge_png_get_bKGD;
     fn png_get_cHRM(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
@@ -284,7 +284,7 @@ delegate_getter! {
         green_y: png_doublep,
         blue_x: png_doublep,
         blue_y: png_doublep,
-    ) -> png_uint_32 => runtime_png_get_cHRM;
+    ) -> png_uint_32 => bridge_png_get_cHRM;
     fn png_get_cHRM_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
@@ -296,33 +296,33 @@ delegate_getter! {
         green_y: png_fixed_point_p,
         blue_x: png_fixed_point_p,
         blue_y: png_fixed_point_p,
-    ) -> png_uint_32 => runtime_png_get_cHRM_fixed;
+    ) -> png_uint_32 => bridge_png_get_cHRM_fixed;
     fn png_get_eXIf(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         exif: *mut png_bytep,
-    ) -> png_uint_32 => runtime_png_get_eXIf;
+    ) -> png_uint_32 => bridge_png_get_eXIf;
     fn png_get_eXIf_1(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         num_exif: *mut png_uint_32,
         exif: *mut png_bytep,
-    ) -> png_uint_32 => runtime_png_get_eXIf_1;
+    ) -> png_uint_32 => bridge_png_get_eXIf_1;
     fn png_get_gAMA(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         file_gamma: png_doublep,
-    ) -> png_uint_32 => runtime_png_get_gAMA;
+    ) -> png_uint_32 => bridge_png_get_gAMA;
     fn png_get_gAMA_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         file_gamma: png_fixed_point_p,
-    ) -> png_uint_32 => runtime_png_get_gAMA_fixed;
+    ) -> png_uint_32 => bridge_png_get_gAMA_fixed;
     fn png_get_hIST(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         hist: *mut png_uint_16p,
-    ) -> png_uint_32 => runtime_png_get_hIST;
+    ) -> png_uint_32 => bridge_png_get_hIST;
     fn png_get_IHDR(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
@@ -333,14 +333,14 @@ delegate_getter! {
         interlace_method: *mut c_int,
         compression_method: *mut c_int,
         filter_method: *mut c_int,
-    ) -> png_uint_32 => runtime_png_get_IHDR;
+    ) -> png_uint_32 => bridge_png_get_IHDR;
     fn png_get_oFFs(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         offset_x: *mut png_int_32,
         offset_y: *mut png_int_32,
         unit_type: *mut c_int,
-    ) -> png_uint_32 => runtime_png_get_oFFs;
+    ) -> png_uint_32 => bridge_png_get_oFFs;
     fn png_get_pCAL(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
@@ -351,30 +351,30 @@ delegate_getter! {
         nparams: *mut c_int,
         units: *mut png_charp,
         params: *mut png_charpp,
-    ) -> png_uint_32 => runtime_png_get_pCAL;
+    ) -> png_uint_32 => bridge_png_get_pCAL;
     fn png_get_pHYs(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         res_x: *mut png_uint_32,
         res_y: *mut png_uint_32,
         unit_type: *mut c_int,
-    ) -> png_uint_32 => runtime_png_get_pHYs;
+    ) -> png_uint_32 => bridge_png_get_pHYs;
     fn png_get_PLTE(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         palette: *mut png_colorp,
         num_palette: *mut c_int,
-    ) -> png_uint_32 => runtime_png_get_PLTE;
+    ) -> png_uint_32 => bridge_png_get_PLTE;
     fn png_get_sBIT(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         sig_bit: *mut png_color_8p,
-    ) -> png_uint_32 => runtime_png_get_sBIT;
+    ) -> png_uint_32 => bridge_png_get_sBIT;
     fn png_get_sRGB(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         file_srgb_intent: *mut c_int,
-    ) -> png_uint_32 => runtime_png_get_sRGB;
+    ) -> png_uint_32 => bridge_png_get_sRGB;
     fn png_get_iCCP(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
@@ -382,51 +382,51 @@ delegate_getter! {
         compression_type: *mut c_int,
         profile: *mut png_bytep,
         proflen: *mut png_uint_32,
-    ) -> png_uint_32 => runtime_png_get_iCCP;
+    ) -> png_uint_32 => bridge_png_get_iCCP;
     fn png_get_sPLT(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         entries: png_sPLT_tpp,
-    ) -> c_int => runtime_png_get_sPLT;
+    ) -> c_int => bridge_png_get_sPLT;
     fn png_get_text(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         text_ptr: *mut png_textp,
         num_text: *mut c_int,
-    ) -> c_int => runtime_png_get_text;
+    ) -> c_int => bridge_png_get_text;
     fn png_get_tIME(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         mod_time: *mut png_timep,
-    ) -> png_uint_32 => runtime_png_get_tIME;
+    ) -> png_uint_32 => bridge_png_get_tIME;
     fn png_get_tRNS(
         png_ptr: png_const_structrp,
         info_ptr: png_inforp,
         trans_alpha: *mut png_bytep,
         num_trans: *mut c_int,
         trans_color: *mut png_color_16p,
-    ) -> png_uint_32 => runtime_png_get_tRNS;
+    ) -> png_uint_32 => bridge_png_get_tRNS;
     fn png_get_sCAL(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         unit: *mut c_int,
         width: png_doublep,
         height: png_doublep,
-    ) -> png_uint_32 => runtime_png_get_sCAL;
+    ) -> png_uint_32 => bridge_png_get_sCAL;
     fn png_get_sCAL_fixed(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         unit: *mut c_int,
         width: png_fixed_point_p,
         height: png_fixed_point_p,
-    ) -> png_uint_32 => runtime_png_get_sCAL_fixed;
+    ) -> png_uint_32 => bridge_png_get_sCAL_fixed;
     fn png_get_sCAL_s(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
         unit: *mut c_int,
         swidth: *mut png_charp,
         sheight: *mut png_charp,
-    ) -> png_uint_32 => runtime_png_get_sCAL_s;
+    ) -> png_uint_32 => bridge_png_get_sCAL_s;
 }
 
 #[unsafe(no_mangle)]
@@ -440,7 +440,7 @@ pub unsafe extern "C" fn png_get_rows(
         {
             info_state.row_pointers
         } else {
-            unsafe { runtime_png_get_rows(png_ptr, info_ptr) }
+            unsafe { bridge_png_get_rows(png_ptr, info_ptr) }
         }
     })
 }
@@ -450,7 +450,7 @@ pub unsafe extern "C" fn png_get_user_width_max(png_ptr: png_const_structrp) -> 
     crate::abi_guard!(png_ptr.cast_mut(), {
         state::get_png(png_ptr.cast_mut())
             .map(|state| state.user_width_max)
-            .unwrap_or_else(|| unsafe { runtime_png_get_user_width_max(png_ptr) })
+            .unwrap_or_else(|| unsafe { bridge_png_get_user_width_max(png_ptr) })
     })
 }
 
@@ -459,7 +459,7 @@ pub unsafe extern "C" fn png_get_user_height_max(png_ptr: png_const_structrp) ->
     crate::abi_guard!(png_ptr.cast_mut(), {
         state::get_png(png_ptr.cast_mut())
             .map(|state| state.user_height_max)
-            .unwrap_or_else(|| unsafe { runtime_png_get_user_height_max(png_ptr) })
+            .unwrap_or_else(|| unsafe { bridge_png_get_user_height_max(png_ptr) })
     })
 }
 
@@ -468,7 +468,7 @@ pub unsafe extern "C" fn png_get_chunk_cache_max(png_ptr: png_const_structrp) ->
     crate::abi_guard!(png_ptr.cast_mut(), {
         state::get_png(png_ptr.cast_mut())
             .map(|state| state.user_chunk_cache_max)
-            .unwrap_or_else(|| unsafe { runtime_png_get_chunk_cache_max(png_ptr) })
+            .unwrap_or_else(|| unsafe { bridge_png_get_chunk_cache_max(png_ptr) })
     })
 }
 
@@ -477,7 +477,7 @@ pub unsafe extern "C" fn png_get_chunk_malloc_max(png_ptr: png_const_structrp) -
     crate::abi_guard!(png_ptr.cast_mut(), {
         state::get_png(png_ptr.cast_mut())
             .map(|state| state.user_chunk_malloc_max)
-            .unwrap_or_else(|| unsafe { runtime_png_get_chunk_malloc_max(png_ptr) })
+            .unwrap_or_else(|| unsafe { bridge_png_get_chunk_malloc_max(png_ptr) })
     })
 }
 

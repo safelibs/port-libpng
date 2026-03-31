@@ -12,6 +12,7 @@ mod get;
 mod interlace;
 mod io;
 mod memory;
+mod bridge_ffi;
 mod read;
 mod read_progressive;
 mod read_transform;
@@ -20,7 +21,6 @@ mod set;
 mod simplified;
 mod state;
 mod types;
-// Phase 5 activates Rust-owned write-side ABI wrappers over renamed upstream helpers.
 mod write;
 mod write_transform;
 mod write_util;

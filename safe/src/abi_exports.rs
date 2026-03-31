@@ -1,11 +1,6 @@
-use std::process;
+include!(concat!(env!("OUT_DIR"), "/abi_export_stubs.rs"));
 
 #[allow(dead_code)]
-#[cold]
-#[inline(never)]
-pub(crate) fn placeholder_abort(symbol: &str) -> ! {
-    eprintln!("libpng safe bootstrap stub invoked: {symbol}");
-    process::abort();
+pub(crate) fn exported_symbols() -> &'static [&'static str] {
+    ABI_EXPORTS
 }
-
-include!(concat!(env!("OUT_DIR"), "/abi_export_stubs.rs"));
