@@ -2,13 +2,16 @@ use crate::common::{
     PNG_USER_CHUNK_CACHE_MAX, PNG_USER_CHUNK_MALLOC_MAX, PNG_USER_HEIGHT_MAX,
     PNG_USER_WIDTH_MAX,
 };
+use crate::read_util::{
+    PNG_HANDLE_CHUNK_AS_DEFAULT, ProgressiveReadState, ReadPhase, UnknownChunkSetting,
+};
 use crate::types::*;
 use core::ffi::c_int;
 use core::ptr;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct PngStructState {
     pub is_read_struct: bool,
     pub error_ptr: png_voidp,
@@ -46,6 +49,10 @@ pub(crate) struct PngStructState {
     pub longjmp_fn: png_longjmp_ptr,
     pub jmp_buf_ptr: *mut JmpBuf,
     pub jmp_buf_size: usize,
+    pub read_phase: ReadPhase,
+    pub progressive_state: ProgressiveReadState,
+    pub unknown_default_keep: c_int,
+    pub unknown_chunk_list: Vec<UnknownChunkSetting>,
 }
 
 unsafe impl Send for PngStructState {}
@@ -96,6 +103,10 @@ impl PngStructState {
             longjmp_fn: None,
             jmp_buf_ptr: ptr::null_mut(),
             jmp_buf_size: 0,
+            read_phase: ReadPhase::Signature,
+            progressive_state: ProgressiveReadState::default(),
+            unknown_default_keep: PNG_HANDLE_CHUNK_AS_DEFAULT,
+            unknown_chunk_list: Vec::new(),
         }
     }
 
@@ -156,7 +167,7 @@ pub(crate) fn register_png(png_ptr: png_structrp, state: PngStructState) {
 
 pub(crate) fn get_png(png_ptr: png_structrp) -> Option<PngStructState> {
     let key = png_key(png_ptr)?;
-    lock_recover(png_struct_states()).get(&key).copied()
+    lock_recover(png_struct_states()).get(&key).cloned()
 }
 
 pub(crate) fn update_png(png_ptr: png_structrp, update: impl FnOnce(&mut PngStructState)) {

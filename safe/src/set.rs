@@ -1,3 +1,4 @@
+use crate::chunks;
 use crate::common::PNG_OPTION_INVALID;
 use crate::state;
 use crate::types::*;
@@ -18,6 +19,12 @@ unsafe extern "C" {
     fn upstream_png_set_chunk_malloc_max(
         png_ptr: png_structrp,
         user_chunk_malloc_max: png_alloc_size_t,
+    );
+    fn upstream_png_set_keep_unknown_chunks(
+        png_ptr: png_structrp,
+        keep: core::ffi::c_int,
+        chunk_list: png_const_bytep,
+        num_chunks_in: core::ffi::c_int,
     );
     fn upstream_png_set_benign_errors(png_ptr: png_structrp, allowed: core::ffi::c_int);
     fn upstream_png_set_check_for_invalid_index(
@@ -93,6 +100,19 @@ pub unsafe extern "C" fn png_set_chunk_malloc_max(
         state::update_png(png_ptr, |state| {
             state.user_chunk_malloc_max = user_chunk_malloc_max;
         });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_keep_unknown_chunks(
+    png_ptr: png_structrp,
+    keep: core::ffi::c_int,
+    chunk_list: png_const_bytep,
+    num_chunks_in: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_keep_unknown_chunks(png_ptr, keep, chunk_list, num_chunks_in);
+        chunks::apply_keep_unknown_chunks_state(png_ptr, keep, chunk_list, num_chunks_in);
     });
 }
 

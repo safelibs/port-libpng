@@ -143,6 +143,7 @@ static void run_progressive_stream(const unsigned char *data, size_t size, int u
         }
     }
 
+    assert(png_process_data_pause(png_ptr, 0) == 0);
     assert(ctx.info_called == 1);
     assert(ctx.end_called == 1);
     assert(ctx.rows_seen > 0);

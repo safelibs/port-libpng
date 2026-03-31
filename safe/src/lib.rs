@@ -12,6 +12,7 @@ mod get;
 mod interlace;
 mod io;
 mod memory;
+mod read;
 mod read_progressive;
 mod read_transform;
 mod read_util;

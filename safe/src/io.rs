@@ -260,3 +260,27 @@ pub unsafe extern "C" fn png_get_io_chunk_type(png_ptr: png_const_structrp) -> p
         upstream_png_get_io_chunk_type(png_ptr)
     })
 }
+
+pub(crate) fn read_user_chunk_registration(
+    png_ptr: png_const_structrp,
+) -> Option<(png_voidp, png_user_chunk_ptr)> {
+    state::get_png(png_ptr.cast_mut()).map(|state| (state.user_chunk_ptr, state.read_user_chunk_fn))
+}
+
+pub(crate) fn progressive_read_registration(
+    png_ptr: png_const_structrp,
+) -> Option<(
+    png_voidp,
+    png_progressive_info_ptr,
+    png_progressive_row_ptr,
+    png_progressive_end_ptr,
+)> {
+    state::get_png(png_ptr.cast_mut()).map(|state| {
+        (
+            state.progressive_ptr,
+            state.progressive_info_fn,
+            state.progressive_row_fn,
+            state.progressive_end_fn,
+        )
+    })
+}

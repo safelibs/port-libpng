@@ -35,6 +35,15 @@ cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
   -lpng16 -lz -lm \
   -o "$build_dir/pngunknown"
 
+cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+  "$repo_root/original/contrib/libtests/readpng.c" \
+  -DPNG_FREESTANDING_TESTS \
+  -I"$stage_root/usr/include" \
+  -L"$lib_dir" \
+  -Wl,-rpath,"$lib_dir" \
+  -lpng16 -lz -lm \
+  -o "$build_dir/readpng"
+
 pushd "$build_dir" >/dev/null
 for wrapper in \
   "$repo_root/original/tests/pngunknown-discard" \
@@ -48,4 +57,6 @@ for wrapper in \
 done
 popd >/dev/null
 
-printf 'upstream pngunknown wrappers passed against the staged safe libpng build\n'
+"$build_dir/readpng" < "$repo_root/original/pngtest.png" >/dev/null
+
+printf 'upstream pngunknown wrappers and readpng passed against the staged safe libpng build\n'

@@ -9,8 +9,14 @@ typedef struct png_safe_read_core {
     png_uint_32 transformations;
     png_uint_32 width;
     png_uint_32 height;
+    png_uint_32 num_rows;
+    png_uint_32 chunk_name;
+    png_uint_32 idat_size;
     size_t rowbytes;
     size_t info_rowbytes;
+    size_t save_buffer_size;
+    size_t buffer_size;
+    size_t current_buffer_size;
     png_byte interlaced;
     png_byte color_type;
     png_byte bit_depth;
@@ -26,7 +32,10 @@ typedef struct png_safe_read_core {
     png_byte rgb_to_gray_coefficients_set;
     png_uint_16 rgb_to_gray_red_coeff;
     png_uint_16 rgb_to_gray_green_coeff;
+    int process_mode;
     int num_palette_max;
+    int unknown_default;
+    png_uint_32 num_chunk_list;
 } png_safe_read_core;
 
 typedef struct png_safe_info_core {
@@ -51,78 +60,10 @@ typedef struct png_safe_info_core {
     png_uint_32 free_me;
 } png_safe_info_core;
 
-#define PNG_SAFE_INTERLACE_TRANSFORM 0x0002U
-
 extern void upstream_png_set_quantize(png_structrp png_ptr, png_colorp palette,
                                       int num_palette, int maximum_colors,
                                       png_const_uint_16p histogram,
                                       int full_quantize);
-extern void upstream_png_read_row(png_structrp png_ptr, png_bytep row,
-                                  png_bytep display_row);
-
-static void png_safe_ignore_warning(png_structp png_ptr,
-                                    png_const_charp message) {
-    (void)png_ptr;
-    (void)message;
-}
-
-static size_t png_safe_rowbytes_for_width(size_t width, size_t pixel_depth) {
-    if (pixel_depth == 0 || width > ((((size_t)-1) - 7U) / pixel_depth)) {
-        return 0;
-    }
-
-    return (width * pixel_depth + 7U) / 8U;
-}
-
-static size_t png_safe_infer_pixel_depth(const png_structrp png_ptr,
-                                         size_t rowbytes) {
-    static const size_t candidates[] = {1U,  2U,  4U,  8U,  16U,
-                                        24U, 32U, 48U, 64U};
-    const size_t width = png_ptr->width;
-    const size_t transformed = png_ptr->transformed_pixel_depth;
-    const size_t derived = (size_t)png_ptr->channels * (size_t)png_ptr->bit_depth;
-    size_t i;
-
-    if (transformed != 0U) {
-        return transformed;
-    }
-
-    if (derived != 0U && png_safe_rowbytes_for_width(width, derived) == rowbytes) {
-        return derived;
-    }
-
-    for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
-        if (png_safe_rowbytes_for_width(width, candidates[i]) == rowbytes) {
-            return candidates[i];
-        }
-    }
-
-    return 0U;
-}
-
-static void png_safe_mask_packed_row_padding(png_bytep row, size_t rowbytes,
-                                             size_t width, size_t pixel_depth) {
-    size_t used_bits;
-    size_t padding_bits;
-    png_byte mask;
-
-    if (row == NULL || rowbytes == 0U || width == 0U || pixel_depth >= 8U) {
-        return;
-    }
-
-    if (pixel_depth != 0U && width > (((size_t)-1) / pixel_depth)) {
-        return;
-    }
-
-    used_bits = width * pixel_depth;
-    padding_bits = (8U - (used_bits % 8U)) % 8U;
-    if (padding_bits == 0U) {
-        return;
-    }
-
-    mask = (png_byte)~((1U << padding_bits) - 1U);
-    row[rowbytes - 1U] &= mask;
-}
 
 void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out) {
     memset(out, 0, sizeof(*out));
@@ -135,8 +76,14 @@ void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out)
     out->transformations = png_ptr->transformations;
     out->width = png_ptr->width;
     out->height = png_ptr->height;
+    out->num_rows = png_ptr->num_rows;
+    out->chunk_name = png_ptr->chunk_name;
+    out->idat_size = png_ptr->idat_size;
     out->rowbytes = png_ptr->rowbytes;
     out->info_rowbytes = png_ptr->info_rowbytes;
+    out->save_buffer_size = png_ptr->save_buffer_size;
+    out->buffer_size = png_ptr->buffer_size;
+    out->current_buffer_size = png_ptr->current_buffer_size;
     out->interlaced = png_ptr->interlaced;
     out->color_type = png_ptr->color_type;
     out->bit_depth = png_ptr->bit_depth;
@@ -152,7 +99,10 @@ void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out)
     out->rgb_to_gray_coefficients_set = png_ptr->rgb_to_gray_coefficients_set;
     out->rgb_to_gray_red_coeff = png_ptr->rgb_to_gray_red_coeff;
     out->rgb_to_gray_green_coeff = png_ptr->rgb_to_gray_green_coeff;
+    out->process_mode = png_ptr->process_mode;
     out->num_palette_max = png_ptr->num_palette_max;
+    out->unknown_default = png_ptr->unknown_default;
+    out->num_chunk_list = png_ptr->num_chunk_list;
 }
 
 void png_safe_read_core_set(png_structrp png_ptr, const png_safe_read_core *in) {
@@ -165,8 +115,14 @@ void png_safe_read_core_set(png_structrp png_ptr, const png_safe_read_core *in) 
     png_ptr->transformations = in->transformations;
     png_ptr->width = in->width;
     png_ptr->height = in->height;
+    png_ptr->num_rows = in->num_rows;
+    png_ptr->chunk_name = in->chunk_name;
+    png_ptr->idat_size = in->idat_size;
     png_ptr->rowbytes = in->rowbytes;
     png_ptr->info_rowbytes = in->info_rowbytes;
+    png_ptr->save_buffer_size = in->save_buffer_size;
+    png_ptr->buffer_size = in->buffer_size;
+    png_ptr->current_buffer_size = in->current_buffer_size;
     png_ptr->interlaced = in->interlaced;
     png_ptr->color_type = in->color_type;
     png_ptr->bit_depth = in->bit_depth;
@@ -182,7 +138,10 @@ void png_safe_read_core_set(png_structrp png_ptr, const png_safe_read_core *in) 
     png_ptr->rgb_to_gray_coefficients_set = in->rgb_to_gray_coefficients_set;
     png_ptr->rgb_to_gray_red_coeff = in->rgb_to_gray_red_coeff;
     png_ptr->rgb_to_gray_green_coeff = in->rgb_to_gray_green_coeff;
+    png_ptr->process_mode = in->process_mode;
     png_ptr->num_palette_max = in->num_palette_max;
+    png_ptr->unknown_default = in->unknown_default;
+    png_ptr->num_chunk_list = in->num_chunk_list;
 }
 
 void png_safe_info_core_get(png_const_inforp info_ptr, png_safe_info_core *out) {
@@ -238,61 +197,6 @@ void png_safe_info_core_set(png_inforp info_ptr, const png_safe_info_core *in) {
     info_ptr->free_me = in->free_me;
 }
 
-int png_safe_call_read_info(png_structrp png_ptr, png_inforp info_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
-    png_read_info(png_ptr, info_ptr);
-    return 1;
-}
-
-int png_safe_call_read_update_info(png_structrp png_ptr, png_inforp info_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
-    png_read_update_info(png_ptr, info_ptr);
-    return 1;
-}
-
-int png_safe_call_read_image(png_structrp png_ptr, png_bytepp image) {
-    volatile png_error_ptr saved_warning_fn = NULL;
-    volatile int suppress_interlace_warning = 0;
-
-    if (png_ptr != NULL &&
-        (png_ptr->flags & PNG_FLAG_ROW_INIT) != 0 &&
-        png_ptr->interlaced != 0 &&
-        (png_ptr->transformations & PNG_INTERLACE) == 0) {
-        saved_warning_fn = png_ptr->warning_fn;
-        png_ptr->warning_fn = png_safe_ignore_warning;
-        suppress_interlace_warning = 1;
-    }
-
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        if (suppress_interlace_warning != 0 && png_ptr != NULL) {
-            png_ptr->warning_fn = (png_error_ptr)saved_warning_fn;
-        }
-        return 0;
-    }
-
-    png_read_image(png_ptr, image);
-
-    if (suppress_interlace_warning != 0 && png_ptr != NULL) {
-        png_ptr->warning_fn = (png_error_ptr)saved_warning_fn;
-    }
-    return 1;
-}
-
-int png_safe_call_read_end(png_structrp png_ptr, png_inforp info_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
-    png_read_end(png_ptr, info_ptr);
-    return 1;
-}
-
 int png_safe_call_warning(png_structrp png_ptr, png_const_charp message) {
     png_warning(png_ptr, message);
     return 1;
@@ -336,35 +240,4 @@ int png_safe_call_set_quantize(png_structrp png_ptr, png_colorp palette,
     upstream_png_set_quantize(png_ptr, palette, num_palette, maximum_colors,
                               histogram, full_quantize);
     return 1;
-}
-
-void png_read_row(png_structrp png_ptr, png_bytep row, png_bytep display_row) {
-    size_t rowbytes;
-    size_t width;
-    size_t pixel_depth;
-    int handled_interlace;
-
-    if (png_ptr == NULL) {
-        return;
-    }
-
-    if (row == NULL && display_row == NULL) {
-        upstream_png_read_row(png_ptr, row, display_row);
-        return;
-    }
-
-    handled_interlace = png_ptr->interlaced != 0 &&
-                        (png_ptr->transformations & PNG_SAFE_INTERLACE_TRANSFORM) != 0;
-    rowbytes = png_ptr->rowbytes != 0U ? png_ptr->rowbytes : png_ptr->info_rowbytes;
-    width = png_ptr->width;
-    pixel_depth = png_safe_infer_pixel_depth(png_ptr, rowbytes);
-
-    upstream_png_read_row(png_ptr, row, display_row);
-
-    if (!handled_interlace && png_ptr->interlaced != 0) {
-        return;
-    }
-
-    png_safe_mask_packed_row_padding(row, rowbytes, width, pixel_depth);
-    png_safe_mask_packed_row_padding(display_row, rowbytes, width, pixel_depth);
 }

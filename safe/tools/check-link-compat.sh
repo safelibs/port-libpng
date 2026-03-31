@@ -27,6 +27,7 @@ mkdir -p \
   "$old_object_static"
 
 programs=(
+  readpng
   pngtest
   pngunknown
   pngstest
@@ -75,6 +76,11 @@ run_pngtest() {
   "$mode_dir/pngtest" --strict "$repo_root/original/pngtest.png" >/dev/null
 }
 
+run_readpng() {
+  local mode_dir="$1"
+  "$mode_dir/readpng" < "$repo_root/original/pngtest.png" >/dev/null
+}
+
 run_pngcp() {
   local mode_dir="$1"
   local output="$mode_dir/pngcp-fixed.png"
@@ -99,6 +105,7 @@ run_lane_matrix() {
   local lane_label="$1"
   local mode_dir="$2"
 
+  run_readpng "$mode_dir"
   run_pngtest "$mode_dir"
   run_original_wrapper pngunknown-discard "$mode_dir"
   run_original_wrapper pngstest-none "$mode_dir"
@@ -106,10 +113,11 @@ run_lane_matrix() {
   run_pngcp "$mode_dir"
   run_timepng "$mode_dir"
 
-  printf '%s lane passed for pngtest, pngunknown, pngstest, pngimage, pngcp, and timepng\n' \
+  printf '%s lane passed for readpng, pngtest, pngunknown, pngstest, pngimage, pngcp, and timepng\n' \
     "$lane_label"
 }
 
+compile_safe_header_object readpng "$repo_root/original/contrib/libtests/readpng.c"
 staged_pngtest_source="$(prepare_pngtest_source "$staged_header_objects")"
 compile_safe_header_object pngtest "$staged_pngtest_source"
 compile_safe_header_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c"
@@ -118,6 +126,7 @@ compile_safe_header_object pngimage "$repo_root/original/contrib/libtests/pngima
 compile_safe_header_object pngcp "$repo_root/original/contrib/tools/pngcp.c"
 compile_safe_header_object timepng "$repo_root/original/contrib/libtests/timepng.c"
 
+build_preserved_original_object readpng "$repo_root/original/contrib/libtests/readpng.c" "$original_header_objects"
 original_pngtest_source="$(prepare_pngtest_source "$original_header_objects")"
 build_preserved_original_object pngtest "$original_pngtest_source" "$original_header_objects"
 build_preserved_original_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c" "$original_header_objects"

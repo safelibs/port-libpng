@@ -244,8 +244,14 @@ pub struct png_safe_read_core {
     pub transformations: png_uint_32,
     pub width: png_uint_32,
     pub height: png_uint_32,
+    pub num_rows: png_uint_32,
+    pub chunk_name: png_uint_32,
+    pub idat_size: png_uint_32,
     pub rowbytes: usize,
     pub info_rowbytes: usize,
+    pub save_buffer_size: usize,
+    pub buffer_size: usize,
+    pub current_buffer_size: usize,
     pub interlaced: png_byte,
     pub color_type: png_byte,
     pub bit_depth: png_byte,
@@ -261,7 +267,10 @@ pub struct png_safe_read_core {
     pub rgb_to_gray_coefficients_set: png_byte,
     pub rgb_to_gray_red_coeff: png_uint_16,
     pub rgb_to_gray_green_coeff: png_uint_16,
+    pub process_mode: c_int,
     pub num_palette_max: c_int,
+    pub unknown_default: c_int,
+    pub num_chunk_list: png_uint_32,
 }
 
 #[repr(C)]

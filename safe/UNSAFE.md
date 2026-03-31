@@ -1,10 +1,11 @@
 # Unsafe Boundaries
 
 This phase still ships a mixed Rust and upstream-C libpng. The active boundary
-is now broader than the earlier read-transform-only baseline: Rust owns the
-public core lifetime, callback registration, error, memory, IO, and policy
-entry points, while upstream C still owns the underlying `png_struct` and
-`png_info` storage layout plus the remaining read/write execution paths.
+now includes the exported sequential-read and progressive-read control APIs:
+Rust owns the public lifetime, callback registration, error, memory, IO,
+policy, and read-core entry points, while upstream C still owns the underlying
+`png_struct` and `png_info` storage layout plus the remaining parser, inflate,
+and write execution internals behind the renamed symbols.
 
 ## Current Hybrid Baseline
 
@@ -12,12 +13,10 @@ entry points, while upstream C still owns the underlying `png_struct` and
   `original/` into `libpng16_upstream.a`.
 - The frozen public ABI still exports 246 `png_*` symbols
   (`safe/abi/exports.txt`).
-- `UPSTREAM_RENAMES` in `safe/build.rs` now renames 95 public symbols to
+- `UPSTREAM_RENAMES` in `safe/build.rs` now renames 105 public symbols to
   `upstream_*` before the upstream C objects are linked.
-- 94 of those 95 renamed symbols are re-owned by Rust.
-- 1 renamed symbol, `png_read_row`, remains re-owned by
-  `safe/cshim/read_phase_bridge.c`.
-- The remaining 151 public `png_*` exports are still upstream-C owned.
+- All 105 renamed symbols are re-owned by Rust exports.
+- The remaining 141 public `png_*` exports are still upstream-C owned.
 
 ## Active Rust-Owned Public ABI
 
@@ -30,11 +29,14 @@ dormant:
 - newly active phase-2 owners:
   `safe/src/error.rs`, `safe/src/memory.rs`, `safe/src/io.rs`,
   `safe/src/get.rs`, `safe/src/set.rs`, and `safe/src/state.rs`
+- newly active phase-3 owners:
+  `safe/src/read.rs`, `safe/src/read_progressive.rs`,
+  `safe/src/read_util.rs`, `safe/src/chunks.rs`, `safe/src/interlace.rs`,
+  and `safe/src/zlib.rs`
 - compiled support modules:
-  `safe/src/chunks.rs`, `safe/src/read_progressive.rs`,
-  `safe/src/read_util.rs`, `safe/src/write.rs`,
+  `safe/src/write.rs`,
   `safe/src/write_transform.rs`, `safe/src/write_util.rs`,
-  `safe/src/zlib.rs`, `safe/src/types.rs`, and `safe/src/abi_exports.rs`
+  `safe/src/types.rs`, and `safe/src/abi_exports.rs`
 
 The newly Rust-owned public symbol families are:
 
@@ -66,8 +68,14 @@ The newly Rust-owned public symbol families are:
   `png_get_user_width_max`, `png_get_user_height_max`,
   `png_set_chunk_cache_max`, `png_get_chunk_cache_max`,
   `png_set_chunk_malloc_max`, `png_get_chunk_malloc_max`,
-  `png_set_benign_errors`, `png_set_check_for_invalid_index`,
-  `png_get_palette_max`, and `png_set_option`
+  `png_set_keep_unknown_chunks`, `png_set_benign_errors`,
+  `png_set_check_for_invalid_index`, `png_get_palette_max`,
+  and `png_set_option`
+- read-core and progressive-read control:
+  `png_read_info`, `png_read_update_info`, `png_start_read_image`,
+  `png_read_row`, `png_read_rows`, `png_read_image`, `png_read_end`,
+  `png_process_data`, `png_process_data_pause`, and
+  `png_process_data_skip`
 
 ## Mixed-Runtime Object Ownership
 
@@ -79,7 +87,8 @@ During phases 2 through 5, Rust does not replace the concrete `png_struct` or
   destructors
 - `safe/src/state.rs` attaches Rust sidecar state to those live pointers and
   mirrors callback registrations, user payloads, limits, option bits, longjmp
-  metadata, and `png_info` ownership flags
+  metadata, read-phase state, progressive pause or skip state, unknown-chunk
+  keep policy, and `png_info` ownership flags
 - setters update both worlds:
   the actual upstream-compatible struct fields via the renamed upstream helper
   functions, and the Rust sidecar for later Rust-owned phases
@@ -105,17 +114,17 @@ interop boundary for the public longjmp APIs:
   Rust-owned `png_set_longjmp_fn`, but still receives a real `jmp_buf *`
   compatible with application `setjmp`
 
-`safe/cshim/read_phase_bridge.c` remains compiled, but only for the
-still-upstream read-path containment and private-layout mirror helpers used by
-the existing read-transform work. It is no longer the active longjmp boundary
-for the public core ABI.
+`safe/cshim/read_phase_bridge.c` remains compiled, but only for the unavoidable
+private-layout mirror helpers plus the longjmp-containing error and
+`png_set_quantize` shims that Rust still calls into. It no longer exports any
+public read entry point.
 
 ## Remaining Upstream-Owned Public ABI
 
 The following major surfaces are still upstream-owned in this phase:
 
-- sequential read execution, progressive read execution, and the remaining
-  read-path parser/chunk helpers not already ported
+- the underlying read-path parser, chunk body handlers, inflate engine, and
+  other private helpers still reached through the renamed `upstream_*` symbols
 - write execution, chunk emission, compression-control, and simplified write
   entry points
 - simplified `png_image_*` helpers

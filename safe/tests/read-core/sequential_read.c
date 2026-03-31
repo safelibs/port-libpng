@@ -29,24 +29,168 @@ static void warning_cb(png_structp png_ptr, png_const_charp message) {
     ++ctx->warnings;
 }
 
-static int read_image_rows(const char *path, int expect_interlaced, int ignore_adler32) {
-    FILE *fp = fopen(path, "rb");
-    assert(fp != NULL);
+static png_structp open_reader(
+    const char *path,
+    test_ctx *ctx,
+    png_infop *info_out,
+    png_infop *end_out,
+    FILE **fp_out)
+{
+    png_structp png_ptr;
 
+    *fp_out = fopen(path, "rb");
+    assert(*fp_out != NULL);
+
+    png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, ctx, error_cb, warning_cb);
+    assert(png_ptr != NULL);
+
+    *info_out = png_create_info_struct(png_ptr);
+    *end_out = png_create_info_struct(png_ptr);
+    assert(*info_out != NULL);
+    assert(*end_out != NULL);
+
+    png_init_io(png_ptr, *fp_out);
+    return png_ptr;
+}
+
+static void close_reader(
+    png_structp *png_ptr,
+    png_infop *info_ptr,
+    png_infop *end_ptr,
+    FILE **fp)
+{
+    png_destroy_read_struct(png_ptr, info_ptr, end_ptr);
+    fclose(*fp);
+}
+
+static int read_with_rows_api(const char *path) {
     test_ctx ctx;
     memset(&ctx, 0, sizeof ctx);
 
-    png_structp png_ptr =
-        png_create_read_struct(PNG_LIBPNG_VER_STRING, &ctx, error_cb, warning_cb);
-    assert(png_ptr != NULL);
-    png_infop info_ptr = png_create_info_struct(png_ptr);
-    png_infop end_ptr = png_create_info_struct(png_ptr);
-    assert(info_ptr != NULL);
-    assert(end_ptr != NULL);
+    png_infop info_ptr = NULL;
+    png_infop end_ptr = NULL;
+    FILE *fp = NULL;
+    png_structp png_ptr = open_reader(path, &ctx, &info_ptr, &end_ptr, &fp);
 
     if (setjmp(ctx.env) != 0) {
-        png_destroy_read_struct(&png_ptr, &info_ptr, &end_ptr);
-        fclose(fp);
+        close_reader(&png_ptr, &info_ptr, &end_ptr, &fp);
+        return 0;
+    }
+
+    png_read_info(png_ptr, info_ptr);
+    png_read_update_info(png_ptr, info_ptr);
+
+    png_uint_32 height = png_get_image_height(png_ptr, info_ptr);
+    size_t rowbytes = png_get_rowbytes(png_ptr, info_ptr);
+    assert(height > 0);
+    assert(rowbytes > 0);
+
+    png_bytep storage = (png_bytep)calloc(height, rowbytes);
+    png_bytep *rows = (png_bytep *)malloc(sizeof(*rows) * height);
+    assert(storage != NULL);
+    assert(rows != NULL);
+
+    for (png_uint_32 y = 0; y < height; ++y) {
+        rows[y] = storage + y * rowbytes;
+    }
+
+    png_read_rows(png_ptr, rows, NULL, height);
+    png_read_end(png_ptr, end_ptr);
+
+    free(rows);
+    free(storage);
+    close_reader(&png_ptr, &info_ptr, &end_ptr, &fp);
+    return 1;
+}
+
+static int read_with_start_read_image(const char *path) {
+    test_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+
+    png_infop info_ptr = NULL;
+    png_infop end_ptr = NULL;
+    FILE *fp = NULL;
+    png_structp png_ptr = open_reader(path, &ctx, &info_ptr, &end_ptr, &fp);
+
+    if (setjmp(ctx.env) != 0) {
+        close_reader(&png_ptr, &info_ptr, &end_ptr, &fp);
+        return 0;
+    }
+
+    png_read_info(png_ptr, info_ptr);
+    png_start_read_image(png_ptr);
+
+    png_uint_32 height = png_get_image_height(png_ptr, info_ptr);
+    size_t rowbytes = png_get_rowbytes(png_ptr, info_ptr);
+    png_bytep row = (png_bytep)malloc(rowbytes);
+    assert(height > 0);
+    assert(rowbytes > 0);
+    assert(row != NULL);
+
+    for (png_uint_32 y = 0; y < height; ++y) {
+        png_read_row(png_ptr, row, NULL);
+    }
+
+    png_read_end(png_ptr, end_ptr);
+    free(row);
+    close_reader(&png_ptr, &info_ptr, &end_ptr, &fp);
+    return 1;
+}
+
+static int read_with_image_api(const char *path, int expect_interlaced_warning) {
+    test_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+
+    png_infop info_ptr = NULL;
+    png_infop end_ptr = NULL;
+    FILE *fp = NULL;
+    png_structp png_ptr = open_reader(path, &ctx, &info_ptr, &end_ptr, &fp);
+
+    if (setjmp(ctx.env) != 0) {
+        close_reader(&png_ptr, &info_ptr, &end_ptr, &fp);
+        return 0;
+    }
+
+    png_read_info(png_ptr, info_ptr);
+    png_read_update_info(png_ptr, info_ptr);
+
+    png_uint_32 height = png_get_image_height(png_ptr, info_ptr);
+    size_t rowbytes = png_get_rowbytes(png_ptr, info_ptr);
+    png_bytep storage = (png_bytep)calloc(height, rowbytes);
+    png_bytep *rows = (png_bytep *)malloc(sizeof(*rows) * height);
+    assert(height > 0);
+    assert(rowbytes > 0);
+    assert(storage != NULL);
+    assert(rows != NULL);
+
+    for (png_uint_32 y = 0; y < height; ++y) {
+        rows[y] = storage + y * rowbytes;
+    }
+
+    png_read_image(png_ptr, rows);
+    png_read_end(png_ptr, end_ptr);
+
+    if (expect_interlaced_warning) {
+        assert(ctx.warnings >= 1);
+    }
+
+    free(rows);
+    free(storage);
+    close_reader(&png_ptr, &info_ptr, &end_ptr, &fp);
+    return 1;
+}
+
+static int read_with_row_loop(const char *path, int ignore_adler32) {
+    test_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+
+    png_infop info_ptr = NULL;
+    png_infop end_ptr = NULL;
+    FILE *fp = NULL;
+    png_structp png_ptr = open_reader(path, &ctx, &info_ptr, &end_ptr, &fp);
+
+    if (setjmp(ctx.env) != 0) {
+        close_reader(&png_ptr, &info_ptr, &end_ptr, &fp);
         return 0;
     }
 
@@ -55,53 +199,35 @@ static int read_image_rows(const char *path, int expect_interlaced, int ignore_a
         (void)png_set_option(png_ptr, PNG_IGNORE_ADLER32, 1);
     }
 
-    png_init_io(png_ptr, fp);
     png_read_info(png_ptr, info_ptr);
-
-    png_uint_32 width = png_get_image_width(png_ptr, info_ptr);
-    png_uint_32 height = png_get_image_height(png_ptr, info_ptr);
-    assert(width > 0);
-    assert(height > 0);
-
-    int passes = png_set_interlace_handling(png_ptr);
-    if (expect_interlaced) {
-        assert(passes == PNG_INTERLACE_ADAM7_PASSES);
-    } else {
-        assert(passes == 1);
-    }
-
     png_read_update_info(png_ptr, info_ptr);
-    size_t rowbytes = png_get_rowbytes(png_ptr, info_ptr);
-    assert(rowbytes > 0);
 
+    png_uint_32 height = png_get_image_height(png_ptr, info_ptr);
+    size_t rowbytes = png_get_rowbytes(png_ptr, info_ptr);
     png_bytep row = (png_bytep)malloc(rowbytes);
+    assert(height > 0);
+    assert(rowbytes > 0);
     assert(row != NULL);
 
-    png_uint_32 rows_read = 0;
-    for (int pass = 0; pass < passes; ++pass) {
-        for (png_uint_32 y = 0; y < height; ++y) {
-            png_read_row(png_ptr, row, NULL);
-            ++rows_read;
-        }
+    for (png_uint_32 y = 0; y < height; ++y) {
+        png_read_row(png_ptr, row, NULL);
     }
 
     png_read_end(png_ptr, end_ptr);
     free(row);
-    png_destroy_read_struct(&png_ptr, &info_ptr, &end_ptr);
-    fclose(fp);
-
-    assert(rows_read == height * (png_uint_32)passes);
+    close_reader(&png_ptr, &info_ptr, &end_ptr, &fp);
     return 1;
 }
 
 int main(int argc, char **argv) {
     assert(argc == 4);
 
-    assert(read_image_rows(argv[1], 0, 0) == 1);
-    assert(read_image_rows(argv[2], 1, 0) == 1);
+    assert(read_with_rows_api(argv[1]) == 1);
+    assert(read_with_start_read_image(argv[1]) == 1);
+    assert(read_with_image_api(argv[2], 1) == 1);
 
-    assert(read_image_rows(argv[3], 0, 0) == 0);
-    assert(read_image_rows(argv[3], 0, 1) == 1);
+    assert(read_with_row_loop(argv[3], 0) == 0);
+    assert(read_with_row_loop(argv[3], 1) == 1);
 
     return 0;
 }
