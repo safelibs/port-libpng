@@ -1,8 +1,7 @@
 use crate::chunks::{call_app_error, read_core, write_core};
-use crate::interlace::mask_packed_row_padding;
+use crate::interlace::mask_packed_row_padding_for_width;
 use crate::types::*;
 use core::ffi::c_int;
-use core::ptr;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -24,6 +23,11 @@ const PNG_BGR: png_uint_32 = 0x0001;
 const PNG_FLAG_ROW_INIT: png_uint_32 = 0x0040;
 const PNG_FLAG_DETECT_UNINITIALIZED: png_uint_32 = 0x4000;
 
+const PASS_START_COL: [usize; 7] = [0, 4, 0, 2, 0, 1, 0];
+const PASS_COL_OFFSET: [usize; 7] = [8, 8, 4, 4, 2, 2, 1];
+const PASS_START_ROW: [usize; 7] = [0, 0, 4, 0, 2, 0, 1];
+const PASS_ROW_OFFSET: [usize; 7] = [8, 8, 8, 4, 4, 2, 2];
+
 unsafe extern "C" {
     fn png_safe_call_read_image(png_ptr: png_structrp, image: png_bytepp) -> c_int;
     fn png_safe_call_set_quantize(
@@ -36,12 +40,24 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
+#[derive(Clone, Copy, Debug)]
+struct RowSlot {
+    row_index: usize,
+    pass_width: usize,
+    start_col: usize,
+    col_step: usize,
+    present: bool,
+}
+
 #[derive(Debug)]
 struct BufferedReadState {
     rows: Vec<u8>,
     rowbytes: usize,
-    height: usize,
-    passes: usize,
+    width: usize,
+    pixel_depth: usize,
+    source_interlaced: bool,
+    handled_interlace: bool,
+    slots: Vec<RowSlot>,
     next_slot: usize,
 }
 
@@ -91,6 +107,143 @@ fn rtran_ok(png_ptr: png_structrp, need_ihdr: bool) -> bool {
         write_core(png_ptr, &core);
     }
     true
+}
+
+fn pass_cols(width: usize, pass: usize) -> usize {
+    let start = PASS_START_COL[pass];
+    if width <= start {
+        0
+    } else {
+        (width - start).div_ceil(PASS_COL_OFFSET[pass])
+    }
+}
+
+fn row_in_pass(row: usize, pass: usize) -> bool {
+    row >= PASS_START_ROW[pass] && (row - PASS_START_ROW[pass]).is_multiple_of(PASS_ROW_OFFSET[pass])
+}
+
+fn rowbytes_for_width(width: usize, pixel_depth: usize) -> usize {
+    (width * pixel_depth).div_ceil(8)
+}
+
+fn infer_pixel_depth(core: png_safe_read_core, width: usize, rowbytes: usize) -> usize {
+    let transformed = usize::from(core.transformed_pixel_depth);
+    if transformed != 0 {
+        return transformed;
+    }
+
+    let derived = usize::from(core.channels) * usize::from(core.bit_depth);
+    if derived != 0 && rowbytes_for_width(width, derived) == rowbytes {
+        return derived;
+    }
+
+    const CANDIDATES: [usize; 9] = [1, 2, 4, 8, 16, 24, 32, 48, 64];
+    CANDIDATES
+        .into_iter()
+        .find(|candidate| rowbytes_for_width(width, *candidate) == rowbytes)
+        .unwrap_or(0)
+}
+
+fn read_packed_pixel(row: &[u8], x: usize, pixel_depth: usize) -> u8 {
+    let bit_offset = x * pixel_depth;
+    let byte_index = bit_offset / 8;
+    let shift = 8 - pixel_depth - (bit_offset % 8);
+    let mask = ((1u16 << pixel_depth) - 1) as u8;
+    (row[byte_index] >> shift) & mask
+}
+
+fn write_packed_pixel(row: &mut [u8], x: usize, pixel_depth: usize, value: u8) {
+    let bit_offset = x * pixel_depth;
+    let byte_index = bit_offset / 8;
+    let shift = 8 - pixel_depth - (bit_offset % 8);
+    let mask = (((1u16 << pixel_depth) - 1) as u8) << shift;
+    row[byte_index] = (row[byte_index] & !mask) | ((value << shift) & mask);
+}
+
+fn copy_dense_pass_row(
+    state: &BufferedReadState,
+    slot: RowSlot,
+    dst: png_bytep,
+) {
+    if dst.is_null() || !slot.present || state.pixel_depth == 0 || slot.pass_width == 0 {
+        return;
+    }
+
+    let src_start = slot.row_index * state.rowbytes;
+    let src_end = src_start + state.rowbytes;
+    let src_row = &state.rows[src_start..src_end];
+    let dst_rowbytes = rowbytes_for_width(slot.pass_width, state.pixel_depth);
+    if dst_rowbytes == 0 {
+        return;
+    }
+    let dst_row = unsafe { std::slice::from_raw_parts_mut(dst, dst_rowbytes) };
+
+    if state.pixel_depth >= 8 {
+        let pixel_bytes = state.pixel_depth / 8;
+        for x in 0..slot.pass_width {
+            let src_x = slot.start_col + x * slot.col_step;
+            let src_offset = src_x * pixel_bytes;
+            let dst_offset = x * pixel_bytes;
+            dst_row[dst_offset..dst_offset + pixel_bytes]
+                .copy_from_slice(&src_row[src_offset..src_offset + pixel_bytes]);
+        }
+    } else {
+        dst_row.fill(0);
+        for x in 0..slot.pass_width {
+            let src_x = slot.start_col + x * slot.col_step;
+            let value = read_packed_pixel(src_row, src_x, state.pixel_depth);
+            write_packed_pixel(dst_row, x, state.pixel_depth, value);
+        }
+        mask_packed_row_padding_for_width(dst_row, slot.pass_width, state.pixel_depth);
+    }
+}
+
+fn combine_interlaced_row(
+    state: &BufferedReadState,
+    slot: RowSlot,
+    dst: png_bytep,
+    display: bool,
+) {
+    if dst.is_null() || !slot.present || state.pixel_depth == 0 || state.width == 0 {
+        return;
+    }
+
+    let src_start = slot.row_index * state.rowbytes;
+    let src_end = src_start + state.rowbytes;
+    let src_row = &state.rows[src_start..src_end];
+    let dst_row = unsafe { std::slice::from_raw_parts_mut(dst, state.rowbytes) };
+
+    if state.pixel_depth >= 8 {
+        let pixel_bytes = state.pixel_depth / 8;
+        for x in 0..slot.pass_width {
+            let src_x = slot.start_col + x * slot.col_step;
+            let src_offset = src_x * pixel_bytes;
+            let fill_end = if display {
+                usize::min(src_x + slot.col_step, state.width)
+            } else {
+                src_x + 1
+            };
+            for out_x in src_x..fill_end {
+                let dst_offset = out_x * pixel_bytes;
+                dst_row[dst_offset..dst_offset + pixel_bytes]
+                    .copy_from_slice(&src_row[src_offset..src_offset + pixel_bytes]);
+            }
+        }
+    } else {
+        for x in 0..slot.pass_width {
+            let src_x = slot.start_col + x * slot.col_step;
+            let value = read_packed_pixel(src_row, src_x, state.pixel_depth);
+            let fill_end = if display {
+                usize::min(src_x + slot.col_step, state.width)
+            } else {
+                src_x + 1
+            };
+            for out_x in src_x..fill_end {
+                write_packed_pixel(dst_row, out_x, state.pixel_depth, value);
+            }
+        }
+        mask_packed_row_padding_for_width(dst_row, state.width, state.pixel_depth);
+    }
 }
 
 fn update_transform(png_ptr: png_structrp, transform_mask: png_uint_32) {
@@ -230,11 +383,17 @@ pub unsafe extern "C" fn png_read_row(
 
     if need_init {
         let core = unsafe { read_core(png_ptr) };
+        let width = match usize::try_from(core.width) {
+            Ok(value) if value > 0 => value,
+            _ => return,
+        };
         let height = match usize::try_from(core.height) {
             Ok(value) if value > 0 => value,
             _ => return,
         };
-        let explicit_interlace = core.interlaced != 0 && (core.transformations & PNG_INTERLACE) != 0;
+        let source_interlaced = core.interlaced != 0;
+        let handled_interlace =
+            source_interlaced && (core.transformations & PNG_INTERLACE) != 0;
         let rowbytes = if core.info_rowbytes != 0 {
             core.info_rowbytes
         } else {
@@ -255,17 +414,65 @@ pub unsafe extern "C" fn png_read_row(
             return;
         }
 
-        let passes = if explicit_interlace {
-            7usize
-        } else {
-            1usize
-        };
+        let updated_core = unsafe { read_core(png_ptr) };
+        let pixel_depth = infer_pixel_depth(updated_core, width, rowbytes);
+        if pixel_depth == 0 {
+            return;
+        }
+
+        let passes = if source_interlaced { 7usize } else { 1usize };
+        let mut full_slots = Vec::new();
+        let mut present_slots = Vec::new();
+
+        for pass in 0..passes {
+            let pass_width = if source_interlaced {
+                pass_cols(width, pass)
+            } else {
+                width
+            };
+            let start_col = if source_interlaced {
+                PASS_START_COL[pass]
+            } else {
+                0
+            };
+            let col_step = if source_interlaced {
+                PASS_COL_OFFSET[pass]
+            } else {
+                1
+            };
+
+            for row_index in 0..height {
+                let present = if source_interlaced {
+                    pass_width > 0 && row_in_pass(row_index, pass)
+                } else {
+                    true
+                };
+                let slot = RowSlot {
+                    row_index,
+                    pass_width,
+                    start_col,
+                    col_step,
+                    present,
+                };
+                full_slots.push(slot);
+                if present {
+                    present_slots.push(slot);
+                }
+            }
+        }
 
         let state = BufferedReadState {
             rows,
             rowbytes,
-            height,
-            passes,
+            width,
+            pixel_depth,
+            source_interlaced,
+            handled_interlace,
+            slots: if source_interlaced && !handled_interlace {
+                present_slots
+            } else {
+                full_slots
+            },
             next_slot: 0,
         };
 
@@ -281,34 +488,21 @@ pub unsafe extern "C" fn png_read_row(
             return;
         };
 
-        let Some(total_slots) = state.height.checked_mul(state.passes) else {
-            return;
-        };
-        if state.next_slot >= total_slots {
+        if state.next_slot >= state.slots.len() {
             return;
         }
 
-        let row_index = state.next_slot % state.height;
-        let start = row_index * state.rowbytes;
-        let end = start + state.rowbytes;
-        let src = &state.rows[start..end];
-
-        if !row.is_null() {
-            unsafe {
-                ptr::copy_nonoverlapping(src.as_ptr(), row, src.len());
-            }
-        }
-        if !display_row.is_null() {
-            unsafe {
-                ptr::copy_nonoverlapping(src.as_ptr(), display_row, src.len());
+        let slot = state.slots[state.next_slot];
+        if slot.present {
+            if state.source_interlaced && state.handled_interlace {
+                combine_interlaced_row(state, slot, row, false);
+                combine_interlaced_row(state, slot, display_row, true);
+            } else {
+                copy_dense_pass_row(state, slot, row);
+                copy_dense_pass_row(state, slot, display_row);
             }
         }
 
         state.next_slot += 1;
-    }
-
-    unsafe {
-        mask_packed_row_padding(png_ptr, row);
-        mask_packed_row_padding(png_ptr, display_row);
     }
 }

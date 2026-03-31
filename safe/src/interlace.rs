@@ -1,48 +1,32 @@
 use crate::chunks::{read_core, write_core};
 use crate::types::*;
 use core::ffi::c_int;
-use core::slice;
 
 const PNG_INTERLACE: png_uint_32 = 0x0002;
 
-fn padding_mask(width: png_uint_32, pixel_depth: png_byte) -> Option<u8> {
-    if width == 0 || pixel_depth >= 8 {
-        return None;
+pub(crate) fn mask_packed_row_padding_for_width(
+    row: &mut [u8],
+    width: usize,
+    pixel_depth: usize,
+) {
+    if width == 0 || pixel_depth >= 8 || row.is_empty() {
+        return;
     }
 
-    let used_bits = (width as usize).checked_mul(usize::from(pixel_depth))?;
+    let used_bits = match width.checked_mul(pixel_depth) {
+        Some(bits) => bits,
+        None => return,
+    };
     let padding_bits = (8 - (used_bits % 8)) % 8;
     if padding_bits == 0 {
-        None
-    } else {
-        Some(!(((1u16 << padding_bits) - 1) as u8))
-    }
-}
-
-pub(crate) unsafe fn mask_packed_row_padding(png_ptr: png_structrp, row: png_bytep) {
-    if png_ptr.is_null() || row.is_null() {
         return;
     }
 
-    let core = unsafe { read_core(png_ptr) };
-    let Some(mask) = padding_mask(core.width, core.transformed_pixel_depth) else {
-        return;
-    };
-    let rowbytes = if core.info_rowbytes != 0 {
-        core.info_rowbytes
-    } else {
-        core.rowbytes
-    };
-    if rowbytes == 0 {
-        return;
-    }
-
-    let row_slice = unsafe { slice::from_raw_parts_mut(row, rowbytes) };
-    if let Some(last) = row_slice.last_mut() {
+    let mask = !(((1u16 << padding_bits) - 1) as u8);
+    if let Some(last) = row.last_mut() {
         *last &= mask;
     }
 }
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_set_interlace_handling(png_ptr: png_structrp) -> c_int {
     if png_ptr.is_null() {
