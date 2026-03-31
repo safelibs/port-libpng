@@ -12,6 +12,7 @@ mod get;
 mod interlace;
 mod io;
 mod memory;
+// Internal compatibility bindings are generated into OUT_DIR during the build.
 mod bridge_ffi;
 mod read;
 mod read_progressive;

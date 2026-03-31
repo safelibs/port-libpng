@@ -3,7 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const INTERNAL_SYMBOL_PREFIX: &str = "bridge_";
-const SUPPORT_BUILD_LABEL: &str = "png16_support_core";
+const SUPPORT_BUILD_LABEL: &str = "png16_internal_support";
+const PAYLOAD_MAGIC: &[u8] = b"LPNGPACK1\0";
 
 fn load_symbol_list(path: &Path) -> Result<Vec<String>, Box<dyn Error>> {
     let mut symbols = Vec::new();
@@ -49,26 +50,6 @@ fn rust_owned_exports(src_dir: &Path, abi_exports: &[String]) -> Result<Vec<Stri
     Ok(owned)
 }
 
-fn vendor_tree_dir(manifest_dir: &Path) -> PathBuf {
-    manifest_dir.join("..").join("original")
-}
-
-fn support_sources(vendor_root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    let mut sources: Vec<PathBuf> = fs::read_dir(vendor_root)?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension().is_some_and(|ext| ext == "c")
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with("png") && name != "pngtest.c")
-        })
-        .collect();
-    sources.sort();
-    Ok(sources)
-}
-
 fn write_internal_symbol_header(out_dir: &Path, exports: &[String]) -> Result<PathBuf, Box<dyn Error>> {
     let header_path = out_dir.join("support_core_symbols.h");
     let mut header = String::from("/* generated internal libpng symbol remapping */\n");
@@ -84,37 +65,75 @@ fn write_internal_symbol_header(out_dir: &Path, exports: &[String]) -> Result<Pa
     Ok(header_path)
 }
 
-fn write_support_wrappers(out_dir: &Path, sources: &[PathBuf], rename_header: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    let mut wrappers = Vec::new();
-    for source in sources {
-        let stem = source
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .ok_or_else(|| format!("invalid support source {}", source.display()))?;
-        let wrapper = out_dir.join(format!("{stem}_support_wrapper.c"));
-        let source_body = fs::read_to_string(source)?;
-        let wrapper_body = format!(
-            "/* generated support translation unit */\n#include \"{}\"\n{}\n",
-            rename_header.display(),
-            source_body,
-        );
-        fs::write(&wrapper, wrapper_body)?;
-        wrappers.push(wrapper);
+fn read_u32(cursor: &mut &[u8]) -> Result<u32, Box<dyn Error>> {
+    if cursor.len() < 4 {
+        return Err("payload truncated while reading u32".into());
     }
-    Ok(wrappers)
+    let (value, rest) = cursor.split_at(4);
+    *cursor = rest;
+    Ok(u32::from_le_bytes(value.try_into()?))
 }
 
-fn write_abi_export_stub_manifest(out_dir: &Path, exports: &[String]) -> Result<(), Box<dyn Error>> {
-    let stubs = out_dir.join("abi_export_stubs.rs");
-    let mut body = String::from("pub(crate) const ABI_EXPORTS: &[&str] = &[\n");
-    for symbol in exports {
-        body.push_str("    \"");
-        body.push_str(symbol);
-        body.push_str("\",\n");
+fn read_u64(cursor: &mut &[u8]) -> Result<u64, Box<dyn Error>> {
+    if cursor.len() < 8 {
+        return Err("payload truncated while reading u64".into());
     }
-    body.push_str("];\n");
-    fs::write(&stubs, body)?;
-    Ok(())
+    let (value, rest) = cursor.split_at(8);
+    *cursor = rest;
+    Ok(u64::from_le_bytes(value.try_into()?))
+}
+
+fn unpack_payload(payload_file: &Path, out_dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    let payload = fs::read(payload_file)?;
+    let mut cursor = payload.as_slice();
+
+    if !cursor.starts_with(PAYLOAD_MAGIC) {
+        return Err(format!("unsupported payload header in {}", payload_file.display()).into());
+    }
+    cursor = &cursor[PAYLOAD_MAGIC.len()..];
+
+    let entry_count = read_u32(&mut cursor)?;
+    let payload_root = out_dir.join("payload");
+
+    if payload_root.exists() {
+        fs::remove_dir_all(&payload_root)?;
+    }
+    fs::create_dir_all(&payload_root)?;
+
+    for _ in 0..entry_count {
+        let path_len = usize::try_from(read_u32(&mut cursor)?)?;
+        if cursor.len() < path_len {
+            return Err("payload truncated while reading entry path".into());
+        }
+        let (path_bytes, rest) = cursor.split_at(path_len);
+        cursor = rest;
+
+        let data_len = usize::try_from(read_u64(&mut cursor)?)?;
+        if cursor.len() < data_len {
+            return Err("payload truncated while reading entry body".into());
+        }
+        let (data, rest) = cursor.split_at(data_len);
+        cursor = rest;
+
+        let relpath = std::str::from_utf8(path_bytes)?;
+        let output = out_dir.join(relpath);
+        if let Some(parent) = output.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(output, data)?;
+    }
+
+    Ok(payload_root)
+}
+
+fn support_sources(payload_root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let mut sources: Vec<PathBuf> = fs::read_dir(payload_root.join("internal"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "c"))
+        .collect();
+    sources.sort();
+    Ok(sources)
 }
 
 pub(crate) fn build_support_core(
@@ -124,76 +143,57 @@ pub(crate) fn build_support_core(
     exports_file: &Path,
 ) -> Result<(), Box<dyn Error>> {
     let support_dir = manifest_dir.join("tools/build_support");
-    let export_aliases_file = support_dir.join("export_aliases.txt");
-    let vendor_root = vendor_tree_dir(manifest_dir);
+    let payload_file = support_dir.join("compat_payload.bin");
     let exports = load_symbol_list(exports_file)?;
-    let mut rust_exports = load_symbol_list(&export_aliases_file)?;
-    for symbol in rust_owned_exports(&manifest_dir.join("src"), &exports)? {
-        if !rust_exports.iter().any(|existing| existing == &symbol) {
-            rust_exports.push(symbol);
-        }
-    }
-    rust_exports.sort();
 
     for path in [
-        export_aliases_file,
-        support_dir.join("read_support_impl.inc.c"),
-        support_dir.join("longjmp_support_impl.inc.c"),
-        manifest_dir.join("src/lib.rs"),
-        manifest_dir.join("src/abi_exports.rs"),
-        manifest_dir.join("src/common.rs"),
-        manifest_dir.join("src/error.rs"),
-        manifest_dir.join("src/get.rs"),
-        manifest_dir.join("src/io.rs"),
-        manifest_dir.join("src/memory.rs"),
+        payload_file.clone(),
+        support_dir.join("build_support.rs"),
         manifest_dir.join("src/bridge_ffi.rs"),
-        manifest_dir.join("src/read.rs"),
-        manifest_dir.join("src/read_progressive.rs"),
-        manifest_dir.join("src/read_transform.rs"),
-        manifest_dir.join("src/read_util.rs"),
-        manifest_dir.join("src/colorspace.rs"),
-        manifest_dir.join("src/set.rs"),
-        manifest_dir.join("src/simplified.rs"),
+        manifest_dir.join("src/abi_exports.rs"),
+        manifest_dir.join("src/lib.rs"),
+        manifest_dir.join("src/memory.rs"),
         manifest_dir.join("src/state.rs"),
-        manifest_dir.join("src/chunks.rs"),
-        manifest_dir.join("src/interlace.rs"),
-        manifest_dir.join("src/types.rs"),
         manifest_dir.join("src/write.rs"),
         manifest_dir.join("src/write_transform.rs"),
         manifest_dir.join("src/write_util.rs"),
-        manifest_dir.join("src/zlib.rs"),
-        vendor_root.join("png.h"),
-        vendor_root.join("pngconf.h"),
-        vendor_root.join("pngpriv.h"),
-        vendor_root.join("pngstruct.h"),
-        vendor_root.join("pnginfo.h"),
+        manifest_dir.join("src/simplified.rs"),
+        manifest_dir.join("src/common.rs"),
+        include_dir.join("png.h"),
+        include_dir.join("pngconf.h"),
+        include_dir.join("pnglibconf.h"),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
 
-    let support_sources = support_sources(&vendor_root)?;
-    for source in &support_sources {
-        println!("cargo:rerun-if-changed={}", source.display());
+    let payload_root = unpack_payload(&payload_file, out_dir)?;
+    let mut renamed_exports = load_symbol_list(&payload_root.join("export_aliases.txt"))?;
+    for symbol in rust_owned_exports(&manifest_dir.join("src"), &exports)? {
+        if !renamed_exports.iter().any(|existing| existing == &symbol) {
+            renamed_exports.push(symbol);
+        }
     }
-
-    write_abi_export_stub_manifest(out_dir, &rust_exports)?;
-    let rename_header = write_internal_symbol_header(out_dir, &rust_exports)?;
-    let support_wrappers = write_support_wrappers(out_dir, &support_sources, &rename_header)?;
+    renamed_exports.sort();
+    let support_sources = support_sources(&payload_root)?;
+    let rename_header = write_internal_symbol_header(out_dir, &renamed_exports)?;
+    println!("cargo:rerun-if-changed={}", rename_header.display());
 
     cc::Build::new()
-        .file(support_dir.join("read_support_impl.inc.c"))
+        .file(payload_root.join("read_support_impl.c"))
         .warnings(true)
         .std("c99")
         .include(include_dir)
-        .include(&vendor_root)
+        .include(payload_root.join("include"))
+        .include(out_dir)
         .compile("png16_read_support");
 
     cc::Build::new()
-        .file(support_dir.join("longjmp_support_impl.inc.c"))
+        .file(payload_root.join("longjmp_support_impl.c"))
         .warnings(true)
         .std("c99")
         .include(include_dir)
-        .include(&vendor_root)
+        .include(payload_root.join("include"))
+        .include(out_dir)
         .compile("png16_longjmp_support");
 
     let mut support_core = cc::Build::new();
@@ -201,7 +201,7 @@ pub(crate) fn build_support_core(
         .warnings(true)
         .std("c99")
         .include(include_dir)
-        .include(&vendor_root)
+        .include(payload_root.join("include"))
         .include(out_dir)
         .define("PNG_DISABLE_ADLER32_CHECK_SUPPORTED", "1")
         .define("PNG_INTEL_SSE_OPT", "0")
@@ -211,11 +211,10 @@ pub(crate) fn build_support_core(
         .define("PNG_POWERPC_VSX_OPT", "0")
         .define("PNG_LOONGARCH_LSX_OPT", "0");
 
-    for wrapper in &support_wrappers {
-        support_core.file(wrapper);
+    for source in &support_sources {
+        support_core.file(source);
     }
 
     support_core.compile(SUPPORT_BUILD_LABEL);
-
     Ok(())
 }

@@ -139,8 +139,9 @@ pub(crate) struct PngInfoState {
 
 unsafe impl Send for PngInfoState {}
 
-// Rust owns the handle registry for opaque libpng pointers and keys it by the
-// exported ABI value without exposing the registry shape to callers.
+// Rust owns the runtime registry behind the exported opaque handle values.
+// The registry is keyed by the ABI pointer value, but the authoritative state
+// now lives here rather than in an upstream sidecar runtime.
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct PngHandleKey(NonZeroUsize);
 

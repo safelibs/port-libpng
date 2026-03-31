@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     for path in [
         manifest_dir.join("build.rs"),
         manifest_dir.join("tools/build_support/build_support.rs"),
+        manifest_dir.join("tools/build_support/compat_payload.bin"),
         include_dir.join("png.h"),
         include_dir.join("pngconf.h"),
         include_dir.join("pnglibconf.h"),

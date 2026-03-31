@@ -66,6 +66,127 @@ fn image_error(image: png_imagep, message: &[u8]) -> c_int {
     0
 }
 
+fn validate_image_header(image: png_imagep, operation: &[u8]) -> Result<(), c_int> {
+    if image.is_null() {
+        return Err(0);
+    }
+
+    let image_ref = unsafe { &*image };
+    if image_ref.version != PNG_IMAGE_VERSION {
+        let mut message = operation.to_vec();
+        message.extend_from_slice(b": damaged PNG_IMAGE_VERSION\0");
+        return Err(image_error(image, &message));
+    }
+
+    Ok(())
+}
+
+fn validate_begin_read_from_file_args(
+    image: png_imagep,
+    file_name: png_const_charp,
+) -> Result<(), c_int> {
+    validate_image_header(image, b"png_image_begin_read_from_file")?;
+    if file_name.is_null() {
+        return Err(image_error(
+            image,
+            b"png_image_begin_read_from_file: invalid argument\0",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_begin_read_from_stdio_args(image: png_imagep, file: *mut FILE) -> Result<(), c_int> {
+    validate_image_header(image, b"png_image_begin_read_from_stdio")?;
+    if file.is_null() {
+        return Err(image_error(
+            image,
+            b"png_image_begin_read_from_stdio: invalid argument\0",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_begin_read_from_memory_args(
+    image: png_imagep,
+    memory: png_const_voidp,
+    size: usize,
+) -> Result<(), c_int> {
+    validate_image_header(image, b"png_image_begin_read_from_memory")?;
+    if memory.is_null() || size == 0 {
+        return Err(image_error(
+            image,
+            b"png_image_begin_read_from_memory: invalid argument\0",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_write_args(
+    image: png_imagep,
+    buffer: png_const_voidp,
+    row_stride: png_int_32,
+) -> Result<(), c_int> {
+    validate_image_header(image, b"png_image_write")?;
+
+    let image_ref = unsafe { &*image };
+    if image_ref.width == 0 || image_ref.height == 0 || buffer.is_null() {
+        return Err(image_error(image, b"png_image_write: invalid argument\0"));
+    }
+    if row_stride == i32::MIN {
+        return Err(image_error(image, b"png_image_write: row_stride too large\0"));
+    }
+
+    Ok(())
+}
+
+fn validate_write_to_file_args(
+    image: png_imagep,
+    file_name: png_const_charp,
+    buffer: png_const_voidp,
+    row_stride: png_int_32,
+) -> Result<(), c_int> {
+    validate_write_args(image, buffer, row_stride)?;
+    if file_name.is_null() {
+        return Err(image_error(
+            image,
+            b"png_image_write_to_file: invalid argument\0",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_write_to_stdio_args(
+    image: png_imagep,
+    file: *mut FILE,
+    buffer: png_const_voidp,
+    row_stride: png_int_32,
+) -> Result<(), c_int> {
+    validate_write_args(image, buffer, row_stride)?;
+    if file.is_null() {
+        return Err(image_error(
+            image,
+            b"png_image_write_to_stdio: invalid argument\0",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_write_to_memory_args(
+    image: png_imagep,
+    memory_bytes: *mut png_alloc_size_t,
+    buffer: png_const_voidp,
+    row_stride: png_int_32,
+) -> Result<(), c_int> {
+    validate_write_args(image, buffer, row_stride)?;
+    if memory_bytes.is_null() {
+        return Err(image_error(
+            image,
+            b"png_image_write_to_memory: invalid argument\0",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_finish_read(
     image: png_imagep,
     buffer: png_voidp,
@@ -158,7 +279,13 @@ pub unsafe extern "C" fn png_image_begin_read_from_file(
     image: png_imagep,
     file_name: png_const_charp,
 ) -> c_int {
-    crate::abi_guard_no_png!(unsafe { image_begin_read_from_file(image, file_name) })
+    crate::abi_guard_no_png!({
+        if let Err(result) = validate_begin_read_from_file_args(image, file_name) {
+            return result;
+        }
+
+        unsafe { image_begin_read_from_file(image, file_name) }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -166,7 +293,13 @@ pub unsafe extern "C" fn png_image_begin_read_from_stdio(
     image: png_imagep,
     file: *mut FILE,
 ) -> c_int {
-    crate::abi_guard_no_png!(unsafe { image_begin_read_from_stdio(image, file) })
+    crate::abi_guard_no_png!({
+        if let Err(result) = validate_begin_read_from_stdio_args(image, file) {
+            return result;
+        }
+
+        unsafe { image_begin_read_from_stdio(image, file) }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -176,6 +309,10 @@ pub unsafe extern "C" fn png_image_begin_read_from_memory(
     size: usize,
 ) -> c_int {
     crate::abi_guard_no_png!(unsafe {
+        if let Err(result) = validate_begin_read_from_memory_args(image, memory, size) {
+            return result;
+        }
+
         image_begin_read_from_memory(image, memory, size)
     })
 }
@@ -212,6 +349,10 @@ pub unsafe extern "C" fn png_image_write_to_file(
     colormap: png_const_voidp,
 ) -> c_int {
     crate::abi_guard_no_png!(unsafe {
+        if let Err(result) = validate_write_to_file_args(image, file_name, buffer, row_stride) {
+            return result;
+        }
+
         image_write_to_file(
             image,
             file_name,
@@ -233,6 +374,10 @@ pub unsafe extern "C" fn png_image_write_to_stdio(
     colormap: png_const_voidp,
 ) -> c_int {
     crate::abi_guard_no_png!(unsafe {
+        if let Err(result) = validate_write_to_stdio_args(image, file, buffer, row_stride) {
+            return result;
+        }
+
         image_write_to_stdio(
             image,
             file,
@@ -255,6 +400,12 @@ pub unsafe extern "C" fn png_image_write_to_memory(
     colormap: png_const_voidp,
 ) -> c_int {
     crate::abi_guard_no_png!(unsafe {
+        if let Err(result) =
+            validate_write_to_memory_args(image, memory_bytes, buffer, row_stride)
+        {
+            return result;
+        }
+
         image_write_to_memory(
             image,
             memory,

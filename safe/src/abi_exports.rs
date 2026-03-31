@@ -1,6 +1,9 @@
-include!(concat!(env!("OUT_DIR"), "/abi_export_stubs.rs"));
+pub(crate) const ABI_EXPORTS_TEXT: &str = include_str!("../abi/exports.txt");
 
 #[allow(dead_code)]
-pub(crate) fn exported_symbols() -> &'static [&'static str] {
-    ABI_EXPORTS
+pub(crate) fn exported_symbols() -> impl Iterator<Item = &'static str> {
+    ABI_EXPORTS_TEXT
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
 }

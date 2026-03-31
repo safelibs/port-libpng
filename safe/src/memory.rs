@@ -7,6 +7,110 @@ use crate::types::*;
 use core::ffi::c_int;
 use core::ptr;
 
+unsafe fn allocate_read_struct(
+    user_png_ver: png_const_charp,
+    error_ptr: png_voidp,
+    error_fn: png_error_ptr,
+    warn_fn: png_error_ptr,
+) -> png_structp {
+    unsafe { create_read_handle(user_png_ver, error_ptr, error_fn, warn_fn) }
+}
+
+unsafe fn allocate_read_struct_with_hooks(
+    user_png_ver: png_const_charp,
+    error_ptr: png_voidp,
+    error_fn: png_error_ptr,
+    warn_fn: png_error_ptr,
+    mem_ptr: png_voidp,
+    malloc_fn: png_malloc_ptr,
+    free_fn: png_free_ptr,
+) -> png_structp {
+    unsafe {
+        create_read_handle_with_hooks(
+            user_png_ver,
+            error_ptr,
+            error_fn,
+            warn_fn,
+            mem_ptr,
+            malloc_fn,
+            free_fn,
+        )
+    }
+}
+
+unsafe fn allocate_write_struct(
+    user_png_ver: png_const_charp,
+    error_ptr: png_voidp,
+    error_fn: png_error_ptr,
+    warn_fn: png_error_ptr,
+) -> png_structp {
+    unsafe { create_write_handle(user_png_ver, error_ptr, error_fn, warn_fn) }
+}
+
+unsafe fn allocate_write_struct_with_hooks(
+    user_png_ver: png_const_charp,
+    error_ptr: png_voidp,
+    error_fn: png_error_ptr,
+    warn_fn: png_error_ptr,
+    mem_ptr: png_voidp,
+    malloc_fn: png_malloc_ptr,
+    free_fn: png_free_ptr,
+) -> png_structp {
+    unsafe {
+        create_write_handle_with_hooks(
+            user_png_ver,
+            error_ptr,
+            error_fn,
+            warn_fn,
+            mem_ptr,
+            malloc_fn,
+            free_fn,
+        )
+    }
+}
+
+unsafe fn allocate_info_struct(png_ptr: png_const_structrp) -> png_infop {
+    unsafe { create_info_handle(png_ptr) }
+}
+
+unsafe fn release_info_struct(png_ptr: png_const_structrp, info_ptr_ptr: png_infopp) {
+    unsafe { destroy_info_handle(png_ptr, info_ptr_ptr) }
+}
+
+unsafe fn initialize_info_struct(ptr_ptr: png_infopp, png_info_struct_size: usize) {
+    unsafe { init_info_handle(ptr_ptr, png_info_struct_size) }
+}
+
+unsafe fn set_data_freer(
+    png_ptr: png_const_structrp,
+    info_ptr: png_inforp,
+    freer: c_int,
+    mask: png_uint_32,
+) {
+    unsafe { mark_data_freer(png_ptr, info_ptr, freer, mask) }
+}
+
+unsafe fn free_info_data(
+    png_ptr: png_const_structrp,
+    info_ptr: png_inforp,
+    mask: png_uint_32,
+    num: c_int,
+) {
+    unsafe { release_data(png_ptr, info_ptr, mask, num) }
+}
+
+unsafe fn release_read_structs(
+    png_ptr_ptr: png_structpp,
+    info_ptr_ptr: png_infopp,
+    end_info_ptr_ptr: png_infopp,
+) {
+    unsafe { destroy_read_handle(png_ptr_ptr, info_ptr_ptr, end_info_ptr_ptr) }
+}
+
+unsafe fn release_write_structs(png_ptr_ptr: png_structpp, info_ptr_ptr: png_infopp) {
+    unsafe { destroy_write_handle(png_ptr_ptr, info_ptr_ptr) }
+}
+
 fn register_read_state(
     png_ptr: png_structrp,
     error_ptr: png_voidp,
@@ -149,7 +253,7 @@ pub unsafe extern "C" fn png_create_read_struct(
 ) -> png_structp {
     unsafe {
         create_png_struct_with_state(
-            || create_read_handle(user_png_ver, error_ptr, error_fn, warn_fn),
+            || allocate_read_struct(user_png_ver, error_ptr, error_fn, warn_fn),
             |png_ptr| {
                 register_read_state(
                     png_ptr,
@@ -177,17 +281,15 @@ pub unsafe extern "C" fn png_create_read_struct_2(
 ) -> png_structp {
     unsafe {
         create_png_struct_with_state(
-            || {
-                create_read_handle_with_hooks(
-                    user_png_ver,
-                    error_ptr,
-                    error_fn,
-                    warn_fn,
-                    mem_ptr,
-                    malloc_fn,
-                    free_fn,
-                )
-            },
+            || allocate_read_struct_with_hooks(
+                user_png_ver,
+                error_ptr,
+                error_fn,
+                warn_fn,
+                mem_ptr,
+                malloc_fn,
+                free_fn,
+            ),
             |png_ptr| {
                 register_read_state(
                     png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
@@ -206,7 +308,7 @@ pub unsafe extern "C" fn png_create_write_struct(
 ) -> png_structp {
     unsafe {
         create_png_struct_with_state(
-            || create_write_handle(user_png_ver, error_ptr, error_fn, warn_fn),
+            || allocate_write_struct(user_png_ver, error_ptr, error_fn, warn_fn),
             |png_ptr| {
                 register_write_state(
                     png_ptr,
@@ -234,17 +336,15 @@ pub unsafe extern "C" fn png_create_write_struct_2(
 ) -> png_structp {
     unsafe {
         create_png_struct_with_state(
-            || {
-                create_write_handle_with_hooks(
-                    user_png_ver,
-                    error_ptr,
-                    error_fn,
-                    warn_fn,
-                    mem_ptr,
-                    malloc_fn,
-                    free_fn,
-                )
-            },
+            || allocate_write_struct_with_hooks(
+                user_png_ver,
+                error_ptr,
+                error_fn,
+                warn_fn,
+                mem_ptr,
+                malloc_fn,
+                free_fn,
+            ),
             |png_ptr| {
                 register_write_state(
                     png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
@@ -257,7 +357,7 @@ pub unsafe extern "C" fn png_create_write_struct_2(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_create_info_struct(png_ptr: png_const_structrp) -> png_infop {
     crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-        let info_ptr = create_info_handle(png_ptr);
+        let info_ptr = allocate_info_struct(png_ptr);
         if !info_ptr.is_null() {
             state::register_default_info(info_ptr);
         }
@@ -281,7 +381,7 @@ pub unsafe extern "C" fn png_destroy_info_struct(
             state::remove_info(info_ptr);
         }
 
-        destroy_info_handle(png_ptr, info_ptr_ptr);
+        release_info_struct(png_ptr, info_ptr_ptr);
     });
 }
 
@@ -294,7 +394,7 @@ pub unsafe extern "C" fn png_info_init_3(ptr_ptr: png_infopp, png_info_struct_si
             *ptr_ptr
         };
 
-        init_info_handle(ptr_ptr, png_info_struct_size);
+        initialize_info_struct(ptr_ptr, png_info_struct_size);
 
         if !ptr_ptr.is_null() {
             let new_info_ptr = *ptr_ptr;
@@ -315,7 +415,7 @@ pub unsafe extern "C" fn png_data_freer(
     mask: png_uint_32,
 ) {
     crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-        mark_data_freer(png_ptr, info_ptr, freer, mask);
+        set_data_freer(png_ptr, info_ptr, freer, mask);
         state::update_info(info_ptr, |state| match freer {
             PNG_DESTROY_WILL_FREE_DATA => state.free_me |= mask,
             PNG_USER_WILL_FREE_DATA => state.free_me &= !mask,
@@ -332,7 +432,7 @@ pub unsafe extern "C" fn png_free_data(
     num: c_int,
 ) {
     crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-        release_data(png_ptr, info_ptr, mask, num);
+        free_info_data(png_ptr, info_ptr, mask, num);
         state::update_info(info_ptr, |state| {
             if (mask & PNG_FREE_ROWS) != 0 && (state.free_me & PNG_FREE_ROWS) != 0 {
                 state.row_pointers = ptr::null_mut();
@@ -377,7 +477,7 @@ pub unsafe extern "C" fn png_destroy_read_struct(
                 }
             }
 
-            destroy_read_handle(png_ptr_ptr, info_ptr_ptr, end_info_ptr_ptr)
+            release_read_structs(png_ptr_ptr, info_ptr_ptr, end_info_ptr_ptr)
         }
     );
 }
@@ -408,7 +508,7 @@ pub unsafe extern "C" fn png_destroy_write_struct(
                 }
             }
 
-            destroy_write_handle(png_ptr_ptr, info_ptr_ptr)
+            release_write_structs(png_ptr_ptr, info_ptr_ptr)
         }
     );
 }

@@ -1,7 +1,7 @@
 use crate::bridge_ffi::*;
 use crate::types::*;
 
-fn touch_write_user_transform_state(png_ptr: png_structrp) {
+fn prepare_write_transform_call(png_ptr: png_structrp) {
     let _ = crate::io::write_user_transform_registration(png_ptr);
 }
 
@@ -12,7 +12,7 @@ pub unsafe extern "C" fn png_set_filter(
     filters: core::ffi::c_int,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_user_transform_state(png_ptr);
+        prepare_write_transform_call(png_ptr);
         set_filter(png_ptr, method, filters);
     });
 }
@@ -26,7 +26,7 @@ pub unsafe extern "C" fn png_set_filter_heuristics(
     filter_costs: png_const_doublep,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_user_transform_state(png_ptr);
+        prepare_write_transform_call(png_ptr);
         set_filter_heuristics(
             png_ptr,
             heuristic_method,
@@ -46,7 +46,7 @@ pub unsafe extern "C" fn png_set_filter_heuristics_fixed(
     filter_costs: png_const_fixed_point_p,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_user_transform_state(png_ptr);
+        prepare_write_transform_call(png_ptr);
         set_filter_heuristics_fixed(
             png_ptr,
             heuristic_method,
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn png_set_add_alpha(
     flags: core::ffi::c_int,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_user_transform_state(png_ptr);
+        prepare_write_transform_call(png_ptr);
         set_add_alpha(png_ptr, filler, flags);
     });
 }
@@ -76,7 +76,7 @@ pub unsafe extern "C" fn png_set_filler(
     flags: core::ffi::c_int,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_user_transform_state(png_ptr);
+        prepare_write_transform_call(png_ptr);
         set_filler(png_ptr, filler, flags);
     });
 }
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn png_set_filler(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_set_packing(png_ptr: png_structrp) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_user_transform_state(png_ptr);
+        prepare_write_transform_call(png_ptr);
         set_packing(png_ptr);
     });
 }
@@ -92,7 +92,7 @@ pub unsafe extern "C" fn png_set_packing(png_ptr: png_structrp) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_set_packswap(png_ptr: png_structrp) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_user_transform_state(png_ptr);
+        prepare_write_transform_call(png_ptr);
         set_packswap(png_ptr);
     });
 }
@@ -100,7 +100,7 @@ pub unsafe extern "C" fn png_set_packswap(png_ptr: png_structrp) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_set_swap(png_ptr: png_structrp) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_user_transform_state(png_ptr);
+        prepare_write_transform_call(png_ptr);
         set_swap(png_ptr);
     });
 }

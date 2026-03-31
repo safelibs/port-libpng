@@ -2,9 +2,86 @@ use crate::state;
 use crate::bridge_ffi::*;
 use crate::types::*;
 
-fn touch_write_registrations(png_ptr: png_structrp) {
+fn prepare_write_call(png_ptr: png_structrp) {
+    if png_ptr.is_null() {
+        return;
+    }
+
     let _ = crate::io::write_callback_registration(png_ptr);
     let _ = crate::io::write_user_transform_registration(png_ptr);
+    state::update_png(png_ptr, |png_state| {
+        if png_state.flush_rows < 0 {
+            png_state.flush_rows = 0;
+        }
+    });
+}
+
+unsafe fn dispatch_write_info_before_palette(
+    png_ptr: png_structrp,
+    info_ptr: png_const_inforp,
+) {
+    prepare_write_call(png_ptr);
+    unsafe {
+        write_info_before_palette(png_ptr, info_ptr);
+    }
+}
+
+unsafe fn dispatch_write_info(png_ptr: png_structrp, info_ptr: png_const_inforp) {
+    prepare_write_call(png_ptr);
+    unsafe {
+        write_info(png_ptr, info_ptr);
+    }
+}
+
+unsafe fn dispatch_write_row(png_ptr: png_structrp, row: png_const_bytep) {
+    prepare_write_call(png_ptr);
+    unsafe {
+        write_row(png_ptr, row);
+    }
+}
+
+unsafe fn dispatch_write_rows(
+    png_ptr: png_structrp,
+    row: png_bytepp,
+    num_rows: png_uint_32,
+) {
+    prepare_write_call(png_ptr);
+    unsafe {
+        write_rows(png_ptr, row, num_rows);
+    }
+}
+
+unsafe fn dispatch_write_image(png_ptr: png_structrp, image: png_bytepp) {
+    prepare_write_call(png_ptr);
+    unsafe {
+        write_image(png_ptr, image);
+    }
+}
+
+unsafe fn dispatch_write_end(png_ptr: png_structrp, info_ptr: png_inforp) {
+    prepare_write_call(png_ptr);
+    unsafe {
+        write_end(png_ptr, info_ptr);
+    }
+}
+
+unsafe fn dispatch_write_png(
+    png_ptr: png_structrp,
+    info_ptr: png_inforp,
+    transforms: png_uint_32,
+    params: png_voidp,
+) {
+    prepare_write_call(png_ptr);
+    unsafe {
+        write_png(png_ptr, info_ptr, transforms, params);
+    }
+}
+
+unsafe fn dispatch_write_flush(png_ptr: png_structrp) {
+    prepare_write_call(png_ptr);
+    unsafe {
+        flush_output(png_ptr);
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -13,24 +90,21 @@ pub unsafe extern "C" fn png_write_info_before_PLTE(
     info_ptr: png_const_inforp,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_registrations(png_ptr);
-        write_info_before_palette(png_ptr, info_ptr);
+        dispatch_write_info_before_palette(png_ptr, info_ptr);
     });
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_write_info(png_ptr: png_structrp, info_ptr: png_const_inforp) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_registrations(png_ptr);
-        write_info(png_ptr, info_ptr);
+        dispatch_write_info(png_ptr, info_ptr);
     });
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_write_row(png_ptr: png_structrp, row: png_const_bytep) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_registrations(png_ptr);
-        write_row(png_ptr, row);
+        dispatch_write_row(png_ptr, row);
     });
 }
 
@@ -41,24 +115,21 @@ pub unsafe extern "C" fn png_write_rows(
     num_rows: png_uint_32,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_registrations(png_ptr);
-        write_rows(png_ptr, row, num_rows);
+        dispatch_write_rows(png_ptr, row, num_rows);
     });
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_write_image(png_ptr: png_structrp, image: png_bytepp) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_registrations(png_ptr);
-        write_image(png_ptr, image);
+        dispatch_write_image(png_ptr, image);
     });
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_write_end(png_ptr: png_structrp, info_ptr: png_inforp) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_registrations(png_ptr);
-        write_end(png_ptr, info_ptr);
+        dispatch_write_end(png_ptr, info_ptr);
     });
 }
 
@@ -70,8 +141,7 @@ pub unsafe extern "C" fn png_write_png(
     params: png_voidp,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_registrations(png_ptr);
-        write_png(png_ptr, info_ptr, transforms, params);
+        dispatch_write_png(png_ptr, info_ptr, transforms, params);
     });
 }
 
@@ -88,7 +158,6 @@ pub unsafe extern "C" fn png_set_flush(png_ptr: png_structrp, nrows: core::ffi::
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_write_flush(png_ptr: png_structrp) {
     crate::abi_guard!(png_ptr, unsafe {
-        touch_write_registrations(png_ptr);
-        flush_output(png_ptr);
+        dispatch_write_flush(png_ptr);
     });
 }
