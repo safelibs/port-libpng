@@ -11,7 +11,6 @@ mod read;
 mod read_progressive;
 mod read_transform;
 mod read_util;
-mod simplified;
 mod types;
 mod write;
 mod write_transform;

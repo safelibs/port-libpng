@@ -28,25 +28,118 @@ lib_dir="$(dirname "$shared_lib")"
 build_dir="$(mktemp -d)"
 trap 'rm -rf "$build_dir"' EXIT
 
-obj="$build_dir/pngunknown.o"
-cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
-  -c "$repo_root/original/contrib/libtests/pngunknown.c" \
-  -o "$obj"
+shared_dir="$build_dir/shared"
+static_dir="$build_dir/static"
+mkdir -p "$shared_dir" "$static_dir"
 
-shared_exe="$build_dir/pngunknown-shared"
-static_exe="$build_dir/pngunknown-static"
+compile_object() {
+  local output="$1"
+  local source="$2"
 
-cc "$obj" \
-  -L"$lib_dir" \
-  -Wl,-rpath,"$lib_dir" \
-  -lpng16 -lz -lm \
-  -o "$shared_exe"
+  cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+    -I"$repo_root/original" \
+    -I"$repo_root/original/contrib/visupng" \
+    -c "$source" \
+    -o "$build_dir/$output.o"
+}
 
-cc "$obj" \
+link_shared_program() {
+  local name="$1"
+
+  cc "$build_dir/$name.o" \
+    -L"$lib_dir" \
+    -Wl,-rpath,"$lib_dir" \
+    -lpng16 -lz -lm \
+    -o "$shared_dir/$name"
+}
+
+link_static_program() {
+  local name="$1"
+
+  cc "$build_dir/$name.o" \
+    "$static_lib" -lz -lm \
+    -o "$static_dir/$name"
+}
+
+run_wrapper() {
+  local mode_dir="$1"
+  local wrapper_name="$2"
+  local wrapper="$repo_root/original/tests/$wrapper_name"
+
+  if [[ ! -f "$wrapper" ]]; then
+    printf 'missing upstream wrapper: %s\n' "$wrapper" >&2
+    exit 1
+  fi
+
+  pushd "$mode_dir" >/dev/null
+  srcdir="$repo_root/original" sh "$wrapper"
+  popd >/dev/null
+}
+
+run_pngcp() {
+  local mode_dir="$1"
+  local output="$mode_dir/pngcp-fixed.png"
+
+  "$mode_dir/pngcp" \
+    --fix-palette-index \
+    "$repo_root/original/contrib/testpngs/badpal/regression-palette-8.png" \
+    "$output"
+
+  if [[ ! -s "$output" ]]; then
+    printf 'pngcp did not produce an output file in %s\n' "$mode_dir" >&2
+    exit 1
+  fi
+}
+
+run_timepng() {
+  local mode_dir="$1"
+  "$mode_dir/timepng" "$repo_root/original/pngtest.png" >/dev/null
+}
+
+run_pngtest() {
+  local mode_dir="$1"
+  "$mode_dir/pngtest" --strict "$repo_root/original/pngtest.png" >/dev/null
+}
+
+run_mode_matrix() {
+  local mode_label="$1"
+  local mode_dir="$2"
+
+  run_pngtest "$mode_dir"
+  run_wrapper "$mode_dir" pngunknown-discard
+  run_wrapper "$mode_dir" pngstest-none
+  run_wrapper "$mode_dir" pngvalid-standard
+  run_wrapper "$mode_dir" pngimage-quick
+  run_wrapper "$mode_dir" tarith-ascii
+  run_pngcp "$mode_dir"
+  run_timepng "$mode_dir"
+
+  printf '%s link-compatibility matrix passed for pngtest, pngunknown, pngstest, pngvalid, pngimage, tarith, pngcp, and timepng\n' "$mode_label"
+}
+
+compile_object pngtest "$repo_root/original/pngtest.c"
+compile_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c"
+compile_object pngstest "$repo_root/original/contrib/libtests/pngstest.c"
+compile_object pngvalid "$repo_root/original/contrib/libtests/pngvalid.c"
+compile_object pngimage "$repo_root/original/contrib/libtests/pngimage.c"
+compile_object tarith "$repo_root/original/contrib/libtests/tarith.c"
+compile_object pngcp "$repo_root/original/contrib/tools/pngcp.c"
+compile_object timepng "$repo_root/original/contrib/libtests/timepng.c"
+
+for program in pngtest pngunknown pngstest pngvalid pngimage tarith pngcp timepng; do
+  link_shared_program "$program"
+  link_static_program "$program"
+done
+
+run_mode_matrix "shared" "$shared_dir"
+run_mode_matrix "static" "$static_dir"
+
+cc "$build_dir/pngtest.o" \
   "$static_lib" -lz -lm \
-  -o "$static_exe"
+  -o "$build_dir/pngtest-static"
 
-"$shared_exe" --strict default=discard "$repo_root/original/pngtest.png"
-"$static_exe" --strict default=discard "$repo_root/original/pngtest.png"
+pushd "$repo_root/original" >/dev/null
+"$build_dir/pngtest-static" >/dev/null
+popd >/dev/null
 
-printf 'original-header objects linked and ran against staged shared and static safe libpng builds\n'
+printf 'debian pngtest-static scenario passed with original object reuse against the staged safe static archive\n'

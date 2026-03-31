@@ -19,7 +19,7 @@ cargo "${build_args[@]}"
 
 mapfile -t required_paths < <(
   grep -E \
-    '(^usr/bin/libpng(16)?-config$)|(^usr/include/(libpng16/)?png(libconf|conf)?\.h$)|(^usr/lib/.*/(libpng16\.so\.16\.43\.0|libpng16\.so\.16|libpng16\.so|libpng16\.a|libpng\.so|libpng\.a)$)|(^usr/lib/.*/pkgconfig/libpng(16)?\.pc$)' \
+    '(^usr/bin/libpng(16)?-config$)|(^usr/include/libpng$)|(^usr/include/(libpng16/)?png(libconf|conf)?\.h$)|(^usr/lib/.*/(libpng16\.so\.16\.43\.0|libpng16\.so\.16|libpng16\.so|libpng16\.a|libpng\.so|libpng\.a)$)|(^usr/lib/.*/pkgconfig/libpng(16)?\.pc$)' \
     "$layout_baseline"
 )
 
@@ -80,5 +80,10 @@ for header in png.h pngconf.h pnglibconf.h; do
     exit 1
   fi
 done
+
+if [[ "$(readlink "$stage_root/usr/include/libpng")" != "libpng16" ]]; then
+  printf 'unexpected include compatibility symlink for %s\n' "$stage_root/usr/include/libpng" >&2
+  exit 1
+fi
 
 printf 'bootstrap install layout matches the frozen subset baseline\n'

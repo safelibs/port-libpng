@@ -375,6 +375,13 @@ pub unsafe extern "C" fn png_read_row(
         return;
     }
 
+    if row.is_null() && display_row.is_null() {
+        unsafe {
+            upstream_png_read_row(png_ptr, row, display_row);
+        }
+        return;
+    }
+
     let core = unsafe { read_core(png_ptr) };
     let handled_interlace = core.interlaced != 0 && (core.transformations & PNG_INTERLACE) != 0;
 

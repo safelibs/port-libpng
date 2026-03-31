@@ -46,6 +46,7 @@ compile_libpng_client() {
 compile_libpng_client pngcp "$repo_root/original/contrib/tools/pngcp.c"
 compile_libpng_client pngfix "$repo_root/original/contrib/tools/pngfix.c"
 compile_libpng_client timepng "$repo_root/original/contrib/libtests/timepng.c"
+compile_libpng_client pngtopng "$safe_dir/tests/upstream/pngtopng.c"
 
 cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
   "$repo_root/original/contrib/tools/png-fix-itxt.c" \
@@ -75,6 +76,18 @@ fi
 
 "$build_dir/timepng" "$repo_root/original/pngtest.png" >/dev/null
 
+pngtopng_output="$build_dir/pngtopng-output.png"
+"$build_dir/pngtopng" \
+  "$repo_root/original/pngtest.png" \
+  "$pngtopng_output"
+
+if [[ ! -s "$pngtopng_output" ]]; then
+  printf 'pngtopng did not produce an output file\n' >&2
+  exit 1
+fi
+
+"$build_dir/timepng" "$pngtopng_output" >/dev/null
+
 png_fix_itxt_output="$build_dir/png-fix-itxt-output.png"
 "$build_dir/png-fix-itxt" \
   < "$repo_root/original/pngtest.png" \
@@ -82,5 +95,5 @@ png_fix_itxt_output="$build_dir/png-fix-itxt-output.png"
 
 cmp -s "$repo_root/original/pngtest.png" "$png_fix_itxt_output"
 
-printf 'libpng C consumer smokes passed for pngcp, pngfix, and timepng\n'
+printf 'libpng C consumer smokes passed for pngcp, pngfix, timepng, and pngtopng\n'
 printf 'standalone png-fix-itxt smoke passed separately from libpng ABI coverage\n'

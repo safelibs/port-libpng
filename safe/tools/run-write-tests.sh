@@ -49,10 +49,7 @@ compile_program() {
     -o "$build_dir/$output"
 }
 
-compile_program pngtest "$repo_root/original/pngtest.c"
-compile_program pngvalid "$repo_root/original/contrib/libtests/pngvalid.c"
-compile_program pngimage "$repo_root/original/contrib/libtests/pngimage.c"
-compile_program tarith "$repo_root/original/contrib/libtests/tarith.c"
+compile_program pngstest "$repo_root/original/contrib/libtests/pngstest.c"
 
 pushd "$build_dir" >/dev/null
 for wrapper_name in "$@"; do
@@ -62,7 +59,7 @@ for wrapper_name in "$@"; do
     exit 1
   fi
 
-  srcdir="$repo_root/original" "$wrapper"
+  srcdir="$repo_root/original" sh "$wrapper"
 done
 popd >/dev/null
 

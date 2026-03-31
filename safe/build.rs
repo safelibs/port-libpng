@@ -73,20 +73,6 @@ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
         "upstream_png_set_check_for_invalid_index",
     ),
     ("png_get_palette_max", "upstream_png_get_palette_max"),
-    (
-        "png_image_begin_read_from_file",
-        "upstream_png_image_begin_read_from_file",
-    ),
-    (
-        "png_image_begin_read_from_stdio",
-        "upstream_png_image_begin_read_from_stdio",
-    ),
-    (
-        "png_image_begin_read_from_memory",
-        "upstream_png_image_begin_read_from_memory",
-    ),
-    ("png_image_finish_read", "upstream_png_image_finish_read"),
-    ("png_image_free", "upstream_png_image_free"),
 ];
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -228,6 +214,7 @@ fn stage_install_tree(
             Path::new("libpng16").join(header),
         )?;
     }
+    ensure_symlink(include_root.join("libpng"), Path::new("libpng16"))?;
 
     let libdir = format!("/usr/lib/{multiarch}");
     let rendered_pc = render_template(
