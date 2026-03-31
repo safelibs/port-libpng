@@ -7,6 +7,7 @@ use crate::types::*;
 use crate::zlib;
 use core::ffi::{c_char, c_int};
 use core::mem::MaybeUninit;
+use core::ptr;
 
 unsafe extern "C" {
     fn png_safe_read_core_get(png_ptr: png_const_structrp, out: *mut png_safe_read_core);
@@ -18,6 +19,12 @@ unsafe extern "C" {
     fn png_safe_call_benign_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
     fn png_safe_call_app_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
     fn png_safe_call_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
+    fn upstream_png_set_keep_unknown_chunks(
+        png_ptr: png_structrp,
+        keep: c_int,
+        chunk_list: png_const_bytep,
+        num_chunks_in: c_int,
+    );
 }
 
 pub(crate) fn read_core(png_ptr: png_const_structrp) -> png_safe_read_core {
@@ -190,4 +197,77 @@ pub(crate) fn validate_ancillary_chunk_limits(
         requested_allocation,
         png_state.user_chunk_malloc_max,
     )
+}
+
+pub(crate) fn chunk_name_bytes(chunk_name: png_uint_32) -> [png_byte; 4] {
+    [
+        ((chunk_name >> 24) & 0xff) as png_byte,
+        ((chunk_name >> 16) & 0xff) as png_byte,
+        ((chunk_name >> 8) & 0xff) as png_byte,
+        (chunk_name & 0xff) as png_byte,
+    ]
+}
+
+pub(crate) fn validate_parser_chunk(
+    png_ptr: png_structrp,
+    chunk_name: png_uint_32,
+    length: png_uint_32,
+) -> Result<(), &'static [u8]> {
+    let declared = validate_chunk_length(length).ok_or(b"chunk length overflow\0".as_slice())?;
+    let name = chunk_name_bytes(chunk_name);
+
+    if chunk_is_ancillary(name) {
+        let cached_chunks = read_core(png_ptr)
+            .num_chunk_list
+            .try_into()
+            .unwrap_or(usize::MAX);
+        validate_ancillary_chunk_limits(png_ptr, name, length, cached_chunks, declared)?;
+    }
+
+    Ok(())
+}
+
+pub(crate) fn sync_unknown_chunk_policy_to_upstream(png_ptr: png_structrp) {
+    let Some(png_state) = state::get_png(png_ptr) else {
+        return;
+    };
+
+    unsafe {
+        upstream_png_set_keep_unknown_chunks(png_ptr, png_state.unknown_default_keep, ptr::null(), 0);
+    }
+
+    let policy_bytes = png_state
+        .unknown_chunk_list
+        .len()
+        .checked_mul(5)
+        .unwrap_or(usize::MAX);
+    let Some(length) = validate_chunk_length(policy_bytes.try_into().unwrap_or(u32::MAX)) else {
+        unsafe {
+            let _ = call_app_error(png_ptr, b"png_set_keep_unknown_chunks: too many chunks\0");
+        }
+        return;
+    };
+
+    if let Err(message) = validate_ancillary_chunk_limits(
+        png_ptr,
+        *b"uNkN",
+        length.try_into().unwrap_or(u32::MAX),
+        0,
+        policy_bytes,
+    ) {
+        unsafe {
+            let _ = call_app_error(png_ptr, message);
+        }
+        return;
+    }
+
+    for entry in &png_state.unknown_chunk_list {
+        let keep = effective_keep_for_chunk(png_ptr, entry.name);
+        let _ancillary = chunk_is_ancillary(entry.name);
+        let _safe_to_copy = chunk_safe_to_copy(entry.name);
+        let chunk_name = [entry.name[0], entry.name[1], entry.name[2], entry.name[3], 0];
+        unsafe {
+            upstream_png_set_keep_unknown_chunks(png_ptr, keep, chunk_name.as_ptr(), 1);
+        }
+    }
 }

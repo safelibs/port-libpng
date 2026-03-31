@@ -64,6 +64,33 @@ extern void upstream_png_set_quantize(png_structrp png_ptr, png_colorp palette,
                                       int num_palette, int maximum_colors,
                                       png_const_uint_16p histogram,
                                       int full_quantize);
+extern void upstream_png_read_row(png_structrp png_ptr, png_bytep row,
+                                  png_bytep display_row);
+
+enum png_safe_chunk_dispatch {
+    PNG_SAFE_CHUNK_IHDR = 1,
+    PNG_SAFE_CHUNK_IEND = 2,
+    PNG_SAFE_CHUNK_PLTE = 3,
+    PNG_SAFE_CHUNK_BKGD = 4,
+    PNG_SAFE_CHUNK_CHRM = 5,
+    PNG_SAFE_CHUNK_EXIF = 6,
+    PNG_SAFE_CHUNK_GAMA = 7,
+    PNG_SAFE_CHUNK_HIST = 8,
+    PNG_SAFE_CHUNK_OFFS = 9,
+    PNG_SAFE_CHUNK_PCAL = 10,
+    PNG_SAFE_CHUNK_SCAL = 11,
+    PNG_SAFE_CHUNK_PHYS = 12,
+    PNG_SAFE_CHUNK_SBIT = 13,
+    PNG_SAFE_CHUNK_SRGB = 14,
+    PNG_SAFE_CHUNK_ICCP = 15,
+    PNG_SAFE_CHUNK_SPLT = 16,
+    PNG_SAFE_CHUNK_TEXT = 17,
+    PNG_SAFE_CHUNK_TIME = 18,
+    PNG_SAFE_CHUNK_TRNS = 19,
+    PNG_SAFE_CHUNK_ZTXT = 20,
+    PNG_SAFE_CHUNK_ITXT = 21,
+    PNG_SAFE_CHUNK_UNKNOWN = 22
+};
 
 void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out) {
     memset(out, 0, sizeof(*out));
@@ -195,6 +222,188 @@ void png_safe_info_core_set(png_inforp info_ptr, const png_safe_info_core *in) {
     info_ptr->colorspace = in->colorspace;
     info_ptr->row_pointers = in->row_pointers;
     info_ptr->free_me = in->free_me;
+}
+
+int png_safe_call_read_sig(png_structrp png_ptr, png_inforp info_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_read_sig(png_ptr, info_ptr);
+    return 1;
+}
+
+int png_safe_call_read_chunk_header(png_structrp png_ptr, png_uint_32 *length_out) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    *length_out = png_read_chunk_header(png_ptr);
+    return 1;
+}
+
+int png_safe_call_read_row(png_structrp png_ptr, png_bytep row, png_bytep display_row) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    upstream_png_read_row(png_ptr, row, display_row);
+    return 1;
+}
+
+int png_safe_call_dispatch_chunk(png_structrp png_ptr, png_inforp info_ptr,
+                                 png_uint_32 length, int dispatch, int keep) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    switch (dispatch) {
+        case PNG_SAFE_CHUNK_IHDR:
+            png_handle_IHDR(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_IEND:
+            png_handle_IEND(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_PLTE:
+            png_handle_PLTE(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_BKGD:
+            png_handle_bKGD(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_CHRM:
+            png_handle_cHRM(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_EXIF:
+            png_handle_eXIf(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_GAMA:
+            png_handle_gAMA(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_HIST:
+            png_handle_hIST(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_OFFS:
+            png_handle_oFFs(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_PCAL:
+            png_handle_pCAL(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_SCAL:
+            png_handle_sCAL(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_PHYS:
+            png_handle_pHYs(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_SBIT:
+            png_handle_sBIT(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_SRGB:
+            png_handle_sRGB(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_ICCP:
+            png_handle_iCCP(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_SPLT:
+            png_handle_sPLT(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_TEXT:
+            png_handle_tEXt(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_TIME:
+            png_handle_tIME(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_TRNS:
+            png_handle_tRNS(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_ZTXT:
+            png_handle_zTXt(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_ITXT:
+            png_handle_iTXt(png_ptr, info_ptr, length);
+            break;
+        case PNG_SAFE_CHUNK_UNKNOWN:
+            png_handle_unknown(png_ptr, info_ptr, length, keep);
+            break;
+        default:
+            png_error(png_ptr, "invalid safe chunk dispatch");
+            break;
+    }
+
+    return 1;
+}
+
+int png_safe_call_crc_finish(png_structrp png_ptr, png_uint_32 skip,
+                             int *crc_result) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    *crc_result = png_crc_finish(png_ptr, skip);
+    return 1;
+}
+
+int png_safe_call_read_finish_idat(png_structrp png_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_read_finish_IDAT(png_ptr);
+    return 1;
+}
+
+int png_safe_call_read_start_row(png_structrp png_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_read_start_row(png_ptr);
+    return 1;
+}
+
+int png_safe_call_read_transform_info(png_structrp png_ptr, png_inforp info_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_read_transform_info(png_ptr, info_ptr);
+    return 1;
+}
+
+int png_safe_call_push_restore_buffer(png_structrp png_ptr, png_bytep buffer,
+                                      size_t buffer_size) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_push_restore_buffer(png_ptr, buffer, buffer_size);
+    return 1;
+}
+
+int png_safe_call_push_read_sig(png_structrp png_ptr, png_inforp info_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_push_read_sig(png_ptr, info_ptr);
+    return 1;
+}
+
+int png_safe_call_push_read_chunk(png_structrp png_ptr, png_inforp info_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_push_read_chunk(png_ptr, info_ptr);
+    return 1;
+}
+
+int png_safe_call_push_read_idat(png_structrp png_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    png_push_read_IDAT(png_ptr);
+    return 1;
 }
 
 int png_safe_call_warning(png_structrp png_ptr, png_const_charp message) {

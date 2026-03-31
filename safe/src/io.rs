@@ -56,6 +56,20 @@ unsafe extern "C" {
     fn upstream_png_get_io_chunk_type(png_ptr: png_const_structrp) -> png_uint_32;
 }
 
+unsafe extern "C" fn png_safe_read_user_chunk_trampoline(
+    png_ptr: png_structp,
+    chunk: png_unknown_chunkp,
+) -> core::ffi::c_int {
+    if chunk.is_null() {
+        return 0;
+    }
+
+    match crate::chunks::dispatch_user_chunk_callback(png_ptr, unsafe { &mut *chunk }) {
+        Some(result) => result,
+        None => 0,
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_get_io_ptr(png_ptr: png_const_structrp) -> png_voidp {
     crate::abi_guard!(png_ptr.cast_mut(), {
@@ -175,7 +189,15 @@ pub unsafe extern "C" fn png_set_read_user_chunk_fn(
     read_user_chunk_fn: png_user_chunk_ptr,
 ) {
     crate::abi_guard!(png_ptr, unsafe {
-        upstream_png_set_read_user_chunk_fn(png_ptr, user_chunk_ptr, read_user_chunk_fn);
+        upstream_png_set_read_user_chunk_fn(
+            png_ptr,
+            user_chunk_ptr,
+            if read_user_chunk_fn.is_some() {
+                Some(png_safe_read_user_chunk_trampoline)
+            } else {
+                None
+            },
+        );
         state::update_png(png_ptr, |state| {
             state.user_chunk_ptr = user_chunk_ptr;
             state.read_user_chunk_fn = read_user_chunk_fn;

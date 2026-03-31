@@ -20,12 +20,6 @@ unsafe extern "C" {
         png_ptr: png_structrp,
         user_chunk_malloc_max: png_alloc_size_t,
     );
-    fn upstream_png_set_keep_unknown_chunks(
-        png_ptr: png_structrp,
-        keep: core::ffi::c_int,
-        chunk_list: png_const_bytep,
-        num_chunks_in: core::ffi::c_int,
-    );
     fn upstream_png_set_benign_errors(png_ptr: png_structrp, allowed: core::ffi::c_int);
     fn upstream_png_set_check_for_invalid_index(
         png_ptr: png_structrp,
@@ -110,8 +104,7 @@ pub unsafe extern "C" fn png_set_keep_unknown_chunks(
     chunk_list: png_const_bytep,
     num_chunks_in: core::ffi::c_int,
 ) {
-    crate::abi_guard!(png_ptr, unsafe {
-        upstream_png_set_keep_unknown_chunks(png_ptr, keep, chunk_list, num_chunks_in);
+    crate::abi_guard!(png_ptr, {
         chunks::apply_keep_unknown_chunks_state(png_ptr, keep, chunk_list, num_chunks_in);
     });
 }
