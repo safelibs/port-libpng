@@ -333,6 +333,8 @@ unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) 
                 break;
             }
 
+            crate::interlace::sanitize_row_padding(png_ptr, row.as_mut_ptr(), ptr::null_mut());
+
             if unsafe { emit_row_callback(png_ptr, &mut row, row_num, pass) } {
                 break;
             }

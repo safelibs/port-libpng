@@ -61,8 +61,43 @@ pub(crate) fn checked_chunk_length(length: png_uint_32) -> Option<usize> {
     usize::try_from(length).ok()
 }
 
-pub(crate) fn checked_row_factor(rowbytes: usize, rows: png_uint_32) -> Option<usize> {
-    rowbytes.checked_mul(usize::try_from(rows).ok()?)
+pub(crate) fn checked_row_factor(core: &png_safe_read_core) -> Option<usize> {
+    let width = usize::try_from(core.width).ok()?;
+    let channels = usize::from(core.channels);
+    let sample_bytes = if core.bit_depth > 8 { 2usize } else { 1usize };
+    let interlace_extra = if core.interlaced != 0 { 6usize } else { 0usize };
+
+    width
+        .checked_mul(channels)?
+        .checked_mul(sample_bytes)?
+        .checked_add(1)?
+        .checked_add(interlace_extra)
+}
+
+pub(crate) fn checked_idat_limit(core: &png_safe_read_core) -> Option<png_alloc_size_t> {
+    const PNG_UINT_31_MAX_USIZE: usize = 0x7fff_ffffusize;
+    const PNG_UINT_32_MAX_USIZE: usize = 0xffff_ffffusize;
+
+    let row_factor = checked_row_factor(core)?;
+    if row_factor == 0 {
+        return Some(PNG_UINT_31_MAX_USIZE as png_alloc_size_t);
+    }
+
+    let height = usize::try_from(core.height).ok()?;
+    if height > PNG_UINT_32_MAX_USIZE / row_factor {
+        return Some(PNG_UINT_31_MAX_USIZE as png_alloc_size_t);
+    }
+
+    let idat_limit = height.checked_mul(row_factor)?;
+    let deflate_row_factor = row_factor.min(32_566);
+    let blocks = idat_limit.checked_div(deflate_row_factor)?.checked_add(1)?;
+    let overhead = 6usize.checked_add(5usize.checked_mul(blocks)?)?;
+    let total = idat_limit
+        .checked_add(overhead)
+        .unwrap_or(PNG_UINT_31_MAX_USIZE)
+        .min(PNG_UINT_31_MAX_USIZE);
+
+    Some(total as png_alloc_size_t)
 }
 
 pub(crate) fn checked_rowbytes_for_width(width: usize, pixel_depth: usize) -> Option<usize> {

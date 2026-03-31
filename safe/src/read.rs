@@ -215,7 +215,7 @@ pub(crate) unsafe fn snapshot_parse_state(
     let native = if info_ptr.is_null() {
         ptr::null_mut()
     } else {
-        unsafe { png_safe_parse_snapshot_capture(ptr::null(), info_ptr) }
+        unsafe { png_safe_parse_snapshot_capture(png_ptr, info_ptr) }
     };
     if !info_ptr.is_null() && native.is_null() {
         let _ = unsafe { call_error(png_ptr, b"insufficient memory for parse snapshot\0") };
@@ -246,7 +246,7 @@ pub(crate) unsafe fn rollback_parse_state(
     snapshot: &ParseSnapshot,
 ) {
     if !snapshot.native.is_null() {
-        unsafe { png_safe_parse_snapshot_restore(ptr::null_mut(), info_ptr, snapshot.native) };
+        unsafe { png_safe_parse_snapshot_restore(png_ptr, info_ptr, snapshot.native) };
     }
     if let Some(core) = snapshot.core {
         write_core(png_ptr, &core);

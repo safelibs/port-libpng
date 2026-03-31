@@ -1,8 +1,8 @@
 use crate::read_util::{
     PNG_HANDLE_CHUNK_ALWAYS, PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_HANDLE_CHUNK_IF_SAFE,
     PNG_HANDLE_CHUNK_NEVER, ReadPhase, UnknownChunkSetting, ancillary_chunk,
-    checked_chunk_length, copy_chunk_name, is_known_chunk_name, known_chunks_to_ignore,
-    safe_to_copy,
+    checked_chunk_length, checked_idat_limit, copy_chunk_name, is_known_chunk_name,
+    known_chunks_to_ignore, safe_to_copy,
 };
 use crate::state;
 use crate::types::*;
@@ -195,6 +195,21 @@ pub(crate) fn validate_parser_chunk(
 ) -> Result<(), &'static [u8]> {
     let declared = validate_chunk_length(length).ok_or(b"chunk length overflow\0".as_slice())?;
     let name = chunk_name_bytes(chunk_name);
+    let png_state = state::get_png(png_ptr).ok_or(b"missing png state\0".as_slice())?;
+    let mut limit = 0x7fff_ffffusize as png_alloc_size_t;
+    if png_state.user_chunk_malloc_max != 0 {
+        limit = limit.min(png_state.user_chunk_malloc_max);
+    }
+
+    if chunk_name == crate::read_util::PNG_IDAT {
+        let idat_limit = checked_idat_limit(&read_core(png_ptr))
+            .ok_or(b"chunk length overflow\0".as_slice())?;
+        limit = limit.max(idat_limit);
+    }
+
+    if (declared as png_alloc_size_t) > limit {
+        return Err(b"chunk data is too large\0".as_slice());
+    }
 
     if chunk_is_ancillary(name) {
         validate_ancillary_chunk_limits(png_ptr, length, declared)?;
