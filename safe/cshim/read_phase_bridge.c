@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <setjmp.h>
 #include <string.h>
 
@@ -60,6 +61,13 @@ typedef struct png_safe_info_core {
     png_uint_32 free_me;
 } png_safe_info_core;
 
+typedef struct png_safe_parse_snapshot {
+    int has_png;
+    png_struct png;
+    int has_info;
+    png_info info;
+} png_safe_parse_snapshot;
+
 extern void upstream_png_set_quantize(png_structrp png_ptr, png_colorp palette,
                                       int num_palette, int maximum_colors,
                                       png_const_uint_16p histogram,
@@ -91,6 +99,50 @@ enum png_safe_chunk_dispatch {
     PNG_SAFE_CHUNK_ITXT = 21,
     PNG_SAFE_CHUNK_UNKNOWN = 22
 };
+
+void *png_safe_parse_snapshot_capture(png_const_structrp png_ptr,
+                                      png_const_inforp info_ptr) {
+    png_safe_parse_snapshot *snapshot =
+        (png_safe_parse_snapshot *)calloc(1, sizeof(*snapshot));
+
+    if (snapshot == NULL) {
+        return NULL;
+    }
+
+    if (png_ptr != NULL) {
+        snapshot->has_png = 1;
+        snapshot->png = *png_ptr;
+    }
+
+    if (info_ptr != NULL) {
+        snapshot->has_info = 1;
+        snapshot->info = *info_ptr;
+    }
+
+    return snapshot;
+}
+
+void png_safe_parse_snapshot_restore(png_structrp png_ptr, png_inforp info_ptr,
+                                     const void *snapshot_ptr) {
+    const png_safe_parse_snapshot *snapshot =
+        (const png_safe_parse_snapshot *)snapshot_ptr;
+
+    if (snapshot == NULL) {
+        return;
+    }
+
+    if (png_ptr != NULL && snapshot->has_png) {
+        *png_ptr = snapshot->png;
+    }
+
+    if (info_ptr != NULL && snapshot->has_info) {
+        *info_ptr = snapshot->info;
+    }
+}
+
+void png_safe_parse_snapshot_free(void *snapshot_ptr) {
+    free(snapshot_ptr);
+}
 
 void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out) {
     memset(out, 0, sizeof(*out));

@@ -85,10 +85,6 @@ pub(crate) fn set_read_phase(png_ptr: png_structrp, phase: ReadPhase) {
     });
 }
 
-pub(crate) fn rollback_info_state(info_ptr: png_inforp, snapshot: &png_safe_info_core) {
-    write_info_core(info_ptr, snapshot);
-}
-
 fn apply_unknown_chunk_setting(
     list: &mut Vec<UnknownChunkSetting>,
     name: [png_byte; 4],
@@ -217,11 +213,11 @@ pub(crate) fn validate_parser_chunk(
     let name = chunk_name_bytes(chunk_name);
 
     if chunk_is_ancillary(name) {
-        let cached_chunks = read_core(png_ptr)
-            .num_chunk_list
-            .try_into()
-            .unwrap_or(usize::MAX);
-        validate_ancillary_chunk_limits(png_ptr, name, length, cached_chunks, declared)?;
+        // The actual parser decrements png_ptr->user_chunk_cache_max inside the
+        // ancillary handlers themselves. Prechecking against our keep-rule list
+        // length rejects valid files, so only the malloc-side limit is checked
+        // here and the real handler keeps ownership of cache accounting.
+        validate_ancillary_chunk_limits(png_ptr, name, length, 0, declared)?;
     }
 
     Ok(())

@@ -1,10 +1,11 @@
 use crate::chunks::{
-    read_core, read_info_core, rollback_info_state, set_read_phase, sync_read_phase_from_core,
+    call_error, read_core, set_read_phase, sync_read_phase_from_core,
     sync_unknown_chunk_policy_to_upstream, write_core,
 };
 use crate::read_util::ReadPhase;
 use crate::state;
 use crate::types::*;
+use core::ffi::c_void;
 
 unsafe extern "C" {
     fn png_safe_call_push_restore_buffer(
@@ -21,6 +22,16 @@ unsafe extern "C" {
         info_ptr: png_inforp,
     ) -> core::ffi::c_int;
     fn png_safe_call_push_read_idat(png_ptr: png_structrp) -> core::ffi::c_int;
+    fn png_safe_parse_snapshot_capture(
+        png_ptr: png_const_structrp,
+        info_ptr: png_const_inforp,
+    ) -> *mut c_void;
+    fn png_safe_parse_snapshot_restore(
+        png_ptr: png_structrp,
+        info_ptr: png_inforp,
+        snapshot: *const c_void,
+    );
+    fn png_safe_parse_snapshot_free(snapshot: *mut c_void);
     fn upstream_png_process_data_pause(png_ptr: png_structrp, save: core::ffi::c_int) -> usize;
     fn upstream_png_process_data_skip(png_ptr: png_structrp) -> png_uint_32;
 }
@@ -29,36 +40,48 @@ const PNG_READ_SIG_MODE: i32 = 0;
 const PNG_READ_CHUNK_MODE: i32 = 1;
 const PNG_READ_IDAT_MODE: i32 = 2;
 
-#[derive(Clone)]
 struct ProgressiveSnapshot {
-    core: png_safe_read_core,
+    native: *mut c_void,
     png_state: Option<state::PngStructState>,
-    info_core: png_safe_info_core,
     info_state: Option<state::PngInfoState>,
 }
 
-fn snapshot_progressive_state(png_ptr: png_structrp, info_ptr: png_inforp) -> ProgressiveSnapshot {
+unsafe fn snapshot_progressive_state(
+    png_ptr: png_structrp,
+    info_ptr: png_inforp,
+) -> ProgressiveSnapshot {
+    let native = unsafe { png_safe_parse_snapshot_capture(png_ptr, info_ptr) };
+    if native.is_null() {
+        let _ = unsafe { call_error(png_ptr, b"insufficient memory for parse snapshot\0") };
+        unsafe { crate::error::png_longjmp(png_ptr, 1) }
+    }
+
     ProgressiveSnapshot {
-        core: read_core(png_ptr),
+        native,
         png_state: state::get_png(png_ptr),
-        info_core: read_info_core(info_ptr),
         info_state: state::get_info(info_ptr),
     }
 }
 
-fn rollback_progressive_state(
+unsafe fn free_progressive_snapshot(snapshot: &ProgressiveSnapshot) {
+    if !snapshot.native.is_null() {
+        unsafe { png_safe_parse_snapshot_free(snapshot.native) };
+    }
+}
+
+unsafe fn rollback_progressive_state(
     png_ptr: png_structrp,
     info_ptr: png_inforp,
     snapshot: &ProgressiveSnapshot,
 ) {
-    write_core(png_ptr, &snapshot.core);
-    rollback_info_state(info_ptr, &snapshot.info_core);
+    unsafe { png_safe_parse_snapshot_restore(png_ptr, info_ptr, snapshot.native) };
     if let Some(png_state) = snapshot.png_state.clone() {
         state::register_png(png_ptr, png_state);
     }
     if let Some(info_state) = snapshot.info_state {
         state::register_info(info_ptr, info_state);
     }
+    unsafe { free_progressive_snapshot(snapshot) };
 }
 
 #[unsafe(no_mangle)]
@@ -105,6 +128,7 @@ pub unsafe extern "C" fn png_process_data(
         }
 
         sync_read_phase_from_core(png_ptr);
+        free_progressive_snapshot(&snapshot);
     });
 }
 

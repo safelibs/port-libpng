@@ -1,5 +1,6 @@
 use crate::chunks;
 use crate::common::PNG_OPTION_INVALID;
+use crate::read_util::PNG_HANDLE_CHUNK_LAST;
 use crate::state;
 use crate::types::*;
 
@@ -105,6 +106,49 @@ pub unsafe extern "C" fn png_set_keep_unknown_chunks(
     num_chunks_in: core::ffi::c_int,
 ) {
     crate::abi_guard!(png_ptr, {
+        if png_ptr.is_null() {
+            return;
+        }
+
+        if !(0..PNG_HANDLE_CHUNK_LAST).contains(&keep) {
+            unsafe {
+                let _ = chunks::call_app_error(
+                    png_ptr,
+                    b"png_set_keep_unknown_chunks: invalid keep\0",
+                );
+            }
+            return;
+        }
+
+        if num_chunks_in > 0 && chunk_list.is_null() {
+            unsafe {
+                let _ = chunks::call_app_error(
+                    png_ptr,
+                    b"png_set_keep_unknown_chunks: no chunk list\0",
+                );
+            }
+            return;
+        }
+
+        let existing = state::get_png(png_ptr)
+            .map(|png_state| png_state.unknown_chunk_list.len())
+            .unwrap_or(0);
+        let requested = if num_chunks_in < 0 {
+            crate::read_util::known_chunks_to_ignore().len()
+        } else {
+            usize::try_from(num_chunks_in).unwrap_or(usize::MAX)
+        };
+        let max_chunks = (u32::MAX as usize) / 5;
+        if requested.saturating_add(existing) > max_chunks {
+            unsafe {
+                let _ = chunks::call_app_error(
+                    png_ptr,
+                    b"png_set_keep_unknown_chunks: too many chunks\0",
+                );
+            }
+            return;
+        }
+
         chunks::apply_keep_unknown_chunks_state(png_ptr, keep, chunk_list, num_chunks_in);
     });
 }

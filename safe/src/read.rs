@@ -1,13 +1,14 @@
 use crate::chunks::{
-    call_app_error, call_benign_error, call_error, call_warning, read_core, read_info_core,
-    set_read_phase, sync_read_phase_from_core, sync_unknown_chunk_policy_to_upstream,
-    validate_parser_chunk, write_core, write_info_core,
+    call_app_error, call_benign_error, call_error, call_warning, read_core, set_read_phase,
+    sync_read_phase_from_core, sync_unknown_chunk_policy_to_upstream, validate_parser_chunk,
+    write_core,
 };
 use crate::common::PNG_FLAG_ROW_INIT;
 use crate::interlace;
 use crate::read_util::ReadPhase;
 use crate::state;
 use crate::types::*;
+use core::ffi::c_void;
 use core::ptr;
 
 const PNG_INTERLACE_TRANSFORM: png_uint_32 = 0x0002;
@@ -96,36 +97,53 @@ unsafe extern "C" {
         png_ptr: png_const_structrp,
         chunk_name: png_uint_32,
     ) -> core::ffi::c_int;
+    fn png_safe_parse_snapshot_capture(
+        png_ptr: png_const_structrp,
+        info_ptr: png_const_inforp,
+    ) -> *mut c_void;
+    fn png_safe_parse_snapshot_restore(
+        png_ptr: png_structrp,
+        info_ptr: png_inforp,
+        snapshot: *const c_void,
+    );
+    fn png_safe_parse_snapshot_free(snapshot: *mut c_void);
 }
 
-#[derive(Clone)]
 struct ParseSnapshot {
-    core: png_safe_read_core,
+    native: *mut c_void,
     png_state: Option<state::PngStructState>,
-    info_core: Option<png_safe_info_core>,
     info_state: Option<state::PngInfoState>,
 }
 
-fn snapshot_parse_state(png_ptr: png_structrp, info_ptr: png_inforp) -> ParseSnapshot {
+unsafe fn snapshot_parse_state(png_ptr: png_structrp, info_ptr: png_inforp) -> ParseSnapshot {
+    let native = unsafe { png_safe_parse_snapshot_capture(png_ptr, info_ptr) };
+    if native.is_null() {
+        let _ = unsafe { call_error(png_ptr, b"insufficient memory for parse snapshot\0") };
+        unsafe { crate::error::png_longjmp(png_ptr, 1) }
+    }
+
     ParseSnapshot {
-        core: read_core(png_ptr),
+        native,
         png_state: state::get_png(png_ptr),
-        info_core: (!info_ptr.is_null()).then(|| read_info_core(info_ptr)),
         info_state: state::get_info(info_ptr),
     }
 }
 
-fn rollback_parse_state(png_ptr: png_structrp, info_ptr: png_inforp, snapshot: &ParseSnapshot) {
-    write_core(png_ptr, &snapshot.core);
-    if let Some(info_core) = snapshot.info_core.as_ref() {
-        write_info_core(info_ptr, info_core);
+unsafe fn free_parse_snapshot(snapshot: &ParseSnapshot) {
+    if !snapshot.native.is_null() {
+        unsafe { png_safe_parse_snapshot_free(snapshot.native) };
     }
+}
+
+unsafe fn rollback_parse_state(png_ptr: png_structrp, info_ptr: png_inforp, snapshot: &ParseSnapshot) {
+    unsafe { png_safe_parse_snapshot_restore(png_ptr, info_ptr, snapshot.native) };
     if let Some(png_state) = snapshot.png_state.clone() {
         state::register_png(png_ptr, png_state);
     }
     if let Some(info_state) = snapshot.info_state {
         state::register_info(info_ptr, info_state);
     }
+    unsafe { free_parse_snapshot(snapshot) };
 }
 
 unsafe fn rollback_and_rethrow(
@@ -133,7 +151,7 @@ unsafe fn rollback_and_rethrow(
     info_ptr: png_inforp,
     snapshot: &ParseSnapshot,
 ) -> ! {
-    rollback_parse_state(png_ptr, info_ptr, snapshot);
+    unsafe { rollback_parse_state(png_ptr, info_ptr, snapshot) };
     crate::error::png_longjmp(png_ptr, 1)
 }
 
@@ -347,6 +365,7 @@ pub unsafe extern "C" fn png_read_info(png_ptr: png_structrp, info_ptr: png_info
         }
         read_info_loop(png_ptr, info_ptr, &snapshot);
         sync_read_phase_from_core(png_ptr);
+        free_parse_snapshot(&snapshot);
     });
 }
 
@@ -368,6 +387,7 @@ pub unsafe extern "C" fn png_read_update_info(png_ptr: png_structrp, info_ptr: p
             );
         }
         set_read_phase(png_ptr, ReadPhase::ImageRows);
+        free_parse_snapshot(&snapshot);
     });
 }
 
@@ -386,6 +406,7 @@ pub unsafe extern "C" fn png_start_read_image(png_ptr: png_structrp) {
             );
         }
         set_read_phase(png_ptr, ReadPhase::ImageRows);
+        free_parse_snapshot(&snapshot);
     });
 }
 
@@ -404,6 +425,7 @@ pub unsafe extern "C" fn png_read_row(
             interlace::sanitize_row_padding(png_ptr, row, display_row);
         }
         set_read_phase(png_ptr, ReadPhase::ImageRows);
+        free_parse_snapshot(&snapshot);
     });
 }
 
@@ -484,5 +506,6 @@ pub unsafe extern "C" fn png_read_end(png_ptr: png_structrp, info_ptr: png_infor
         sync_unknown_chunk_policy_to_upstream(png_ptr);
         read_end_loop(png_ptr, info_ptr, &snapshot);
         set_read_phase(png_ptr, ReadPhase::Terminal);
+        free_parse_snapshot(&snapshot);
     });
 }
