@@ -251,12 +251,25 @@ static void run_linear_output_case(const char *path) {
     image.format = PNG_FORMAT_LINEAR_RGB_ALPHA;
 
     size_t size = PNG_IMAGE_SIZE(image);
-    png_bytep buffer = (png_bytep)malloc(size);
+    png_uint_16p buffer = (png_uint_16p)malloc(size);
     assert(buffer != NULL);
     memset(buffer, 0, size);
     assert(png_image_finish_read(&image, NULL, buffer, 0, NULL) != 0);
 
     assert(size == (size_t)image.width * image.height * 8U);
+    int saw_transparent = 0;
+    size_t pixels = (size_t)image.width * image.height;
+    for (size_t i = 0; i < pixels; ++i) {
+        png_uint_16p pixel = buffer + i * 4U;
+        if (pixel[3] == 0) {
+            saw_transparent = 1;
+            assert(pixel[0] == 0);
+            assert(pixel[1] == 0);
+            assert(pixel[2] == 0);
+            break;
+        }
+    }
+    assert(saw_transparent);
     free(buffer);
 }
 
@@ -286,8 +299,29 @@ static void run_colormap_output_case(const char *path) {
     free(colormap);
 }
 
+static void run_gamma_output_case(const char *path) {
+    png_image image;
+    memset(&image, 0, sizeof image);
+    image.version = PNG_IMAGE_VERSION;
+
+    assert(png_image_begin_read_from_file(&image, path) != 0);
+    image.format = PNG_FORMAT_RGB;
+
+    size_t size = PNG_IMAGE_SIZE(image);
+    png_bytep buffer = (png_bytep)malloc(size);
+    assert(buffer != NULL);
+    memset(buffer, 0, size);
+    assert(png_image_finish_read(&image, NULL, buffer, 0, NULL) != 0);
+
+    assert(size >= 6);
+    assert(buffer[3] == 5);
+    assert(buffer[4] == 5);
+    assert(buffer[5] == 5);
+    free(buffer);
+}
+
 int main(int argc, char **argv) {
-    assert(argc == 5);
+    assert(argc == 6);
 
     run_entrypoint_consistency_case(argv[1]);
     run_message_semantics_case(argv[1]);
@@ -296,5 +330,6 @@ int main(int argc, char **argv) {
     run_linear_output_case(argv[2]);
     run_grayscale_output_case(argv[3]);
     run_colormap_output_case(argv[4]);
+    run_gamma_output_case(argv[5]);
     return 0;
 }

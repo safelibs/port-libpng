@@ -59,6 +59,7 @@ done
   "$repo_root/original/contrib/testpngs/rgb-8.png" \
   "$repo_root/original/contrib/pngsuite/ibasn6a16.png" \
   "$repo_root/original/contrib/testpngs/gray-2-sRGB-tRNS.png" \
-  "$repo_root/original/contrib/testpngs/palette-1-sRGB-tRNS.png"
+  "$repo_root/original/contrib/testpngs/palette-1-sRGB-tRNS.png" \
+  "$repo_root/original/contrib/testpngs/rgb-16-1.8.png"
 
 printf 'read-transform and simplified-read smoke drivers passed against the staged safe libpng build\n'

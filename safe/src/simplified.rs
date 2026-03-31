@@ -1,4 +1,7 @@
 use crate::chunks::{read_core, read_info_core};
+use crate::colorspace::{
+    png_set_alpha_mode_fixed, png_set_background_fixed, png_set_rgb_to_gray_fixed,
+};
 use crate::read::png_destroy_read_struct;
 use crate::read_transform::{
     png_set_expand, png_set_expand_16, png_set_gray_to_rgb, png_set_scale_16,
@@ -12,6 +15,7 @@ const PNG_IMAGE_VERSION: png_uint_32 = 1;
 const PNG_IMAGE_WARNING: png_uint_32 = 1;
 const PNG_IMAGE_ERROR: png_uint_32 = 2;
 const PNG_IMAGE_FLAG_COLORSPACE_NOT_sRGB: png_uint_32 = 0x01;
+const PNG_IMAGE_FLAG_16BIT_SRGB: png_uint_32 = 0x04;
 
 const PNG_FORMAT_FLAG_ALPHA: png_uint_32 = 0x01;
 const PNG_FORMAT_FLAG_COLOR: png_uint_32 = 0x02;
@@ -33,6 +37,14 @@ const MAX_SAMPLE_BYTES: usize = 8;
 const RGB_TO_GRAY_RED_COEFF: u32 = 6968;
 const RGB_TO_GRAY_GREEN_COEFF: u32 = 23_434;
 const RGB_TO_GRAY_BLUE_COEFF: u32 = 2366;
+const PNG_ALPHA_PNG: c_int = 0;
+const PNG_ALPHA_ASSOCIATED: c_int = 1;
+const PNG_ALPHA_OPTIMIZED: c_int = 2;
+const PNG_ERROR_ACTION_NONE: c_int = 1;
+const PNG_BACKGROUND_GAMMA_SCREEN: c_int = 1;
+const PNG_RGB_TO_GRAY_DEFAULT: png_fixed_point = -1;
+const PNG_DEFAULT_SRGB: png_fixed_point = -1;
+const PNG_GAMMA_LINEAR: png_fixed_point = 100_000;
 
 #[derive(Clone, Copy, Debug)]
 struct FormatSpec {
@@ -45,6 +57,11 @@ struct Pixel16 {
     green: u16,
     blue: u16,
     alpha: u16,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct DecodePlan {
+    decoded_associated: bool,
 }
 
 impl FormatSpec {
@@ -419,6 +436,23 @@ fn absolute_row_stride(row_stride: png_int_32) -> png_uint_32 {
     }
 }
 
+fn source_format(source: &png_safe_read_core, source_info: &png_safe_info_core) -> png_uint_32 {
+    let mut format = 0u32;
+    if (source.color_type & PNG_COLOR_MASK_COLOR) != 0 {
+        format |= PNG_FORMAT_FLAG_COLOR;
+    }
+    if (source.color_type & PNG_COLOR_MASK_ALPHA) != 0 || source_info.num_trans > 0 {
+        format |= PNG_FORMAT_FLAG_ALPHA;
+    }
+    if source.bit_depth == 16 {
+        format |= PNG_FORMAT_FLAG_LINEAR;
+    }
+    if (source.color_type & PNG_COLOR_MASK_PALETTE) != 0 {
+        format |= PNG_FORMAT_FLAG_COLORMAP;
+    }
+    format
+}
+
 fn expand_u8(value: u8) -> u16 {
     u16::from(value) * 257
 }
@@ -466,13 +500,28 @@ fn read_decoded_pixel(
         })
     };
 
-    let red = read_component(0)?;
-    let green = read_component(1)?;
-    let blue = read_component(2)?;
-    let alpha = if decoded_channels == 4 {
-        read_component(3)?
-    } else {
-        65_535
+    let (red, green, blue, alpha) = match decoded_channels {
+        1 => {
+            let gray = read_component(0)?;
+            (gray, gray, gray, 65_535)
+        }
+        2 => {
+            let gray = read_component(0)?;
+            (gray, gray, gray, read_component(1)?)
+        }
+        3 => (
+            read_component(0)?,
+            read_component(1)?,
+            read_component(2)?,
+            65_535,
+        ),
+        4 => (
+            read_component(0)?,
+            read_component(1)?,
+            read_component(2)?,
+            read_component(3)?,
+        ),
+        _ => return None,
     };
 
     Some(Pixel16 {
@@ -495,6 +544,7 @@ fn write_sample_bytes(
     spec: FormatSpec,
     pixel: Pixel16,
     background: Option<[u16; 3]>,
+    decoded_associated: bool,
     dst: &mut [u8],
 ) {
     let mut red = pixel.red;
@@ -502,13 +552,15 @@ fn write_sample_bytes(
     let mut blue = pixel.blue;
     let alpha = pixel.alpha;
 
+    let output_associated = spec.associated_alpha() || spec.linear();
+
     if spec.alpha() {
-        if spec.associated_alpha() {
+        if output_associated && !decoded_associated {
             red = premultiply_u16(red, alpha);
             green = premultiply_u16(green, alpha);
             blue = premultiply_u16(blue, alpha);
         }
-    } else if alpha < 65_535 {
+    } else if alpha < 65_535 && !decoded_associated {
         let background = if spec.linear() {
             [0, 0, 0]
         } else {
@@ -567,6 +619,112 @@ fn write_sample_bytes(
     }
 }
 
+unsafe fn configure_decoder(
+    image: png_imagep,
+    control: &mut SimplifiedReadControl,
+    spec: FormatSpec,
+    background: png_const_colorp,
+    source: &png_safe_read_core,
+    source_info: &png_safe_info_core,
+) -> DecodePlan {
+    let base_format = source_format(source, source_info) & !PNG_FORMAT_FLAG_COLORMAP;
+    let source_has_alpha = (base_format & PNG_FORMAT_FLAG_ALPHA) != 0;
+    let mut change = (spec.format ^ base_format) & !PNG_FORMAT_FLAG_COLORMAP;
+    let mut mode = PNG_ALPHA_PNG;
+    let output_gamma = if spec.linear() {
+        if source_has_alpha {
+            mode = PNG_ALPHA_ASSOCIATED;
+        }
+        PNG_GAMMA_LINEAR
+    } else {
+        PNG_DEFAULT_SRGB
+    };
+    let input_gamma_default = if (base_format & PNG_FORMAT_FLAG_LINEAR) != 0
+        && (unsafe { (*image).flags } & PNG_IMAGE_FLAG_16BIT_SRGB) == 0
+    {
+        PNG_GAMMA_LINEAR
+    } else {
+        PNG_DEFAULT_SRGB
+    };
+    let mut decoded_associated = false;
+
+    unsafe {
+        png_set_expand(control.png_ptr);
+    }
+
+    if (change & PNG_FORMAT_FLAG_COLOR) != 0 {
+        unsafe {
+            if spec.color() {
+                png_set_gray_to_rgb(control.png_ptr);
+            } else {
+                png_set_rgb_to_gray_fixed(
+                    control.png_ptr,
+                    PNG_ERROR_ACTION_NONE,
+                    PNG_RGB_TO_GRAY_DEFAULT,
+                    PNG_RGB_TO_GRAY_DEFAULT,
+                );
+            }
+        }
+        change &= !PNG_FORMAT_FLAG_COLOR;
+    }
+
+    unsafe {
+        png_set_alpha_mode_fixed(control.png_ptr, PNG_ALPHA_PNG, input_gamma_default);
+    }
+
+    if spec.associated_alpha() {
+        mode = PNG_ALPHA_OPTIMIZED;
+        change &= !PNG_FORMAT_FLAG_ASSOCIATED_ALPHA;
+    }
+
+    if (change & PNG_FORMAT_FLAG_LINEAR) != 0 {
+        unsafe {
+            if spec.linear() {
+                png_set_expand_16(control.png_ptr);
+            } else {
+                png_set_scale_16(control.png_ptr);
+            }
+        }
+        change &= !PNG_FORMAT_FLAG_LINEAR;
+    }
+
+    if (change & PNG_FORMAT_FLAG_ALPHA) != 0 {
+        if source_has_alpha {
+            if spec.linear() {
+                decoded_associated = true;
+            } else if !background.is_null() {
+                let mut c = png_color_16::default();
+                unsafe {
+                    c.red = u16::from((*background).red);
+                    c.green = u16::from((*background).green);
+                    c.blue = u16::from((*background).blue);
+                    c.gray = u16::from((*background).green);
+                    png_set_background_fixed(
+                        control.png_ptr,
+                        &c,
+                        PNG_BACKGROUND_GAMMA_SCREEN,
+                        0,
+                        0,
+                    );
+                }
+            } else {
+                mode = PNG_ALPHA_OPTIMIZED;
+                decoded_associated = true;
+            }
+        }
+
+    }
+
+    unsafe {
+        png_set_alpha_mode_fixed(control.png_ptr, mode, output_gamma);
+    }
+    if source_has_alpha && (mode == PNG_ALPHA_ASSOCIATED || mode == PNG_ALPHA_OPTIMIZED) {
+        decoded_associated = true;
+    }
+
+    DecodePlan { decoded_associated }
+}
+
 unsafe fn finish_read_impl(
     image: png_imagep,
     control: &mut SimplifiedReadControl,
@@ -599,17 +757,9 @@ unsafe fn finish_read_impl(
         return false;
     }
 
-    unsafe {
-        if spec.linear() {
-            png_set_expand_16(control.png_ptr);
-        } else {
-            png_set_expand(control.png_ptr);
-        }
-        png_set_gray_to_rgb(control.png_ptr);
-        if !spec.linear() && source.bit_depth == 16 {
-            png_set_scale_16(control.png_ptr);
-        }
-    }
+    let decode_plan = unsafe {
+        configure_decoder(image, control, spec, background, &source, &source_info)
+    };
 
     if unsafe { png_safe_call_read_update_info(control.png_ptr, control.info_ptr) } == 0 {
         return false;
@@ -671,7 +821,7 @@ unsafe fn finish_read_impl(
     } else {
         1
     };
-    if decoded_channels != 3 && decoded_channels != 4 {
+    if !(1..=4).contains(&decoded_channels) {
         unsafe {
             image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
         }
@@ -727,7 +877,13 @@ unsafe fn finish_read_impl(
 
             if spec.colormap() {
                 let mut entry = [0u8; MAX_SAMPLE_BYTES];
-                write_sample_bytes(spec, pixel, background_16, &mut entry[..entry_size]);
+                write_sample_bytes(
+                    spec,
+                    pixel,
+                    background_16,
+                    decode_plan.decoded_associated,
+                    &mut entry[..entry_size],
+                );
                 let entry_slice = &entry[..entry_size];
                 let entry_index = if let Some(index) = colormap_entries
                     .iter()
@@ -749,7 +905,13 @@ unsafe fn finish_read_impl(
                 let pixel_size = spec.sample_size();
                 let start = x * pixel_size;
                 let end = start + pixel_size;
-                write_sample_bytes(spec, pixel, background_16, &mut dst_row[start..end]);
+                write_sample_bytes(
+                    spec,
+                    pixel,
+                    background_16,
+                    decode_plan.decoded_associated,
+                    &mut dst_row[start..end],
+                );
             }
         }
     }
