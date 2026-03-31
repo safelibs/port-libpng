@@ -1420,8 +1420,11 @@ unsafe fn parse_known_chunk(
         [b'p', b'C', b'A', b'L'] => unsafe { parse_pcal_chunk(png_ptr, info_ptr, snapshot, data) },
         [b's', b'C', b'A', b'L'] => unsafe { parse_scal_chunk(png_ptr, info_ptr, snapshot, data) },
         [b'I', b'E', b'N', b'D'] => {
+            if !data.is_empty() {
+                let _ = unsafe { call_benign_error(png_ptr, b"invalid\0") };
+            }
             let mut core = read_core(png_ptr);
-            core.mode |= crate::read_util::PNG_HAVE_IEND;
+            core.mode |= PNG_AFTER_IDAT | crate::read_util::PNG_HAVE_IEND;
             write_core(png_ptr, &core);
         }
         _ => {}
@@ -1465,6 +1468,12 @@ unsafe fn read_info_loop(
         } else if (core.mode & PNG_HAVE_IDAT) != 0 {
             core.mode |= PNG_HAVE_CHUNK_AFTER_IDAT | PNG_AFTER_IDAT;
             write_core(png_ptr, &core);
+        }
+
+        if chunk_name == PNG_IEND
+            && (((core.mode & PNG_HAVE_IHDR) == 0) || ((core.mode & PNG_HAVE_IDAT) == 0))
+        {
+            unsafe { error_and_rethrow(png_ptr, info_ptr, &snapshot, b"out of place\0") };
         }
 
         if keep != PNG_HANDLE_CHUNK_AS_DEFAULT || !known_chunk {

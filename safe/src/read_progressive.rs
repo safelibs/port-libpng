@@ -86,10 +86,18 @@ fn note_progressive_pause_bytes(png_ptr: png_structrp, save: bool) -> usize {
     let mut unread = 0;
 
     state::update_png(png_ptr, |png_state| {
-        unread = unread_bytes_from_last_call(&png_state.progressive_state);
-        png_state.progressive_state.last_pause_bytes = unread;
-        png_state.progressive_state.paused_with_save = save;
-        png_state.progressive_state.pause_requested = true;
+        let progressive = &mut png_state.progressive_state;
+        unread = unread_bytes_from_last_call(progressive);
+        progressive.last_pause_bytes = unread;
+        progressive.paused_with_save = save;
+        progressive.pause_requested = true;
+
+        if !save {
+            progressive.buffered.clear();
+            progressive.decode_offset = 0;
+            progressive.current_input_start = 0;
+            progressive.current_input_size = 0;
+        }
     });
 
     unread
