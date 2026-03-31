@@ -17,12 +17,36 @@ fi
 cargo "${build_args[@]}"
 "$safe_dir/tools/stage-install-tree.sh"
 
+actual_headers="$(mktemp)"
+expected_headers="$(mktemp)"
+trap 'rm -f "$actual_headers" "$expected_headers"' EXIT
+
+find "$stage_root/usr/include" -mindepth 1 \( -type f -o -type l \) -printf '%P\n' \
+  | LC_ALL=C sort \
+  > "$actual_headers"
+
+cat <<'EOF' | LC_ALL=C sort > "$expected_headers"
+libpng
+libpng16/png.h
+libpng16/pngconf.h
+libpng16/pnglibconf.h
+png.h
+pngconf.h
+pnglibconf.h
+EOF
+
+if ! diff -u "$expected_headers" "$actual_headers"; then
+  printf 'staged header layout diverged from the exact current contract\n' >&2
+  exit 1
+fi
+
 for header in png.h pngconf.h pnglibconf.h; do
   baseline="$safe_dir/include/$header"
   staged="$stage_root/usr/include/libpng16/$header"
+  top_level="$stage_root/usr/include/$header"
 
-  if [[ ! -f "$staged" ]]; then
-    printf 'missing staged header: %s\n' "$staged" >&2
+  if [[ ! -f "$staged" || -L "$staged" ]]; then
+    printf 'staged libpng16 header must be a regular file: %s\n' "$staged" >&2
     exit 1
   fi
 
@@ -31,7 +55,6 @@ for header in png.h pngconf.h pnglibconf.h; do
     exit 1
   fi
 
-  top_level="$stage_root/usr/include/$header"
   if [[ "$(readlink "$top_level")" != "libpng16/$header" ]]; then
     printf 'unexpected top-level header link target for %s\n' "$top_level" >&2
     exit 1
@@ -42,6 +65,11 @@ for header in png.h pngconf.h pnglibconf.h; do
     exit 1
   fi
 done
+
+if [[ "$(readlink "$stage_root/usr/include/libpng")" != "libpng16" ]]; then
+  printf 'unexpected /usr/include/libpng compatibility symlink target\n' >&2
+  exit 1
+fi
 
 header="$safe_dir/include/png.h"
 if ! rg -q 'PNG_(?:EXPORT|EXPORTA|FP_EXPORT|FIXED_EXPORT)\(249,' "$header"; then
@@ -64,4 +92,9 @@ if rg -q 'PNG_(?:EXPORT|EXPORTA|FP_EXPORT|FIXED_EXPORT|REMOVED)\(2(5[0-9]|6[0-9]
   exit 1
 fi
 
-printf 'header baseline matches staged safe headers\n'
+if rg -q 'APNG' "$safe_dir/include/pnglibconf.h"; then
+  printf 'pnglibconf.h unexpectedly references APNG support\n' >&2
+  exit 1
+fi
+
+printf 'header baseline matches the exact staged header contract\n'

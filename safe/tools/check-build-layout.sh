@@ -15,32 +15,87 @@ else
   build_args+=(--profile "$profile")
 fi
 
-cargo "${build_args[@]}"
-"$safe_dir/tools/stage-install-tree.sh"
+baseline_has_path() {
+  grep -qxF "$1" "$layout_baseline"
+}
 
-mapfile -t required_paths < <(
-  grep -E \
-    '(^usr/bin/libpng(16)?-config$)|(^usr/include/libpng$)|(^usr/include/(libpng16/)?png(libconf|conf)?\.h$)|(^usr/lib/.*/(libpng16\.so\.16\.43\.0|libpng16\.so\.16|libpng16\.so|libpng16\.a|libpng\.so|libpng\.a)$)|(^usr/lib/.*/pkgconfig/libpng(16)?\.pc$)' \
-    "$layout_baseline"
+libdir_rel="$(grep -E '^usr/lib/.*/libpng16\.so\.16\.43\.0$' "$layout_baseline" | sed 's#/libpng16\.so\.16\.43\.0$##')"
+if [[ -z "$libdir_rel" ]]; then
+  printf 'unable to determine the frozen libdir from %s\n' "$layout_baseline" >&2
+  exit 1
+fi
+
+package_only_paths=(
+  "usr/bin/png-fix-itxt"
+  "usr/bin/pngfix"
+  "$libdir_rel/libpng.la"
+  "$libdir_rel/libpng16.la"
+  "usr/share/man/man3/libpng.3"
+  "usr/share/man/man3/libpngpf.3"
+  "usr/share/man/man5/png.5"
 )
 
-for rel in "${required_paths[@]}"; do
-  path="$stage_root/$rel"
-  if [[ ! -e "$path" && ! -L "$path" ]]; then
-    printf 'missing staged install path: %s\n' "$path" >&2
+for rel in "${package_only_paths[@]}"; do
+  if ! baseline_has_path "$rel"; then
+    printf 'expected original-only install path missing from %s: %s\n' "$layout_baseline" "$rel" >&2
     exit 1
   fi
 done
 
-libdir_rel="$(grep -E '^usr/lib/.*/libpng16\.so\.16\.43\.0$' "$layout_baseline" | sed 's#/libpng16\.so\.16\.43\.0$##')"
+if baseline_has_path 'usr/include/libpng'; then
+  printf 'original install-layout baseline unexpectedly already contains usr/include/libpng\n' >&2
+  exit 1
+fi
+
+cargo "${build_args[@]}"
+"$safe_dir/tools/stage-install-tree.sh"
+
+actual_paths="$(mktemp)"
+expected_paths="$(mktemp)"
+trap 'rm -f "$actual_paths" "$expected_paths"' EXIT
+
+find "$stage_root" -mindepth 1 \( -type f -o -type l \) -printf '%P\n' \
+  | LC_ALL=C sort \
+  > "$actual_paths"
+
+grep -Fvx \
+  -e 'usr/bin/png-fix-itxt' \
+  -e 'usr/bin/pngfix' \
+  -e "$libdir_rel/libpng.la" \
+  -e "$libdir_rel/libpng16.la" \
+  -e 'usr/share/man/man3/libpng.3' \
+  -e 'usr/share/man/man3/libpngpf.3' \
+  -e 'usr/share/man/man5/png.5' \
+  "$layout_baseline" \
+  > "$expected_paths"
+printf '%s\n' 'usr/include/libpng' >> "$expected_paths"
+LC_ALL=C sort -u -o "$expected_paths" "$expected_paths"
+
+if ! diff -u "$expected_paths" "$actual_paths"; then
+  printf 'staged build layout diverged from the expected safe delta over %s\n' "$layout_baseline" >&2
+  exit 1
+fi
+
 libdir="$stage_root/$libdir_rel"
 
-for staged_file in "$libdir/libpng16.so.16.43.0" "$libdir/libpng16.a"; do
+for staged_file in \
+  "$stage_root/usr/bin/libpng16-config" \
+  "$libdir/libpng16.so.16.43.0" \
+  "$libdir/libpng16.a" \
+  "$libdir/pkgconfig/libpng16.pc"
+do
   if [[ ! -f "$staged_file" || -L "$staged_file" ]]; then
     printf 'staged install artifact must be a regular file: %s\n' "$staged_file" >&2
     exit 1
   fi
+done
 
+if [[ ! -x "$stage_root/usr/bin/libpng16-config" ]]; then
+  printf 'staged config script is not executable: %s\n' "$stage_root/usr/bin/libpng16-config" >&2
+  exit 1
+fi
+
+for staged_file in "$libdir/libpng16.so.16.43.0" "$libdir/libpng16.a"; do
   if [[ "$(readlink -f "$staged_file")" != "$staged_file" ]]; then
     printf 'staged install artifact resolves outside the staged tree: %s\n' "$staged_file" >&2
     exit 1
@@ -89,4 +144,4 @@ if [[ "$(readlink "$stage_root/usr/include/libpng")" != "libpng16" ]]; then
   exit 1
 fi
 
-printf 'bootstrap install layout matches the frozen subset baseline\n'
+printf 'staged build layout matches the expected safe install-surface delta from the frozen original baseline\n'

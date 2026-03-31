@@ -14,8 +14,66 @@ readonly target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
 readonly stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
 
 libpng_stage_shared_lib=""
+libpng_stage_static_lib=""
 libpng_stage_lib_dir=""
 libpng_stage_include_dir=""
+libpng_stage_header_dir=""
+
+original_stage_workspace=""
+original_stage_root=""
+original_stage_shared_lib=""
+original_stage_static_lib=""
+original_stage_lib_dir=""
+original_stage_include_dir=""
+original_stage_header_dir=""
+original_stage_pkgconfig_dir=""
+original_stage_config_script=""
+
+build_jobs() {
+  if command -v nproc >/dev/null 2>&1; then
+    nproc
+    return 0
+  fi
+
+  getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1\n'
+}
+
+detect_multiarch() {
+  local value
+
+  if [[ -n "${LIBPNG_MULTIARCH:-}" ]]; then
+    printf '%s\n' "$LIBPNG_MULTIARCH"
+    return 0
+  fi
+
+  if command -v dpkg-architecture >/dev/null 2>&1; then
+    value="$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || true)"
+    if [[ -n "$value" ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  fi
+
+  if command -v gcc >/dev/null 2>&1; then
+    value="$(gcc -print-multiarch 2>/dev/null || true)"
+    if [[ -n "$value" ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  fi
+
+  case "$(uname -m)" in
+    x86_64)
+      printf 'x86_64-linux-gnu\n'
+      ;;
+    aarch64)
+      printf 'aarch64-linux-gnu\n'
+      ;;
+    *)
+      uname -m
+      ;;
+  esac
+}
 
 build_safe_stage() {
   local build_args=(build --manifest-path "$safe_dir/Cargo.toml")
@@ -39,7 +97,14 @@ locate_safe_stage() {
   fi
 
   libpng_stage_lib_dir="$(dirname "$libpng_stage_shared_lib")"
+  libpng_stage_static_lib="$libpng_stage_lib_dir/libpng16.a"
   libpng_stage_include_dir="$stage_root/usr/include"
+  libpng_stage_header_dir="$libpng_stage_include_dir/libpng16"
+
+  if [[ ! -f "$libpng_stage_static_lib" ]]; then
+    printf 'unable to locate staged libpng static library under %s\n' "$libpng_stage_lib_dir" >&2
+    exit 1
+  fi
 }
 
 ensure_safe_stage() {
@@ -52,6 +117,79 @@ ensure_safe_stage() {
   else
     build_safe_stage
   fi
+}
+
+locate_original_stage() {
+  original_stage_shared_lib="$(find "$original_stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
+  if [[ -z "$original_stage_shared_lib" ]]; then
+    printf 'unable to locate staged original libpng shared library under %s\n' \
+      "$original_stage_root/usr/lib" >&2
+    exit 1
+  fi
+
+  original_stage_lib_dir="$(dirname "$original_stage_shared_lib")"
+  original_stage_static_lib="$original_stage_lib_dir/libpng16.a"
+  original_stage_include_dir="$original_stage_root/usr/include"
+  original_stage_header_dir="$original_stage_include_dir/libpng16"
+  original_stage_pkgconfig_dir="$original_stage_lib_dir/pkgconfig"
+  original_stage_config_script="$original_stage_root/usr/bin/libpng16-config"
+
+  if [[ ! -f "$original_stage_static_lib" ]]; then
+    printf 'unable to locate staged original libpng static library under %s\n' \
+      "$original_stage_lib_dir" >&2
+    exit 1
+  fi
+}
+
+ensure_original_stage() {
+  local build_dir
+  local install_root
+  local multiarch
+
+  if [[ -n "$original_stage_root" && -d "$original_stage_root/usr" ]]; then
+    locate_original_stage
+    return 0
+  fi
+
+  original_stage_workspace="$(mktemp -d)"
+  build_dir="$original_stage_workspace/build"
+  install_root="$original_stage_workspace/install"
+  mkdir -p "$build_dir" "$install_root"
+
+  multiarch="$(detect_multiarch)"
+
+  (
+    cd "$build_dir"
+    "$repo_root/original/configure" \
+      --prefix=/usr \
+      --libdir="/usr/lib/$multiarch" \
+      --includedir=/usr/include \
+      --enable-shared \
+      --enable-static \
+      --enable-tools \
+      --disable-silent-rules
+    make -j"$(build_jobs)"
+    make install DESTDIR="$install_root"
+  )
+
+  original_stage_root="$install_root"
+  locate_original_stage
+}
+
+cleanup_original_stage() {
+  if [[ -n "$original_stage_workspace" && -d "$original_stage_workspace" ]]; then
+    rm -rf "$original_stage_workspace"
+  fi
+
+  original_stage_workspace=""
+  original_stage_root=""
+  original_stage_shared_lib=""
+  original_stage_static_lib=""
+  original_stage_lib_dir=""
+  original_stage_include_dir=""
+  original_stage_header_dir=""
+  original_stage_pkgconfig_dir=""
+  original_stage_config_script=""
 }
 
 extract_upstream_tests() {
@@ -117,8 +255,7 @@ compile_libpng_client() {
     -Werror
     -Wno-deprecated-declarations
     -DPNG_FREESTANDING_TESTS
-    -I"$libpng_stage_include_dir"
-    -I"$repo_root/original"
+    -I"$libpng_stage_header_dir"
     -I"$repo_root/original/contrib/visupng"
   )
   cc_args+=("$@")
@@ -157,6 +294,32 @@ prepare_pngtest_source() {
   printf '%s\n' "$dest"
 }
 
+build_preserved_original_object() {
+  local output="$1"
+  local source="$2"
+  local build_dir="$3"
+  shift 3
+
+  ensure_original_stage
+
+  local -a cc_args=(
+    -std=c99
+    -Wall
+    -Wextra
+    -Werror
+    -Wno-deprecated-declarations
+    -DPNG_FREESTANDING_TESTS
+    -I"$original_stage_header_dir"
+  )
+  cc_args+=("$@")
+  cc_args+=(
+    -c "$source"
+    -o "$build_dir/$output.o"
+  )
+
+  cc "${cc_args[@]}"
+}
+
 compile_wrapper_program() {
   local program="$1"
   local build_dir="$2"
@@ -167,8 +330,7 @@ compile_wrapper_program() {
       ensure_safe_stage
       pngtest_source="$(prepare_pngtest_source "$build_dir")"
       cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
-        -I"$libpng_stage_include_dir" \
-        -I"$repo_root/original" \
+        -I"$libpng_stage_header_dir" \
         "$pngtest_source" \
         -L"$libpng_stage_lib_dir" \
         -Wl,-rpath,"$libpng_stage_lib_dir" \

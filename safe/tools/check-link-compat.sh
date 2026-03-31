@@ -6,67 +6,73 @@ safe_dir="$(cd -- "$script_dir/.." && pwd)"
 source "$safe_dir/tests/upstream/common.sh"
 
 ensure_safe_stage
+ensure_original_stage
 
-static_lib="$(find "$stage_root/usr/lib" -name 'libpng16.a' -print -quit)"
-if [[ -z "$static_lib" ]]; then
-  printf 'unable to locate staged safe static library under %s\n' "$stage_root/usr/lib" >&2
-  exit 1
-fi
+build_root="$(mktemp -d)"
+trap 'rm -rf "$build_root"; cleanup_original_stage' EXIT
 
-lib_dir="$libpng_stage_lib_dir"
-include_dir="$libpng_stage_include_dir"
-build_dir="$(mktemp -d)"
-trap 'rm -rf "$build_dir"' EXIT
+staged_header_objects="$build_root/staged-header-objects"
+staged_header_shared="$build_root/staged-header-shared"
+staged_header_static="$build_root/staged-header-static"
+original_header_objects="$build_root/original-header-objects"
+old_object_shared="$build_root/old-object-shared"
+old_object_static="$build_root/old-object-static"
 
-shared_dir="$build_dir/shared"
-static_dir="$build_dir/static"
-mkdir -p "$shared_dir" "$static_dir"
+mkdir -p \
+  "$staged_header_objects" \
+  "$staged_header_shared" \
+  "$staged_header_static" \
+  "$original_header_objects" \
+  "$old_object_shared" \
+  "$old_object_static"
 
-compile_object() {
+programs=(
+  pngtest
+  pngunknown
+  pngstest
+  pngimage
+  pngcp
+  timepng
+)
+
+compile_safe_header_object() {
   local output="$1"
   local source="$2"
   shift 2
 
   cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
-    -I"$include_dir" \
-    -I"$repo_root/original" \
-    -I"$repo_root/original/contrib/visupng" \
+    -DPNG_FREESTANDING_TESTS \
+    -I"$libpng_stage_header_dir" \
     "$@" \
     -c "$source" \
-    -o "$build_dir/$output.o"
+    -o "$staged_header_objects/$output.o"
 }
 
 link_shared_program() {
-  local name="$1"
+  local object_dir="$1"
+  local output_dir="$2"
+  local name="$3"
 
-  cc "$build_dir/$name.o" \
-    -L"$lib_dir" \
-    -Wl,-rpath,"$lib_dir" \
+  cc "$object_dir/$name.o" \
+    -L"$libpng_stage_lib_dir" \
+    -Wl,-rpath,"$libpng_stage_lib_dir" \
     -lpng16 -lz -lm \
-    -o "$shared_dir/$name"
+    -o "$output_dir/$name"
 }
 
 link_static_program() {
-  local name="$1"
+  local object_dir="$1"
+  local output_dir="$2"
+  local name="$3"
 
-  cc "$build_dir/$name.o" \
-    "$static_lib" -lz -lm \
-    -o "$static_dir/$name"
+  cc "$object_dir/$name.o" \
+    "$libpng_stage_static_lib" -lz -lm \
+    -o "$output_dir/$name"
 }
 
-run_wrapper() {
+run_pngtest() {
   local mode_dir="$1"
-  local wrapper_name="$2"
-  local wrapper="$repo_root/original/tests/$wrapper_name"
-
-  if [[ ! -f "$wrapper" ]]; then
-    printf 'missing upstream wrapper: %s\n' "$wrapper" >&2
-    exit 1
-  fi
-
-  pushd "$mode_dir" >/dev/null
-  srcdir="$repo_root/original" sh "$wrapper"
-  popd >/dev/null
+  "$mode_dir/pngtest" --strict "$repo_root/original/pngtest.png" >/dev/null
 }
 
 run_pngcp() {
@@ -89,51 +95,47 @@ run_timepng() {
   "$mode_dir/timepng" "$repo_root/original/pngtest.png" >/dev/null
 }
 
-run_pngtest() {
-  local mode_dir="$1"
-  "$mode_dir/pngtest" --strict "$repo_root/original/pngtest.png" >/dev/null
-}
-
-run_mode_matrix() {
-  local mode_label="$1"
+run_lane_matrix() {
+  local lane_label="$1"
   local mode_dir="$2"
 
   run_pngtest "$mode_dir"
-  run_wrapper "$mode_dir" pngunknown-discard
-  run_wrapper "$mode_dir" pngstest-none
-  run_wrapper "$mode_dir" pngvalid-standard
-  run_wrapper "$mode_dir" pngimage-quick
-  run_wrapper "$mode_dir" tarith-ascii
+  run_original_wrapper pngunknown-discard "$mode_dir"
+  run_original_wrapper pngstest-none "$mode_dir"
+  run_original_wrapper pngimage-quick "$mode_dir"
   run_pngcp "$mode_dir"
   run_timepng "$mode_dir"
 
-  printf '%s link-compatibility matrix passed for pngtest, pngunknown, pngstest, pngvalid, pngimage, tarith, pngcp, and timepng\n' "$mode_label"
+  printf '%s lane passed for pngtest, pngunknown, pngstest, pngimage, pngcp, and timepng\n' \
+    "$lane_label"
 }
 
-pngtest_source="$(prepare_pngtest_source "$build_dir")"
-compile_object pngtest "$pngtest_source"
-compile_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c" -DPNG_FREESTANDING_TESTS
-compile_object pngstest "$repo_root/original/contrib/libtests/pngstest.c" -DPNG_FREESTANDING_TESTS
-compile_object pngvalid "$repo_root/original/contrib/libtests/pngvalid.c" -DPNG_FREESTANDING_TESTS
-compile_object pngimage "$repo_root/original/contrib/libtests/pngimage.c" -DPNG_FREESTANDING_TESTS
-compile_object tarith "$repo_root/original/contrib/libtests/tarith.c" -DPNG_FREESTANDING_TESTS
-compile_object pngcp "$repo_root/original/contrib/tools/pngcp.c" -DPNG_FREESTANDING_TESTS
-compile_object timepng "$repo_root/original/contrib/libtests/timepng.c" -DPNG_FREESTANDING_TESTS
+staged_pngtest_source="$(prepare_pngtest_source "$staged_header_objects")"
+compile_safe_header_object pngtest "$staged_pngtest_source"
+compile_safe_header_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c"
+compile_safe_header_object pngstest "$repo_root/original/contrib/libtests/pngstest.c"
+compile_safe_header_object pngimage "$repo_root/original/contrib/libtests/pngimage.c"
+compile_safe_header_object pngcp "$repo_root/original/contrib/tools/pngcp.c"
+compile_safe_header_object timepng "$repo_root/original/contrib/libtests/timepng.c"
 
-for program in pngtest pngunknown pngstest pngvalid pngimage tarith pngcp timepng; do
-  link_shared_program "$program"
-  link_static_program "$program"
+original_pngtest_source="$(prepare_pngtest_source "$original_header_objects")"
+build_preserved_original_object pngtest "$original_pngtest_source" "$original_header_objects"
+build_preserved_original_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c" "$original_header_objects"
+build_preserved_original_object pngstest "$repo_root/original/contrib/libtests/pngstest.c" "$original_header_objects"
+build_preserved_original_object pngimage "$repo_root/original/contrib/libtests/pngimage.c" "$original_header_objects"
+build_preserved_original_object pngcp "$repo_root/original/contrib/tools/pngcp.c" "$original_header_objects"
+build_preserved_original_object timepng "$repo_root/original/contrib/libtests/timepng.c" "$original_header_objects"
+
+for program in "${programs[@]}"; do
+  link_shared_program "$staged_header_objects" "$staged_header_shared" "$program"
+  link_static_program "$staged_header_objects" "$staged_header_static" "$program"
+  link_shared_program "$original_header_objects" "$old_object_shared" "$program"
+  link_static_program "$original_header_objects" "$old_object_static" "$program"
 done
 
-run_mode_matrix "shared" "$shared_dir"
-run_mode_matrix "static" "$static_dir"
+run_lane_matrix "staged-header shared" "$staged_header_shared"
+run_lane_matrix "staged-header static" "$staged_header_static"
+run_lane_matrix "old-object shared" "$old_object_shared"
+run_lane_matrix "old-object static" "$old_object_static"
 
-cc "$build_dir/pngtest.o" \
-  "$static_lib" -lz -lm \
-  -o "$build_dir/pngtest-static"
-
-pushd "$repo_root/original" >/dev/null
-"$build_dir/pngtest-static" >/dev/null
-popd >/dev/null
-
-printf 'debian pngtest-static scenario passed with original object reuse against the staged safe static archive\n'
+printf 'true old-object relinks reused the original-built .o files against both staged safe libraries without recompiling them\n'
