@@ -502,7 +502,7 @@ pub unsafe extern "C" fn png_get_cHRM_XYZ_fixed(
     blue_Y: *mut png_fixed_point,
     blue_Z: *mut png_fixed_point,
 ) -> png_uint_32 {
-    crate::abi_guard!(info_ptr.cast_mut(), {
+    crate::abi_guard_no_png!({
         if info_ptr.is_null() {
             return 0;
         }
@@ -559,7 +559,7 @@ pub unsafe extern "C" fn png_get_cHRM_XYZ(
     blue_Y: *mut f64,
     blue_Z: *mut f64,
 ) -> png_uint_32 {
-    crate::abi_guard!(info_ptr.cast_mut(), {
+    crate::abi_guard_no_png!({
         let mut fixed_red_X = 0;
         let mut fixed_red_Y = 0;
         let mut fixed_red_Z = 0;

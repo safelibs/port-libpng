@@ -9,6 +9,6 @@ unsafe extern "C" {
 
 #[used]
 static FORCE_LINK_WRITE_CORE: [KeepSymbol; 2] = [
-    KeepSymbol(png_create_write_struct as *const ()),
-    KeepSymbol(png_set_write_fn as *const ()),
+    KeepSymbol::new(png_create_write_struct as *mut ()),
+    KeepSymbol::new(png_set_write_fn as *mut ()),
 ];

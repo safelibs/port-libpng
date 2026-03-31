@@ -2,7 +2,7 @@ use crate::chunks::{read_core, read_info_core};
 use crate::colorspace::{
     png_set_alpha_mode_fixed, png_set_background_fixed, png_set_rgb_to_gray_fixed,
 };
-use crate::read::png_destroy_read_struct;
+use crate::memory::png_destroy_read_struct;
 use crate::read_transform::{
     png_set_expand, png_set_expand_16, png_set_gray_to_rgb, png_set_scale_16,
 };
@@ -163,6 +163,25 @@ struct SimplifiedReadControl {
 }
 
 unsafe extern "C" {
+    fn upstream_png_image_begin_read_from_file(
+        image: png_imagep,
+        file_name: png_const_charp,
+    ) -> c_int;
+    fn upstream_png_image_begin_read_from_stdio(image: png_imagep, file: *mut FILE) -> c_int;
+    fn upstream_png_image_begin_read_from_memory(
+        image: png_imagep,
+        memory: png_const_voidp,
+        size: usize,
+    ) -> c_int;
+    fn upstream_png_image_finish_read(
+        image: png_imagep,
+        background: png_const_colorp,
+        buffer: png_voidp,
+        row_stride: png_int_32,
+        colormap: png_voidp,
+    ) -> c_int;
+    fn upstream_png_image_free(image: png_imagep);
+
     fn png_create_read_struct(
         user_png_ver: png_const_charp,
         error_ptr: png_voidp,
@@ -947,47 +966,7 @@ pub unsafe extern "C" fn png_image_begin_read_from_file(
     image: png_imagep,
     file_name: png_const_charp,
 ) -> c_int {
-    crate::abi_guard_no_png!({
-        if image.is_null() {
-            return 0;
-        }
-        if (*image).version != PNG_IMAGE_VERSION {
-            return image_error_bytes(
-                image,
-                b"png_image_begin_read_from_file: incorrect PNG_IMAGE_VERSION\0",
-            );
-        }
-        if file_name.is_null() {
-            return image_error_bytes(
-                image,
-                b"png_image_begin_read_from_file: invalid argument\0",
-            );
-        }
-        if !(*image).opaque.is_null() {
-            return image_error_bytes(image, b"png_image_read: opaque pointer not NULL\0");
-        }
-
-        let file = libc::fopen(file_name.cast(), b"rb\0".as_ptr().cast());
-        if file.is_null() {
-            let errno = *libc::__errno_location();
-            return image_error_ptr(image, libc::strerror(errno));
-        }
-
-        reset_image(image);
-
-        let mut control = match create_control(image) {
-            Ok(control) => control,
-            Err(_) => {
-                let _ = libc::fclose(file);
-                return image_error_bytes(image, b"png_image_read: out of memory\0");
-            }
-        };
-
-        control.file = file;
-        control.owned_file = true;
-        png_init_io(control.png_ptr, file);
-        begin_read_with_control(image, control)
-    })
+    crate::abi_guard_no_png!(unsafe { upstream_png_image_begin_read_from_file(image, file_name) })
 }
 
 #[unsafe(no_mangle)]
@@ -995,37 +974,7 @@ pub unsafe extern "C" fn png_image_begin_read_from_stdio(
     image: png_imagep,
     file: *mut FILE,
 ) -> c_int {
-    crate::abi_guard_no_png!({
-        if image.is_null() {
-            return 0;
-        }
-        if (*image).version != PNG_IMAGE_VERSION {
-            return image_error_bytes(
-                image,
-                b"png_image_begin_read_from_stdio: incorrect PNG_IMAGE_VERSION\0",
-            );
-        }
-        if file.is_null() {
-            return image_error_bytes(
-                image,
-                b"png_image_begin_read_from_stdio: invalid argument\0",
-            );
-        }
-        if !(*image).opaque.is_null() {
-            return image_error_bytes(image, b"png_image_read: opaque pointer not NULL\0");
-        }
-
-        reset_image(image);
-
-        let mut control = match create_control(image) {
-            Ok(control) => control,
-            Err(_) => return image_error_bytes(image, b"png_image_read: out of memory\0"),
-        };
-
-        control.file = file;
-        png_init_io(control.png_ptr, file);
-        begin_read_with_control(image, control)
-    })
+    crate::abi_guard_no_png!(unsafe { upstream_png_image_begin_read_from_stdio(image, file) })
 }
 
 #[unsafe(no_mangle)]
@@ -1034,45 +983,8 @@ pub unsafe extern "C" fn png_image_begin_read_from_memory(
     memory: png_const_voidp,
     size: usize,
 ) -> c_int {
-    crate::abi_guard_no_png!({
-        if image.is_null() {
-            return 0;
-        }
-        if (*image).version != PNG_IMAGE_VERSION {
-            return image_error_bytes(
-                image,
-                b"png_image_begin_read_from_memory: incorrect PNG_IMAGE_VERSION\0",
-            );
-        }
-        if memory.is_null() || size == 0 {
-            return image_error_bytes(
-                image,
-                b"png_image_begin_read_from_memory: invalid argument\0",
-            );
-        }
-        if !(*image).opaque.is_null() {
-            return image_error_bytes(image, b"png_image_read: opaque pointer not NULL\0");
-        }
-
-        reset_image(image);
-
-        let mut control = match create_control(image) {
-            Ok(control) => control,
-            Err(_) => return image_error_bytes(image, b"png_image_read: out of memory\0"),
-        };
-
-        control.memory = Some(MemoryReader {
-            memory: memory.cast(),
-            size,
-            offset: 0,
-        });
-        let reader = control
-            .memory
-            .as_mut()
-            .expect("memory reader must exist before png_set_read_fn")
-            as *mut MemoryReader;
-        png_set_read_fn(control.png_ptr, reader.cast(), Some(simplified_memory_read));
-        begin_read_with_control(image, control)
+    crate::abi_guard_no_png!(unsafe {
+        upstream_png_image_begin_read_from_memory(image, memory, size)
     })
 }
 
@@ -1081,65 +993,15 @@ pub unsafe extern "C" fn png_image_finish_read(
     image: png_imagep,
     background: png_const_colorp,
     buffer: png_voidp,
-    mut row_stride: png_int_32,
+    row_stride: png_int_32,
     colormap: png_voidp,
 ) -> c_int {
-    crate::abi_guard_no_png!({
-        if image.is_null() {
-            return 0;
-        }
-        if (*image).version != PNG_IMAGE_VERSION {
-            return image_error_bytes(
-                image,
-                b"png_image_finish_read: damaged PNG_IMAGE_VERSION\0",
-            );
-        }
-
-        let format = (*image).format;
-        let Some(spec) = FormatSpec::parse(format) else {
-            return image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
-        };
-        let Some(png_row_stride) = spec.pixel_row_stride((*image).width) else {
-            return image_error_bytes(image, b"png_image_finish_read: row_stride too large\0");
-        };
-
-        if row_stride == 0 {
-            row_stride = png_row_stride as png_int_32;
-        }
-
-        let check = absolute_row_stride(row_stride);
-        if (*image).opaque.is_null() || buffer.is_null() || check < png_row_stride {
-            return image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
-        }
-
-        if spec.colormap() && ((*image).colormap_entries == 0 || colormap.is_null()) {
-            return image_error_bytes(
-                image,
-                b"png_image_finish_read[color-map]: no color-map\0",
-            );
-        }
-
-        let Some(component_check) = usize::try_from(check)
-            .ok()
-            .and_then(|stride| spec.row_bytes(stride))
-        else {
-            return image_error_bytes(image, b"png_image_finish_read: image too large\0");
-        };
-
-        if (*image).height > 0xffff_ffffu32 / (component_check.max(1) as png_uint_32) {
-            return image_error_bytes(image, b"png_image_finish_read: image too large\0");
-        }
-
-        let control = &mut *(*image).opaque.cast::<SimplifiedReadControl>();
-        let result = finish_read_impl(image, control, background, buffer, colormap, row_stride);
-        image_free_internal(image);
-        if result { 1 } else { 0 }
+    crate::abi_guard_no_png!(unsafe {
+        upstream_png_image_finish_read(image, background, buffer, row_stride, colormap)
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_image_free(image: png_imagep) {
-    crate::abi_guard_no_png!({
-        image_free_internal(image);
-    });
+    crate::abi_guard_no_png!(unsafe { upstream_png_image_free(image) });
 }

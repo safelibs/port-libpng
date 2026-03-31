@@ -1,9 +1,6 @@
 //! Force-link the upstream core utility objects into the final library.
 
-#[repr(transparent)]
-pub(crate) struct KeepSymbol(pub *const ());
-
-unsafe impl Sync for KeepSymbol {}
+pub(crate) type KeepSymbol = core::sync::atomic::AtomicPtr<()>;
 
 unsafe extern "C" {
     fn png_access_version_number() -> u32;
@@ -14,8 +11,8 @@ unsafe extern "C" {
 
 #[used]
 static FORCE_LINK_CORE: [KeepSymbol; 4] = [
-    KeepSymbol(png_access_version_number as *const ()),
-    KeepSymbol(png_warning as *const ()),
-    KeepSymbol(png_get_IHDR as *const ()),
-    KeepSymbol(png_free as *const ()),
+    KeepSymbol::new(png_access_version_number as *mut ()),
+    KeepSymbol::new(png_warning as *mut ()),
+    KeepSymbol::new(png_get_IHDR as *mut ()),
+    KeepSymbol::new(png_free as *mut ()),
 ];

@@ -57,30 +57,3 @@ pub(crate) unsafe fn call_app_error(png_ptr: png_structrp, message: &[u8]) -> c_
 pub(crate) unsafe fn call_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
     unsafe { png_safe_call_error(png_ptr, message.as_ptr().cast::<c_char>()) }
 }
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_set_check_for_invalid_index(png_ptr: png_structrp, allowed: c_int) {
-    crate::abi_guard!(png_ptr, {
-        if png_ptr.is_null() {
-            return;
-        }
-
-        let mut core = read_core(png_ptr);
-        core.num_palette_max = if allowed > 0 { 0 } else { -1 };
-        write_core(png_ptr, &core);
-    });
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_get_palette_max(
-    png_ptr: png_const_structp,
-    info_ptr: png_const_infop,
-) -> c_int {
-    crate::abi_guard!(png_ptr.cast_mut(), {
-        if png_ptr.is_null() || info_ptr.is_null() {
-            return -1;
-        }
-
-        read_core(png_ptr).num_palette_max
-    })
-}

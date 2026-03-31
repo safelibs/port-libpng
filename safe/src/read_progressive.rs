@@ -7,4 +7,4 @@ unsafe extern "C" {
 }
 
 #[used]
-static FORCE_LINK_PROGRESSIVE: KeepSymbol = KeepSymbol(png_process_data as *const ());
+static FORCE_LINK_PROGRESSIVE: KeepSymbol = KeepSymbol::new(png_process_data as *mut ());

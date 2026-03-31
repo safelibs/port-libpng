@@ -3,6 +3,13 @@ use core::ffi::{c_char, c_int};
 use core::ptr;
 use std::ffi::CStr;
 
+unsafe extern "C" {
+    fn upstream_png_convert_to_rfc1123(
+        png_ptr: png_structrp,
+        ptime: png_const_timep,
+    ) -> png_const_charp;
+}
+
 pub const PNG_LIBPNG_VER: png_uint_32 = 10643;
 pub const PNG_UINT_31_MAX: png_uint_32 = 0x7fff_ffff;
 pub const PNG_USER_WIDTH_MAX: png_uint_32 = 1_000_000;
@@ -340,8 +347,7 @@ pub unsafe extern "C" fn png_build_grayscale_palette(bit_depth: c_int, palette: 
     });
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_get_uint_32(buf: png_const_bytep) -> png_uint_32 {
+pub(crate) unsafe fn png_get_uint_32_internal(buf: png_const_bytep) -> png_uint_32 {
     crate::abi_guard_no_png!({
         if buf.is_null() {
             return 0;
@@ -354,8 +360,7 @@ pub unsafe extern "C" fn png_get_uint_32(buf: png_const_bytep) -> png_uint_32 {
     })
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_get_uint_16(buf: png_const_bytep) -> png_uint_16 {
+pub(crate) unsafe fn png_get_uint_16_internal(buf: png_const_bytep) -> png_uint_16 {
     crate::abi_guard_no_png!({
         if buf.is_null() {
             return 0;
@@ -365,10 +370,9 @@ pub unsafe extern "C" fn png_get_uint_16(buf: png_const_bytep) -> png_uint_16 {
     })
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_get_int_32(buf: png_const_bytep) -> png_int_32 {
+pub(crate) unsafe fn png_get_int_32_internal(buf: png_const_bytep) -> png_int_32 {
     crate::abi_guard_no_png!({
-        let mut value = png_get_uint_32(buf);
+        let mut value = png_get_uint_32_internal(buf);
         if (value & 0x8000_0000) == 0 {
             return value as png_int_32;
         }
@@ -388,7 +392,7 @@ pub unsafe extern "C" fn png_get_uint_31(
     buf: png_const_bytep,
 ) -> png_uint_32 {
     crate::abi_guard!(png_ptr.cast_mut(), {
-        let value = png_get_uint_32(buf);
+        let value = png_get_uint_32_internal(buf);
         if value > PNG_UINT_31_MAX {
             crate::error::png_error(
                 png_ptr,
@@ -484,24 +488,7 @@ pub unsafe extern "C" fn png_convert_to_rfc1123(
     png_ptr: png_structrp,
     ptime: png_const_timep,
 ) -> png_const_charp {
-    crate::abi_guard!(png_ptr, {
-        let Some(state) = crate::state::png_ptr_state(png_ptr) else {
-            return ptr::null();
-        };
-        if ptime.is_null() {
-            return ptr::null();
-        }
-
-        let Some(formatted) = rfc1123_string(&*ptime) else {
-            crate::error::png_warning(png_ptr, b"Ignoring invalid time value\0".as_ptr().cast());
-            return ptr::null();
-        };
-
-        for (dst, src) in state.time_buffer.iter_mut().zip(formatted.iter()) {
-            *dst = *src as c_char;
-        }
-        state.time_buffer.as_ptr()
-    })
+    crate::abi_guard!(png_ptr, unsafe { upstream_png_convert_to_rfc1123(png_ptr, ptime) })
 }
 
 #[unsafe(no_mangle)]

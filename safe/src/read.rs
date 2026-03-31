@@ -38,6 +38,6 @@ pub unsafe extern "C" fn png_destroy_read_struct(
 
 #[used]
 static FORCE_LINK_READ: [KeepSymbol; 2] = [
-    KeepSymbol(png_create_read_struct as *const ()),
-    KeepSymbol(png_set_read_fn as *const ()),
+    KeepSymbol::new(png_create_read_struct as *mut ()),
+    KeepSymbol::new(png_set_read_fn as *mut ()),
 ];
