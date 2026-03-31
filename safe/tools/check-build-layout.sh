@@ -34,15 +34,17 @@ done
 libdir_rel="$(grep -E '^usr/lib/.*/libpng16\.so\.16\.43\.0$' "$layout_baseline" | sed 's#/libpng16\.so\.16\.43\.0$##')"
 libdir="$stage_root/$libdir_rel"
 
-if [[ ! -e "$(readlink -f "$libdir/libpng16.so.16.43.0")" ]]; then
-  printf 'versioned shared library target does not exist\n' >&2
-  exit 1
-fi
+for staged_file in "$libdir/libpng16.so.16.43.0" "$libdir/libpng16.a"; do
+  if [[ ! -f "$staged_file" || -L "$staged_file" ]]; then
+    printf 'staged install artifact must be a regular file: %s\n' "$staged_file" >&2
+    exit 1
+  fi
 
-if [[ ! -e "$(readlink -f "$libdir/libpng16.a")" ]]; then
-  printf 'static library target does not exist\n' >&2
-  exit 1
-fi
+  if [[ "$(readlink -f "$staged_file")" != "$staged_file" ]]; then
+    printf 'staged install artifact resolves outside the staged tree: %s\n' "$staged_file" >&2
+    exit 1
+  fi
+done
 
 if [[ "$(readlink "$libdir/libpng16.so.16")" != "libpng16.so.16.43.0" ]]; then
   printf 'unexpected libpng16.so.16 link target\n' >&2

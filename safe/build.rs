@@ -249,16 +249,16 @@ fn stage_install_tree(
     write_executable(bin_root.join("libpng16-config"), &rendered_config)?;
     ensure_symlink(bin_root.join("libpng-config"), Path::new("libpng16-config"))?;
 
-    ensure_symlink(
-        lib_root.join(FULL_SO_NAME),
+    fs::copy(
         profile_dir.join(format!("lib{ABI_BASENAME}.so")),
+        lib_root.join(FULL_SO_NAME),
     )?;
     ensure_symlink(lib_root.join("libpng16.so.16"), Path::new(FULL_SO_NAME))?;
     ensure_symlink(lib_root.join("libpng16.so"), Path::new(FULL_SO_NAME))?;
     ensure_symlink(lib_root.join("libpng.so"), Path::new("libpng16.so"))?;
-    ensure_symlink(
-        lib_root.join("libpng16.a"),
+    fs::copy(
         profile_dir.join(format!("lib{ABI_BASENAME}.a")),
+        lib_root.join("libpng16.a"),
     )?;
     ensure_symlink(lib_root.join("libpng.a"), Path::new("libpng16.a"))?;
 

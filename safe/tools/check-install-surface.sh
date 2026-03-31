@@ -94,6 +94,18 @@ if [[ "$(readlink "$lib_dir/libpng.a")" != "libpng16.a" ]]; then
   exit 1
 fi
 
+for staged_file in "$lib_dir/libpng16.so.16.43.0" "$lib_dir/libpng16.a"; do
+  if [[ ! -f "$staged_file" || -L "$staged_file" ]]; then
+    printf 'staged install artifact must be a regular file: %s\n' "$staged_file" >&2
+    exit 1
+  fi
+
+  if [[ "$(readlink -f "$staged_file")" != "$staged_file" ]]; then
+    printf 'staged install artifact resolves outside the staged tree: %s\n' "$staged_file" >&2
+    exit 1
+  fi
+done
+
 normalize_tokens() {
   tr '\n' ' ' | xargs
 }
