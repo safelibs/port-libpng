@@ -1,0 +1,8 @@
+debian/tmp/usr/bin/libpng-config
+debian/tmp/usr/bin/libpng16-config
+debian/tmp/usr/include
+debian/tmp/usr/lib/x86_64-linux-gnu/pkgconfig
+debian/tmp/usr/lib/x86_64-linux-gnu/libpng.a
+debian/tmp/usr/lib/x86_64-linux-gnu/libpng16.a
+debian/tmp/usr/lib/x86_64-linux-gnu/libpng.so
+debian/tmp/usr/lib/x86_64-linux-gnu/libpng16.so

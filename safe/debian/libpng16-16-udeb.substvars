@@ -1,0 +1,1 @@
+shlibs:Depends=libc6-udeb (>= 2.39), libgcc-s1, zlib1g-udeb (>= 1:1.2.3.3.dfsg-1)

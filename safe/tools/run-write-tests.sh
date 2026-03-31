@@ -21,6 +21,7 @@ else
 fi
 
 cargo "${build_args[@]}"
+"$safe_dir/tools/stage-install-tree.sh"
 
 lib_path="$(find "$stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
 if [[ -z "$lib_path" ]]; then

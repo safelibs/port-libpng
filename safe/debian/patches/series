@@ -1,0 +1,3 @@
+# The Rust port already carries the packaging-facing libpng-config/libpng.pc
+# behavior and ABI/security fixes in-tree.
+# libpng-1.6.39-apng.patch remains intentionally disabled.

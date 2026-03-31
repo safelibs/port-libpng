@@ -1,0 +1,21 @@
+Package: libpng16-16t64
+Source: libpng1.6
+Version: 1.6.43-5ubuntu0.5+safelibs1
+Architecture: amd64
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Installed-Size: 1434
+Depends: libc6 (>= 2.39), libgcc-s1 (>= 4.2), zlib1g (>= 1:1.2.11)
+Breaks: libpng16-16 (<< 1.6.43-5ubuntu0.5+safelibs1)
+Replaces: libpng16-16
+Provides: libpng16-16 (= 1.6.43-5ubuntu0.5+safelibs1)
+Section: libs
+Priority: optional
+Multi-Arch: same
+Homepage: http://libpng.org/pub/png/libpng.html
+Description: PNG library - runtime (version 1.6)
+ libpng is a library implementing an interface for reading and writing
+ PNG (Portable Network Graphics) format files.
+ .
+ This package contains the runtime library files needed to run software
+ using libpng.
+Original-Maintainer: Maintainers of libpng1.6 packages <libpng1.6@packages.debian.org>

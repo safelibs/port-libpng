@@ -1,0 +1,16 @@
+Package: libpng16-16-udeb
+Source: libpng1.6
+Version: 1.6.43-5ubuntu0.5+safelibs1
+Architecture: amd64
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Installed-Size: 6648
+Depends: libc6-udeb (>= 2.39), libgcc-s1, zlib1g-udeb (>= 1:1.2.3.3.dfsg-1)
+Section: debian-installer
+Priority: optional
+Description: PNG library - minimal runtime library (version 1.6)
+ libpng is a library implementing an interface for reading and writing
+ PNG (Portable Network Graphics) format files.
+ .
+ This package provides the minimal libpng runtime library needed for
+ the debian-installer.
+Original-Maintainer: Maintainers of libpng1.6 packages <libpng1.6@packages.debian.org>

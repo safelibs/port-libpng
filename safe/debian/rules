@@ -1,0 +1,70 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+# export DH_VERBOSE=1
+
+export DEB_BUILD_MAINT_OPTIONS   := hardening=+all
+export DEB_CFLAGS_MAINT_APPEND   := $(shell dpkg-buildflags --get CPPFLAGS)
+export DEB_CXXFLAGS_MAINT_APPEND := $(shell dpkg-buildflags --get CPPFLAGS)
+export CARGO_HOME                := $(CURDIR)/debian/cargo-home
+export CARGO_TARGET_DIR          := $(CURDIR)/target
+export RUSTFLAGS                 := $(strip $(RUSTFLAGS) $(foreach flag,$(shell dpkg-buildflags --get LDFLAGS),-C link-arg=$(flag)))
+CC?=gcc
+SHELL:=/bin/bash
+
+include /usr/share/dpkg/architecture.mk
+
+multiarch := $(DEB_HOST_MULTIARCH)
+stage_root := $(CURDIR)/target/release/abi-stage
+stage_libdir := $(stage_root)/usr/lib/$(multiarch)
+stage_includedir := $(stage_root)/usr/include
+tool_builddir := $(CURDIR)/debian/build-tools
+package_version := $(shell dpkg-parsechangelog -SVersion)
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	:
+
+override_dh_auto_build:
+	cargo build --manifest-path $(CURDIR)/Cargo.toml --release
+	./tools/stage-install-tree.sh
+	mkdir -p $(tool_builddir)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Wall -Wextra -Werror -Wno-deprecated-declarations -DPNG_FREESTANDING_TESTS -I$(stage_includedir) -I$(CURDIR)/../original $(CURDIR)/../original/contrib/tools/pngfix.c -L$(stage_libdir) -lpng16 -lz -lm -o $(tool_builddir)/pngfix
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Wall -Wextra -Werror -Wno-deprecated-declarations $(CURDIR)/../original/contrib/tools/png-fix-itxt.c -lz -o $(tool_builddir)/png-fix-itxt
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	./tools/run-upstream-tests.sh
+	./tools/check-link-compat.sh
+endif
+
+override_dh_auto_install:
+	rm -rf debian/tmp
+	mkdir -p debian/tmp/usr
+	cp -a $(stage_root)/usr/. debian/tmp/usr/
+	install -D -m0755 $(tool_builddir)/pngfix debian/tmp/usr/bin/pngfix
+	install -D -m0755 $(tool_builddir)/png-fix-itxt debian/tmp/usr/bin/png-fix-itxt
+
+override_dh_install:
+	dh_install
+	rm -rf debian/libpng16-16-udeb
+	mkdir -p debian/libpng16-16-udeb/lib/$(multiarch)
+	install -m0644 debian/tmp/usr/lib/$(multiarch)/libpng16.so.16.43.0 debian/libpng16-16-udeb/lib/$(multiarch)/libpng16.so.16.43.0
+	ln -sf libpng16.so.16.43.0 debian/libpng16-16-udeb/lib/$(multiarch)/libpng16.so.16
+
+override_dh_auto_clean:
+	cargo clean --manifest-path $(CURDIR)/Cargo.toml
+	rm -rf debian/build-tools debian/cargo-home
+
+override_dh_makeshlibs:
+	dh_makeshlibs --add-udeb=libpng16-16-udeb -a
+
+override_dh_builddeb:
+	dh_builddeb
+	mkdir -p debian/libpng16-16-udeb/DEBIAN
+	dpkg-shlibdeps -tudeb -Tdebian/libpng16-16-udeb.substvars debian/libpng16-16-udeb/lib/$(multiarch)/libpng16.so.16.43.0
+	dpkg-gencontrol -plibpng16-16-udeb -ldebian/changelog -Tdebian/libpng16-16-udeb.substvars -Pdebian/libpng16-16-udeb
+	dpkg-deb -z6 -Zxz -Sextreme --build debian/libpng16-16-udeb ../libpng16-16-udeb_$(package_version)_$(DEB_HOST_ARCH).udeb

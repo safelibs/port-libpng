@@ -6,6 +6,7 @@ cd "$SCRIPT_DIR"
 
 IMAGE_TAG="libpng-original-smoke:latest"
 BUILD_CONTEXT="$(mktemp -d)"
+MODE="${1:-original}"
 
 required_dependents=(
   "GIMP"
@@ -27,6 +28,29 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+latest_artifact() {
+  local package_name="$1"
+  local extension="$2"
+
+  find "$SCRIPT_DIR" -maxdepth 1 -type f -name "${package_name}_*.${extension}" -printf '%T@ %p\n' \
+    | sort -nr \
+    | head -n1 \
+    | cut -d' ' -f2-
+}
+
+case "$MODE" in
+  original)
+    IMAGE_TAG="libpng-original-smoke:latest"
+    ;;
+  safe)
+    IMAGE_TAG="libpng-safe-smoke:latest"
+    ;;
+  *)
+    printf 'usage: %s [original|safe]\n' "${0##*/}" >&2
+    exit 1
+    ;;
+esac
 
 for tool in docker git jq; do
   if ! command -v "$tool" >/dev/null 2>&1; then
@@ -58,7 +82,22 @@ done
 
 git ls-files -z -- original | tar --null -T - -cf - | tar -xf - -C "$BUILD_CONTEXT"
 
-docker build -t "$IMAGE_TAG" -f - "$BUILD_CONTEXT" <<'DOCKERFILE'
+if [[ "$MODE" == "safe" ]]; then
+  mkdir -p "$BUILD_CONTEXT/packages"
+
+  for package_name in libpng16-16t64 libpng-dev libpng-tools; do
+    artifact="$(latest_artifact "$package_name" deb)"
+    if [[ -z "$artifact" ]]; then
+      printf 'missing prebuilt package artifact for safe mode: %s_*.deb\n' "$package_name" >&2
+      exit 1
+    fi
+
+    install -m 0644 "$artifact" "$BUILD_CONTEXT/packages/"
+  done
+fi
+
+if [[ "$MODE" == "original" ]]; then
+  docker build -t "$IMAGE_TAG" -f - "$BUILD_CONTEXT" <<'DOCKERFILE'
 FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -107,6 +146,56 @@ RUN useradd -m -s /bin/bash tester \
 USER tester
 WORKDIR /home/tester/work
 DOCKERFILE
+else
+  docker build -t "$IMAGE_TAG" -f - "$BUILD_CONTEXT" <<'DOCKERFILE'
+FROM ubuntu:24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      dbus-x11 \
+      feh \
+      file \
+      gimp \
+      libcairo2-dev \
+      libgdk-pixbuf-2.0-dev \
+      libsdl2-dev \
+      libsdl2-image-dev \
+      libwebkit2gtk-4.1-dev \
+      libreoffice-draw \
+      netpbm \
+      pkg-config \
+      pngquant \
+      python3-minimal \
+      r-base \
+      r-cran-png \
+      scribus \
+      xdotool \
+      x11-utils \
+      xsane \
+      xvfb \
+      zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY packages /opt/packages
+COPY original/pngtest.png /opt/fixtures/input.png
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends /opt/packages/*.deb \
+ && rm -rf /var/lib/apt/lists/* \
+ && ldconfig
+
+RUN useradd -m -s /bin/bash tester \
+ && mkdir -p /home/tester/work \
+ && chown -R tester:tester /home/tester
+
+USER tester
+WORKDIR /home/tester/work
+DOCKERFILE
+fi
 
 docker run --rm -i "$IMAGE_TAG" bash <<'EOF'
 set -euo pipefail
@@ -242,7 +331,7 @@ int main(int argc, char **argv) {
     return 0;
 }
 C
-gcc webkit/webkit.c -o webkit/webkit-test $(pkg-config --cflags --libs webkit2gtk-4.1)
+gcc webkit/webkit.c -o webkit/webkit-test $(pkg-config --cflags --libs webkit2gtk-4.1 libpng)
 timeout 120 xvfb-run -a ./webkit/webkit-test >/tmp/webkit.log 2>&1
 
 log "GDK Pixbuf"

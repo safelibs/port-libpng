@@ -17,6 +17,7 @@ else
 fi
 
 cargo "${build_args[@]}"
+"$safe_dir/tools/stage-install-tree.sh"
 
 lib_rel="$(grep -E '^usr/lib/.*/libpng16\.so\.16\.43\.0$' "$layout_baseline")"
 lib_path="$stage_root/$lib_rel"

@@ -16,6 +16,7 @@ else
 fi
 
 cargo "${build_args[@]}"
+"$safe_dir/tools/stage-install-tree.sh"
 
 mapfile -t required_paths < <(
   grep -E \

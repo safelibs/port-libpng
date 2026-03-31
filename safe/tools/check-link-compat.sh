@@ -3,28 +3,18 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 safe_dir="$(cd -- "$script_dir/.." && pwd)"
-repo_root="$(cd -- "$safe_dir/.." && pwd)"
-profile="${PROFILE:-release}"
-target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
-stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
+source "$safe_dir/tests/upstream/common.sh"
 
-build_args=(build --manifest-path "$safe_dir/Cargo.toml")
-if [[ "$profile" == "release" ]]; then
-  build_args+=(--release)
-else
-  build_args+=(--profile "$profile")
-fi
+ensure_safe_stage
 
-cargo "${build_args[@]}"
-
-shared_lib="$(find "$stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
 static_lib="$(find "$stage_root/usr/lib" -name 'libpng16.a' -print -quit)"
-if [[ -z "$shared_lib" || -z "$static_lib" ]]; then
-  printf 'unable to locate staged safe libpng shared/static libraries under %s\n' "$stage_root/usr/lib" >&2
+if [[ -z "$static_lib" ]]; then
+  printf 'unable to locate staged safe static library under %s\n' "$stage_root/usr/lib" >&2
   exit 1
 fi
 
-lib_dir="$(dirname "$shared_lib")"
+lib_dir="$libpng_stage_lib_dir"
+include_dir="$libpng_stage_include_dir"
 build_dir="$(mktemp -d)"
 trap 'rm -rf "$build_dir"' EXIT
 
@@ -35,10 +25,13 @@ mkdir -p "$shared_dir" "$static_dir"
 compile_object() {
   local output="$1"
   local source="$2"
+  shift 2
 
   cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+    -I"$include_dir" \
     -I"$repo_root/original" \
     -I"$repo_root/original/contrib/visupng" \
+    "$@" \
     -c "$source" \
     -o "$build_dir/$output.o"
 }
@@ -117,14 +110,15 @@ run_mode_matrix() {
   printf '%s link-compatibility matrix passed for pngtest, pngunknown, pngstest, pngvalid, pngimage, tarith, pngcp, and timepng\n' "$mode_label"
 }
 
-compile_object pngtest "$repo_root/original/pngtest.c"
-compile_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c"
-compile_object pngstest "$repo_root/original/contrib/libtests/pngstest.c"
-compile_object pngvalid "$repo_root/original/contrib/libtests/pngvalid.c"
-compile_object pngimage "$repo_root/original/contrib/libtests/pngimage.c"
-compile_object tarith "$repo_root/original/contrib/libtests/tarith.c"
-compile_object pngcp "$repo_root/original/contrib/tools/pngcp.c"
-compile_object timepng "$repo_root/original/contrib/libtests/timepng.c"
+pngtest_source="$(prepare_pngtest_source "$build_dir")"
+compile_object pngtest "$pngtest_source"
+compile_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c" -DPNG_FREESTANDING_TESTS
+compile_object pngstest "$repo_root/original/contrib/libtests/pngstest.c" -DPNG_FREESTANDING_TESTS
+compile_object pngvalid "$repo_root/original/contrib/libtests/pngvalid.c" -DPNG_FREESTANDING_TESTS
+compile_object pngimage "$repo_root/original/contrib/libtests/pngimage.c" -DPNG_FREESTANDING_TESTS
+compile_object tarith "$repo_root/original/contrib/libtests/tarith.c" -DPNG_FREESTANDING_TESTS
+compile_object pngcp "$repo_root/original/contrib/tools/pngcp.c" -DPNG_FREESTANDING_TESTS
+compile_object timepng "$repo_root/original/contrib/libtests/timepng.c" -DPNG_FREESTANDING_TESTS
 
 for program in pngtest pngunknown pngstest pngvalid pngimage tarith pngcp timepng; do
   link_shared_program "$program"

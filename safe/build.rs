@@ -177,9 +177,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rustc-cdylib-link-arg=-Wl,-soname,{SONAME}");
 
     let profile_dir = profile_dir_from_out_dir(&out_dir, &profile)?;
-    let stage_root = profile_dir.join("abi-stage");
-    let multiarch = detect_multiarch(&target);
-    stage_install_tree(&manifest_dir, &profile_dir, &stage_root, &multiarch)?;
+    let static_output = profile_dir.join(format!("lib{ABI_BASENAME}.a"));
+
+    // On a clean build these artifacts do not exist until after rustc finishes
+    // linking the library, so the staged install tree must be populated by a
+    // post-build helper rather than unconditionally from the build script.
+    if static_output.exists() {
+        let stage_root = profile_dir.join("abi-stage");
+        let multiarch = detect_multiarch(&target);
+        stage_install_tree(&manifest_dir, &profile_dir, &stage_root, &multiarch)?;
+    }
 
     Ok(())
 }
@@ -249,9 +256,10 @@ fn stage_install_tree(
     write_executable(bin_root.join("libpng16-config"), &rendered_config)?;
     ensure_symlink(bin_root.join("libpng-config"), Path::new("libpng16-config"))?;
 
-    fs::copy(
-        profile_dir.join(format!("lib{ABI_BASENAME}.so")),
-        lib_root.join(FULL_SO_NAME),
+    link_versioned_shared_library(
+        manifest_dir,
+        &profile_dir.join(format!("lib{ABI_BASENAME}.a")),
+        &lib_root.join(FULL_SO_NAME),
     )?;
     ensure_symlink(lib_root.join("libpng16.so.16"), Path::new(FULL_SO_NAME))?;
     ensure_symlink(lib_root.join("libpng16.so"), Path::new(FULL_SO_NAME))?;
@@ -261,6 +269,46 @@ fn stage_install_tree(
         lib_root.join("libpng16.a"),
     )?;
     ensure_symlink(lib_root.join("libpng.a"), Path::new("libpng16.a"))?;
+
+    Ok(())
+}
+
+fn link_versioned_shared_library(
+    manifest_dir: &Path,
+    static_lib: &Path,
+    output_path: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let compiler = cc::Build::new().get_compiler();
+    let mut command = compiler.to_command();
+    command
+        .arg("-shared")
+        .arg("-Wl,--whole-archive")
+        .arg(static_lib)
+        .arg("-Wl,--no-whole-archive")
+        .arg(format!(
+            "-Wl,--version-script={}",
+            manifest_dir.join("abi/libpng.vers").display()
+        ))
+        .arg(format!("-Wl,-soname,{SONAME}"))
+        .arg("-lz")
+        .arg("-lm")
+        .arg("-ldl")
+        .arg("-lpthread")
+        .arg("-lrt")
+        .arg("-lutil")
+        .arg("-lgcc_s")
+        .arg("-o")
+        .arg(output_path);
+
+    let status = command.status()?;
+    if !status.success() {
+        return Err(format!(
+            "failed to link staged shared library {} from {}",
+            output_path.display(),
+            static_lib.display()
+        )
+        .into());
+    }
 
     Ok(())
 }

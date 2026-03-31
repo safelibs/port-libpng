@@ -15,6 +15,7 @@ else
 fi
 
 cargo "${build_args[@]}"
+"$safe_dir/tools/stage-install-tree.sh"
 
 for header in png.h pngconf.h pnglibconf.h; do
   baseline="$safe_dir/include/$header"

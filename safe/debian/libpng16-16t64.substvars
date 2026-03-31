@@ -1,0 +1,4 @@
+shlibs:Depends=libc6 (>= 2.39), libgcc-s1 (>= 4.2), zlib1g (>= 1:1.2.11)
+t64:Provides=libpng16-16 (= ${binary:Version})
+misc:Depends=
+misc:Pre-Depends=

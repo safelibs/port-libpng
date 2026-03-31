@@ -1,0 +1,222 @@
+libpng1.6 (1.6.43-5ubuntu0.5+safelibs1) noble; urgency=medium
+
+  * Build the Rust port into Ubuntu-compatible binary packages while keeping
+    the existing libpng1.6 source package name and binary package layout.
+  * Run the upstream shell-test wrapper matrix and standalone tool smokes
+    against the staged safe headers and libraries during package tests.
+
+ -- Safe Libraries Team <safelibs@example.invalid>  Mon, 30 Mar 2026 12:00:00 -0700
+
+libpng1.6 (1.6.43-5ubuntu0.5) noble-security; urgency=medium
+
+  * SECURITY UPDATE: OOB read in png_set_quantize()
+    - debian/patches/CVE-2026-25646.patch: fix a heap buffer overflow in
+      pngrtran.c.
+    - CVE-2026-25646
+
+ -- Marc Deslauriers <marc.deslauriers@ubuntu.com>  Wed, 11 Feb 2026 09:27:12 -0500
+
+libpng1.6 (1.6.43-5ubuntu0.4) noble-security; urgency=medium
+
+  * SECURITY UPDATE: DoS via buffer overflow caused by memory leaks
+    - debian/patches/CVE-2025-2816x.patch: clean up on user/internal errors
+      in contrib/libtests/pngimage.c, pngerror.c.
+    - CVE-2025-28162
+    - CVE-2025-28164
+
+ -- Marc Deslauriers <marc.deslauriers@ubuntu.com>  Thu, 29 Jan 2026 11:18:41 -0500
+
+libpng1.6 (1.6.43-5ubuntu0.3) noble-security; urgency=medium
+
+  * SECURITY UPDATE: OOB in png_image_read_composite
+    - debian/patches/CVE-2025-66293-1.patch: validate component size in
+      pngread.c.
+    - debian/patches/CVE-2025-66293-2.patch: improve fix in pngread.c.
+    - CVE-2025-66293
+  * SECURITY UPDATE: Heap buffer over-read in png_image_read_direct_scaled
+    - debian/patches/CVE-2026-22695.patch: fix memcpy size in pngread.c.
+    - CVE-2026-22695
+  * SECURITY UPDATE: Integer truncation causing heap buffer over-read
+    - debian/patches/CVE-2026-22801.patch: remove incorrect truncation
+      casts in CMakeLists.txt, contrib/libtests/pngstest.c, pngwrite.c,
+      tests/pngstest-large-stride.
+    - CVE-2026-22801
+
+ -- Marc Deslauriers <marc.deslauriers@ubuntu.com>  Mon, 12 Jan 2026 13:14:03 -0500
+
+libpng1.6 (1.6.43-5ubuntu0.1) noble-security; urgency=medium
+
+  * SECURITY UPDATE: buffer overflow issue
+    - debian/patches/CVE-2025-64505.patch: Fix a buffer overflow in
+      png_do_quantize
+    - debian/patches/CVE-2025-64506.patch: Fix a heap buffer overflow in
+      png_write_image_8bit
+    - debian/patches/CVE-2025-64720.patch: Fix a buffer overflow in
+      png_init_read_transformations
+    - debian/patches/CVE-2025-65018.patch: Fix a heap buffer overflow in
+      png_image_finish_read
+    - CVE-2025-64505
+    - CVE-2025-64506
+    - CVE-2025-64720
+    - CVE-2025-65018
+
+ -- Nishit Majithia <nishit.majithia@canonical.com>  Tue, 09 Dec 2025 17:36:48 +0530
+
+libpng1.6 (1.6.43-5build1) noble; urgency=medium
+
+  * No-change rebuild for CVE-2024-3094
+
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Sun, 31 Mar 2024 07:55:48 +0000
+
+libpng1.6 (1.6.43-5) unstable; urgency=medium
+
+  * Fixup doc-base path (Closes: #1065063)
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Thu, 28 Mar 2024 15:43:50 +0100
+
+libpng1.6 (1.6.43-4) unstable; urgency=medium
+
+  * Fixup udeb naming on shlibs file, making it installable again.
+    (Closes: #1066069)
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Thu, 28 Mar 2024 12:38:28 +0100
+
+libpng1.6 (1.6.43-3) unstable; urgency=medium
+
+  * B-D on dpkg-dev (>= 1.22.5) (Closes: #1065259)
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Sat, 02 Mar 2024 11:18:15 +0100
+
+libpng1.6 (1.6.43-2) unstable; urgency=medium
+
+  * Upload to sid
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Wed, 28 Feb 2024 12:12:53 +0100
+
+libpng1.6 (1.6.43-1exp1) experimental; urgency=medium
+
+  [ Steve Langasek ]
+  * Rename libraries for 64-bit time_t transition.
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Mon, 26 Feb 2024 15:47:33 +0100
+
+libpng1.6 (1.6.43-1) unstable; urgency=medium
+
+  * New upstream version 1.6.43
+  * Add new license for contrib tool
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Mon, 26 Feb 2024 15:44:38 +0100
+
+libpng1.6 (1.6.42-1) unstable; urgency=medium
+
+  * New upstream version 1.6.42
+  * Update metadata location
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Tue, 30 Jan 2024 09:03:50 +0100
+
+libpng1.6 (1.6.41-1) unstable; urgency=medium
+
+  * New upstream version 1.6.41
+  * Bump copyright years
+  * Bump upstream copyright years
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Mon, 29 Jan 2024 17:49:45 +0100
+
+libpng1.6 (1.6.40-3) unstable; urgency=medium
+
+  * Update watch file for new github pnggroup location.
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Wed, 03 Jan 2024 01:37:41 +0100
+
+libpng1.6 (1.6.40-2) unstable; urgency=medium
+
+  * bump std-version to 4.6.2
+  * Bump copyright years
+
+  [ Mathieu Malaterre ]
+  * Drop revision from symbols file (Closes: #1053753)
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Tue, 10 Oct 2023 17:54:45 +0200
+
+libpng1.6 (1.6.40-1) unstable; urgency=medium
+
+  * New upstream version 1.6.40
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Sat, 24 Jun 2023 23:08:19 +0200
+
+libpng1.6 (1.6.39-2) unstable; urgency=medium
+
+  [ Helmut Grohne ]
+  * Support the noudeb build profile. (Closes: #1024944)
+
+  [ Gianfranco Costamagna ]
+  * Upload to sid
+
+ -- Helmut Grohne <helmut@subdivi.de>  Sun, 27 Nov 2022 20:59:26 +0100
+
+libpng1.6 (1.6.39-1) unstable; urgency=medium
+
+  * New upstream version 1.6.39
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Sat, 26 Nov 2022 15:21:15 +0100
+
+libpng1.6 (1.6.38-2) unstable; urgency=medium
+
+  * Add manpages to build
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Wed, 21 Sep 2022 14:46:45 +0200
+
+libpng1.6 (1.6.38-1) unstable; urgency=medium
+
+  * New upstream version 1.6.38
+  * Drop all patches, now upstream
+  * Refactor copyright file and bump copyright years
+  * Drop as-needed flag, now default
+  * Add not-installed file
+  * Move installexamples to libpng-dev.examples file
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Wed, 21 Sep 2022 12:36:17 +0200
+
+libpng1.6 (1.6.37-5) unstable; urgency=medium
+
+  * debian/patches/eb6767273a4eb5d6f4ad528370d7262cf7aa220c.patch:
+    - cherry-pick upstream fix for memory lieak in png_handle_eXIf function
+      (LP: #1960326)
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Mon, 25 Apr 2022 19:29:57 +0200
+
+libpng1.6 (1.6.37-4) unstable; urgency=medium
+
+  * Drop apng support, seems to break chromium ability to open
+    apng files (Closes: #1005850).
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Fri, 22 Apr 2022 18:48:37 +0200
+
+libpng1.6 (1.6.37-3) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * Wrap long lines in changelog entries: 1.2.5-5.
+
+  [ Gianfranco Costamagna ]
+  * debian/patches/326.patch:
+    - add upstream proposed patch to fix a decode fail with invalid eXIf
+      chunks (Closes: #969502)
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Wed, 16 Sep 2020 08:02:32 +0200
+
+libpng1.6 (1.6.37-2) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * Set upstream metadata fields: Bug-Database, Repository, Repository-
+    Browse.
+  * Rely on pre-initialized dpkg-architecture variables.
+  * Fix day-of-week for changelog entry 1.0.0-0.1.
+  * Set upstream metadata fields: Bug-Submit.
+
+  [ Gianfranco Costamagna ]
+  * Bump std-version to 4.5.0, no changes required
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Fri, 07 Feb 2020 20:00:13 +0100
+
+# Older entries have been removed from this changelog.
+# To read the complete changelog use `apt changelog libpng16-16t64`.

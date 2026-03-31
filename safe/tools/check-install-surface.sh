@@ -15,6 +15,7 @@ else
 fi
 
 cargo "${build_args[@]}"
+"$safe_dir/tools/stage-install-tree.sh"
 
 shared_lib="$(find "$stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
 static_lib="$(find "$stage_root/usr/lib" -name 'libpng16.a' -print -quit)"

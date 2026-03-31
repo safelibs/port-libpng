@@ -1,0 +1,20 @@
+Package: libpng-tools
+Source: libpng1.6
+Version: 1.6.43-5ubuntu0.5+safelibs1
+Architecture: amd64
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Installed-Size: 97
+Depends: libc6 (>= 2.34), libpng16-16t64 (= 1.6.43-5ubuntu0.5+safelibs1), zlib1g (>= 1:1.2.3.4)
+Breaks: libpng16-tools (<< 1.6.21-1)
+Replaces: libpng16-tools (<< 1.6.21-1)
+Section: libdevel
+Priority: optional
+Multi-Arch: foreign
+Homepage: http://libpng.org/pub/png/libpng.html
+Description: PNG library - tools (version 1.6)
+ libpng is a library implementing an interface for reading and writing
+ PNG (Portable Network Graphics) format files.
+ .
+ This package contains a program to interact with libpng from the
+ command line.
+Original-Maintainer: Maintainers of libpng1.6 packages <libpng1.6@packages.debian.org>
