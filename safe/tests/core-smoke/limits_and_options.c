@@ -28,9 +28,15 @@ int main(void) {
            PNG_OPTION_OFF);
     assert(png_set_option(png_ptr, PNG_OPTION_NEXT, 1) == PNG_OPTION_INVALID);
 
+    png_set_sig_bytes(png_ptr, 4);
+    png_set_sig_bytes(png_ptr, -1);
+
     png_infop info_ptr = png_create_info_struct(png_ptr);
     assert(info_ptr != NULL);
     assert(png_get_palette_max(png_ptr, info_ptr) == 0);
+    png_set_rows(png_ptr, info_ptr, NULL);
+    png_data_freer(png_ptr, info_ptr, PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_ROWS);
+    png_free_data(png_ptr, info_ptr, PNG_FREE_ROWS, 0);
     png_set_check_for_invalid_index(png_ptr, 0);
     assert(png_get_palette_max(png_ptr, info_ptr) == -1);
     png_set_check_for_invalid_index(png_ptr, 1);

@@ -3,8 +3,6 @@
 use crate::read_util::KeepSymbol;
 
 unsafe extern "C" {
-    fn png_create_write_struct();
-    fn png_set_write_fn();
     fn png_write_info_before_PLTE();
     fn png_write_info();
     fn png_write_row();
@@ -17,9 +15,7 @@ unsafe extern "C" {
 }
 
 #[used]
-static FORCE_LINK_WRITE_CORE: [KeepSymbol; 11] = [
-    KeepSymbol::new(png_create_write_struct as *mut ()),
-    KeepSymbol::new(png_set_write_fn as *mut ()),
+static FORCE_LINK_WRITE_CORE: [KeepSymbol; 9] = [
     KeepSymbol::new(png_write_info_before_PLTE as *mut ()),
     KeepSymbol::new(png_write_info as *mut ()),
     KeepSymbol::new(png_write_row as *mut ()),

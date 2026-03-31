@@ -37,6 +37,8 @@ pub struct JmpBuf {
     _private: [u8; 0],
 }
 
+pub type png_jmpbufp = *mut JmpBuf;
+
 pub type png_structp = *mut png_struct;
 pub type png_const_structp = *const png_struct;
 pub type png_structpp = *mut png_structp;
@@ -222,7 +224,7 @@ pub type png_user_transform_ptr =
     Option<unsafe extern "C" fn(png_structp, png_row_infop, png_bytep)>;
 pub type png_user_chunk_ptr =
     Option<unsafe extern "C" fn(png_structp, png_unknown_chunkp) -> c_int>;
-pub type png_longjmp_ptr = Option<unsafe extern "C" fn(*mut JmpBuf, c_int)>;
+pub type png_longjmp_ptr = Option<unsafe extern "C" fn(png_jmpbufp, c_int)>;
 pub type png_malloc_ptr = Option<unsafe extern "C" fn(png_structp, png_alloc_size_t) -> png_voidp>;
 pub type png_free_ptr = Option<unsafe extern "C" fn(png_structp, png_voidp)>;
 

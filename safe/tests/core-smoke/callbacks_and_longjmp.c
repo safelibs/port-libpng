@@ -119,7 +119,9 @@ static void user_transform(png_structp png_ptr, png_row_infop row_info,
 
 int main(void) {
     int error_cookie = 17;
+    int replacement_error_cookie = 19;
     int mem_cookie = 23;
+    int replacement_mem_cookie = 29;
     size_t errors_before = error_calls;
 
     create_error_enabled = 1;
@@ -135,6 +137,12 @@ int main(void) {
     assert(png_get_error_ptr(read_ptr) == &error_cookie);
     assert(png_get_mem_ptr(read_ptr) == &mem_cookie);
     assert(malloc_calls > 0);
+
+    png_set_error_fn(read_ptr, &replacement_error_cookie, noop_error, noop_warning);
+    assert(png_get_error_ptr(read_ptr) == &replacement_error_cookie);
+
+    png_set_mem_fn(read_ptr, &replacement_mem_cookie, tracked_malloc, tracked_free);
+    assert(png_get_mem_ptr(read_ptr) == &replacement_mem_cookie);
 
     int read_cookie = 31;
     png_set_read_fn(read_ptr, &read_cookie, read_data);
@@ -167,7 +175,7 @@ int main(void) {
     assert(error_calls == errors_before + 1);
 
     destroy_error_target = read_ptr;
-    destroy_expected_mem_ptr = &mem_cookie;
+    destroy_expected_mem_ptr = &replacement_mem_cookie;
     destroy_context_check_enabled = 1;
     destroy_error_enabled = 1;
     if (setjmp(*jmp) == 0) {
@@ -184,6 +192,9 @@ int main(void) {
     png_structp write_ptr =
         png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, noop_error, noop_warning);
     assert(write_ptr != NULL);
+
+    png_init_io(write_ptr, stdout);
+    assert(png_get_io_ptr(write_ptr) == stdout);
 
     int write_cookie = 73;
     png_set_write_fn(write_ptr, &write_cookie, write_data, flush_data);

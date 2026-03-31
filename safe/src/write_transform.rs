@@ -16,12 +16,10 @@ unsafe extern "C" {
     fn png_set_invert_alpha();
     fn png_set_invert_mono();
     fn png_set_bgr();
-    fn png_set_write_user_transform_fn();
-    fn png_set_user_transform_info();
 }
 
 #[used]
-static FORCE_LINK_WRITE_TRANSFORMS: [KeepSymbol; 15] = [
+static FORCE_LINK_WRITE_TRANSFORMS: [KeepSymbol; 13] = [
     KeepSymbol::new(png_set_filter as *mut ()),
     KeepSymbol::new(png_set_filter_heuristics as *mut ()),
     KeepSymbol::new(png_set_filter_heuristics_fixed as *mut ()),
@@ -35,6 +33,4 @@ static FORCE_LINK_WRITE_TRANSFORMS: [KeepSymbol; 15] = [
     KeepSymbol::new(png_set_invert_alpha as *mut ()),
     KeepSymbol::new(png_set_invert_mono as *mut ()),
     KeepSymbol::new(png_set_bgr as *mut ()),
-    KeepSymbol::new(png_set_write_user_transform_fn as *mut ()),
-    KeepSymbol::new(png_set_user_transform_info as *mut ()),
 ];

@@ -19920,128 +19920,160 @@ Forwarded: not-needed
 +checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 --- /dev/null
 +++ libpng1.6-1.6.43/UNSAFE.md
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,147 @@
 +# Unsafe Boundaries
 +
-+This build still ships a mixed Rust and upstream-C libpng.
++This phase still ships a mixed Rust and upstream-C libpng. The active boundary
++is now broader than the earlier read-transform-only baseline: Rust owns the
++public core lifetime, callback registration, error, memory, IO, and policy
++entry points, while upstream C still owns the underlying `png_struct` and
++`png_info` storage layout plus the remaining read/write execution paths.
 +
-+- `safe/build.rs` compiles the upstream C libpng sources into `libpng16_upstream.a`.
-+- The Rust crate only owns a reduced subset of exported `png_*` symbols.
-+- The rest of the public ABI is now left in upstream C specifically to avoid
-+  routing upstream `png_error` or `png_longjmp` behavior through Rust frames.
++## Current Hybrid Baseline
 +
-+## Rust-Owned Export Surface
++- `safe/build.rs` still compiles the upstream core libpng C sources from
++  `original/` into `libpng16_upstream.a`.
++- The frozen public ABI still exports 246 `png_*` symbols
++  (`safe/abi/exports.txt`).
++- `UPSTREAM_RENAMES` in `safe/build.rs` now renames 95 public symbols to
++  `upstream_*` before the upstream C objects are linked.
++- 94 of those 95 renamed symbols are re-owned by Rust.
++- 1 renamed symbol, `png_read_row`, remains re-owned by
++  `safe/cshim/read_phase_bridge.c`.
++- The remaining 151 public `png_*` exports are still upstream-C owned.
 +
-+The compiled crate root in [safe/src/lib.rs](/home/yans/code/safelibs/ported/libpng/safe/src/lib.rs)
-+now wires only these Rust implementation modules into the shipped ABI:
++## Active Rust-Owned Public ABI
 +
-+- [safe/src/common.rs](/home/yans/code/safelibs/ported/libpng/safe/src/common.rs):
-+  version strings, signature comparison, integer save helpers, grayscale
-+  palette generation, and time-conversion helpers. `png_get_uint_31` and
-+  `png_convert_to_rfc1123` are no longer Rust-owned.
-+- [safe/src/colorspace.rs](/home/yans/code/safelibs/ported/libpng/safe/src/colorspace.rs):
-+  `png_set_rgb_to_gray*`, `png_set_background*`, `png_set_alpha_mode*`,
-+  `png_set_cHRM_XYZ*`, and `png_get_cHRM_XYZ*`.
-+- [safe/src/interlace.rs](/home/yans/code/safelibs/ported/libpng/safe/src/interlace.rs):
-+  `png_set_interlace_handling`.
-+- [safe/src/read_transform.rs](/home/yans/code/safelibs/ported/libpng/safe/src/read_transform.rs):
-+  the read-transform setter family, including `png_set_quantize`.
++The compiled crate root now includes the core modules instead of leaving them
++dormant:
 +
-+These Rust exports no longer call renamed upstream functions that can take
-+fatal `png_error` or `png_longjmp` paths directly through Rust frames.
++- existing phase-1 owners:
++  `safe/src/common.rs`, `safe/src/read_transform.rs`,
++  `safe/src/interlace.rs`, and `safe/src/colorspace.rs`
++- newly active phase-2 owners:
++  `safe/src/error.rs`, `safe/src/memory.rs`, `safe/src/io.rs`,
++  `safe/src/get.rs`, `safe/src/set.rs`, and `safe/src/state.rs`
++- compiled support modules:
++  `safe/src/chunks.rs`, `safe/src/read_progressive.rs`,
++  `safe/src/read_util.rs`, `safe/src/write.rs`,
++  `safe/src/write_transform.rs`, `safe/src/write_util.rs`,
++  `safe/src/zlib.rs`, `safe/src/types.rs`, and `safe/src/abi_exports.rs`
 +
-+## Upstream-C Surface Still Shipped
++The newly Rust-owned public symbol families are:
 +
-+The shipped ABI is still mostly upstream C. In particular, the public symbols
-+for error handling, longjmp registration, allocator hooks, struct creation or
-+destruction, IO callback registration, metadata getters, metadata setters,
-+simplified `png_image_*`, parser core, progressive read core, and write core
-+remain upstream-owned.
++- error and longjmp registration:
++  `png_warning`, `png_error`, `png_benign_error`, `png_chunk_warning`,
++  `png_chunk_error`, `png_chunk_benign_error`, `png_set_error_fn`,
++  `png_get_error_ptr`, `png_set_longjmp_fn`, and `png_longjmp`
++- allocator and lifetime surface:
++  `png_calloc`, `png_malloc`, `png_malloc_default`, `png_malloc_warn`,
++  `png_free`, `png_free_default`, `png_set_mem_fn`, `png_get_mem_ptr`,
++  `png_create_read_struct[_2]`, `png_create_write_struct[_2]`,
++  `png_create_info_struct`, `png_destroy_read_struct`,
++  `png_destroy_write_struct`, `png_destroy_info_struct`,
++  `png_info_init_3`, `png_data_freer`, and `png_free_data`
++- IO and callback registration:
++  `png_init_io`, `png_get_io_ptr`, `png_set_read_fn`, `png_set_write_fn`,
++  `png_set_read_status_fn`, `png_set_write_status_fn`,
++  `png_set_progressive_read_fn`, `png_get_progressive_ptr`,
++  `png_set_read_user_chunk_fn`, `png_get_user_chunk_ptr`,
++  `png_set_read_user_transform_fn`, `png_set_write_user_transform_fn`,
++  `png_set_user_transform_info`, `png_get_user_transform_ptr`,
++  `png_get_io_state`, and `png_get_io_chunk_type`
++- core getters and setters:
++  `png_set_sig_bytes`, `png_get_valid`, `png_get_rowbytes`, `png_get_rows`,
++  `png_set_rows`, `png_get_channels`, `png_get_image_width`,
++  `png_get_image_height`, `png_get_bit_depth`, `png_get_color_type`,
++  `png_get_filter_type`, `png_get_interlace_type`,
++  `png_get_compression_type`, `png_set_user_limits`,
++  `png_get_user_width_max`, `png_get_user_height_max`,
++  `png_set_chunk_cache_max`, `png_get_chunk_cache_max`,
++  `png_set_chunk_malloc_max`, `png_get_chunk_malloc_max`,
++  `png_set_benign_errors`, `png_set_check_for_invalid_index`,
++  `png_get_palette_max`, and `png_set_option`
 +
-+That includes the APIs previously wrapped in dormant Rust forwarding modules:
++## Mixed-Runtime Object Ownership
 +
-+- [safe/src/error.rs](/home/yans/code/safelibs/ported/libpng/safe/src/error.rs)
-+- [safe/src/memory.rs](/home/yans/code/safelibs/ported/libpng/safe/src/memory.rs)
-+- [safe/src/io.rs](/home/yans/code/safelibs/ported/libpng/safe/src/io.rs)
-+- [safe/src/get.rs](/home/yans/code/safelibs/ported/libpng/safe/src/get.rs)
-+- [safe/src/set.rs](/home/yans/code/safelibs/ported/libpng/safe/src/set.rs)
-+- [safe/src/simplified.rs](/home/yans/code/safelibs/ported/libpng/safe/src/simplified.rs)
++During phases 2 through 5, Rust does not replace the concrete `png_struct` or
++`png_info` representation. The active object model is:
 +
-+Those files remain in the tree as reference material, but they are not wired
-+into [safe/src/lib.rs](/home/yans/code/safelibs/ported/libpng/safe/src/lib.rs)
-+and are not part of the active Rust implementation surface in this phase.
++- live `png_struct*` and `png_info*` objects are still allocated as
++  upstream-compatible storage by the renamed upstream constructors and
++  destructors
++- `safe/src/state.rs` attaches Rust sidecar state to those live pointers and
++  mirrors callback registrations, user payloads, limits, option bits, longjmp
++  metadata, and `png_info` ownership flags
++- setters update both worlds:
++  the actual upstream-compatible struct fields via the renamed upstream helper
++  functions, and the Rust sidecar for later Rust-owned phases
++- getters prefer the Rust sidecar only where the state is purely
++  registration-policy data and fall back to upstream field access when the
++  upstream runtime may legitimately mutate the underlying fields
 +
-+## Active C Shim Boundary
++This mixed model is intentional. Later phases can consume the Rust-owned sidecar
++state without breaking the still-upstream read/write execution code that
++expects the original private layouts.
 +
-+[safe/cshim/read_phase_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/read_phase_bridge.c)
-+is the only active compiled C shim. It remains necessary for three reasons:
++## Active Longjmp Boundary
 +
-+- Private-layout mirroring:
-+  it snapshots and restores selected private `png_struct` and `png_info`
-+  fields that Rust cannot access portably without depending on upstream
-+  private layout details.
-+- Fatal-control-flow containment:
-+  it wraps selected upstream read-path and helper calls with `setjmp` so
-+  Rust-owned transform and colorspace exports can trigger libpng fatal-error
-+  behavior without letting `longjmp` cross Rust frames.
-+- C-owned `png_read_row` hardening:
-+  the public `png_read_row` symbol is implemented in this C shim, not in
-+  Rust. It delegates to `upstream_png_read_row`, then masks trailing packed-row
-+  padding bits for the hardening regression coverage while keeping any fatal
-+  libpng control flow entirely on the C side.
++`safe/cshim/longjmp_bridge.c` is now the authoritative `jmp_buf` storage and
++interop boundary for the public longjmp APIs:
 +
-+The active shim currently contains these longjmp-sensitive helper paths:
++- Rust-owned `png_set_longjmp_fn` uses the shim to discover the local
++  `jmp_buf`, populate the active `png_struct` longjmp fields, and preserve the
++  upstream size-mismatch behavior
++- Rust-owned `png_longjmp` delegates the actual callback invocation through the
++  shim and aborts if no valid longjmp target is registered
++- the public `png_jmpbuf` macro in the shipped headers now lands on the
++  Rust-owned `png_set_longjmp_fn`, but still receives a real `jmp_buf *`
++  compatible with application `setjmp`
 +
-+- `png_safe_call_read_info`
-+- `png_safe_call_read_update_info`
-+- `png_safe_call_read_image`
-+- `png_safe_call_read_end`
-+- `png_safe_call_benign_error`
-+- `png_safe_call_app_error`
-+- `png_safe_call_error`
-+- `png_safe_call_set_quantize`
-+- `png_read_row`
++`safe/cshim/read_phase_bridge.c` remains compiled, but only for the
++still-upstream read-path containment and private-layout mirror helpers used by
++the existing read-transform work. It is no longer the active longjmp boundary
++for the public core ABI.
 +
-+## Remaining Compiled Unsafe In Rust
++## Remaining Upstream-Owned Public ABI
 +
-+The remaining compiled Rust `unsafe` is limited to boundary cases that cannot
-+be expressed safely without changing the libpng ABI:
++The following major surfaces are still upstream-owned in this phase:
 +
-+- `extern "C"` entry points receiving foreign `png_struct*`, `png_info*`,
-+  caller buffers, and callback pointers.
-+- Raw pointer dereferences for caller-owned structs and buffers in
-+  [safe/src/common.rs](/home/yans/code/safelibs/ported/libpng/safe/src/common.rs),
-+  [safe/src/colorspace.rs](/home/yans/code/safelibs/ported/libpng/safe/src/colorspace.rs),
-+  [safe/src/interlace.rs](/home/yans/code/safelibs/ported/libpng/safe/src/interlace.rs),
-+  [safe/src/read_transform.rs](/home/yans/code/safelibs/ported/libpng/safe/src/read_transform.rs),
-+  and [safe/src/chunks.rs](/home/yans/code/safelibs/ported/libpng/safe/src/chunks.rs).
-+- FFI calls from Rust into the C shim in
-+  [safe/src/chunks.rs](/home/yans/code/safelibs/ported/libpng/safe/src/chunks.rs)
-+  for layout snapshots and longjmp-contained helper calls.
++- sequential read execution, progressive read execution, and the remaining
++  read-path parser/chunk helpers not already ported
++- write execution, chunk emission, compression-control, and simplified write
++  entry points
++- simplified `png_image_*` helpers
++- metadata setters/getters and chunk helpers outside the phase-1 and phase-2
++  families listed above
 +
-+Rust exports now use `abi_guard!` or `abi_guard_no_png!` only for panic
-+containment. On panic they abort the process; they do not translate Rust panic
-+into `png_error` or `png_longjmp`.
++## Active Unsafe
 +
-+## Dormant Files
++The compiled unsafe boundary is now concentrated in four places:
 +
-+These files remain in the repository but are not part of the active compiled
-+unsafe surface for this phase:
++- Rust `extern "C"` exports that receive foreign pointers, buffers, and
++  callback function pointers
++- raw pointer access inside `safe/src/state.rs` mirror management and the
++  Rust-owned ABI wrappers
++- FFI from Rust into the active C shims, especially the longjmp field helpers
++  and the read-phase bridge
++- upstream C code that still owns the remaining execution paths and private
++  layout manipulation
 +
-+- [safe/src/read.rs](/home/yans/code/safelibs/ported/libpng/safe/src/read.rs)
-+- [safe/src/state.rs](/home/yans/code/safelibs/ported/libpng/safe/src/state.rs)
-+- [safe/cshim/longjmp_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/longjmp_bridge.c)
++The library still aborts on Rust panic at the ABI boundary. Public callbacks
++and longjmp behavior follow libpng semantics; Rust panics are not translated
++into recoverable libpng errors.
 +
-+If new compiled `unsafe` is introduced, it should either stay inside the
-+documented C ABI or C shim boundaries above or this file must be updated to
-+justify a narrower active boundary.
++## Non-APNG Contract
++
++This phase preserves the current non-APNG contract. The Debian APNG patch
++artifact at `original/debian/patches/libpng-1.6.39-apng.patch` remains
++non-applied, and this phase does not introduce APNG ordinals or install-surface
++drift.
 --- libpng1.6-1.6.43.orig/build.rs
 +++ libpng1.6-1.6.43/build.rs
-@@ -30,7 +30,22 @@ const UPSTREAM_SOURCES: &[&str] = &[
+@@ -30,7 +30,112 @@ const UPSTREAM_SOURCES: &[&str] = &[
  ];
  
  const UPSTREAM_RENAMES: &[(&str, &str)] = &[
--    ("png_destroy_read_struct", "upstream_png_destroy_read_struct"),
 +    ("png_sig_cmp", "upstream_png_sig_cmp"),
 +    ("png_access_version_number", "upstream_png_access_version_number"),
 +    ("png_get_libpng_ver", "upstream_png_get_libpng_ver"),
@@ -20058,10 +20090,100 @@ Forwarded: not-needed
 +    ),
 +    ("png_convert_from_struct_tm", "upstream_png_convert_from_struct_tm"),
 +    ("png_convert_from_time_t", "upstream_png_convert_from_time_t"),
++    ("png_set_sig_bytes", "upstream_png_set_sig_bytes"),
++    ("png_create_read_struct", "upstream_png_create_read_struct"),
++    ("png_create_write_struct", "upstream_png_create_write_struct"),
++    ("png_set_longjmp_fn", "upstream_png_set_longjmp_fn"),
++    ("png_longjmp", "upstream_png_longjmp"),
++    ("png_create_read_struct_2", "upstream_png_create_read_struct_2"),
++    ("png_create_write_struct_2", "upstream_png_create_write_struct_2"),
++    ("png_create_info_struct", "upstream_png_create_info_struct"),
++    ("png_info_init_3", "upstream_png_info_init_3"),
++    ("png_destroy_info_struct", "upstream_png_destroy_info_struct"),
+     ("png_destroy_read_struct", "upstream_png_destroy_read_struct"),
++    ("png_destroy_write_struct", "upstream_png_destroy_write_struct"),
++    ("png_init_io", "upstream_png_init_io"),
++    ("png_set_error_fn", "upstream_png_set_error_fn"),
++    ("png_get_error_ptr", "upstream_png_get_error_ptr"),
++    ("png_set_write_fn", "upstream_png_set_write_fn"),
++    ("png_set_read_fn", "upstream_png_set_read_fn"),
++    ("png_get_io_ptr", "upstream_png_get_io_ptr"),
++    ("png_set_read_status_fn", "upstream_png_set_read_status_fn"),
++    ("png_set_write_status_fn", "upstream_png_set_write_status_fn"),
++    ("png_set_mem_fn", "upstream_png_set_mem_fn"),
++    ("png_get_mem_ptr", "upstream_png_get_mem_ptr"),
++    (
++        "png_set_read_user_transform_fn",
++        "upstream_png_set_read_user_transform_fn",
++    ),
++    (
++        "png_set_write_user_transform_fn",
++        "upstream_png_set_write_user_transform_fn",
++    ),
++    (
++        "png_set_user_transform_info",
++        "upstream_png_set_user_transform_info",
++    ),
++    (
++        "png_get_user_transform_ptr",
++        "upstream_png_get_user_transform_ptr",
++    ),
++    (
++        "png_set_read_user_chunk_fn",
++        "upstream_png_set_read_user_chunk_fn",
++    ),
++    ("png_get_user_chunk_ptr", "upstream_png_get_user_chunk_ptr"),
++    (
++        "png_set_progressive_read_fn",
++        "upstream_png_set_progressive_read_fn",
++    ),
++    ("png_get_progressive_ptr", "upstream_png_get_progressive_ptr"),
++    ("png_calloc", "upstream_png_calloc"),
++    ("png_malloc", "upstream_png_malloc"),
++    ("png_malloc_warn", "upstream_png_malloc_warn"),
++    ("png_free", "upstream_png_free"),
++    ("png_free_data", "upstream_png_free_data"),
++    ("png_data_freer", "upstream_png_data_freer"),
++    ("png_malloc_default", "upstream_png_malloc_default"),
++    ("png_free_default", "upstream_png_free_default"),
++    ("png_warning", "upstream_png_warning"),
++    ("png_chunk_warning", "upstream_png_chunk_warning"),
++    ("png_benign_error", "upstream_png_benign_error"),
++    ("png_chunk_benign_error", "upstream_png_chunk_benign_error"),
++    ("png_error", "upstream_png_error"),
++    ("png_chunk_error", "upstream_png_chunk_error"),
++    ("png_get_valid", "upstream_png_get_valid"),
++    ("png_get_rowbytes", "upstream_png_get_rowbytes"),
++    ("png_get_rows", "upstream_png_get_rows"),
++    ("png_set_rows", "upstream_png_set_rows"),
++    ("png_get_channels", "upstream_png_get_channels"),
++    ("png_get_image_width", "upstream_png_get_image_width"),
++    ("png_get_image_height", "upstream_png_get_image_height"),
++    ("png_get_bit_depth", "upstream_png_get_bit_depth"),
++    ("png_get_color_type", "upstream_png_get_color_type"),
++    ("png_get_filter_type", "upstream_png_get_filter_type"),
++    ("png_get_interlace_type", "upstream_png_get_interlace_type"),
++    ("png_get_compression_type", "upstream_png_get_compression_type"),
++    ("png_set_benign_errors", "upstream_png_set_benign_errors"),
++    ("png_get_user_width_max", "upstream_png_get_user_width_max"),
++    ("png_get_user_height_max", "upstream_png_get_user_height_max"),
++    ("png_set_user_limits", "upstream_png_set_user_limits"),
++    ("png_get_chunk_cache_max", "upstream_png_get_chunk_cache_max"),
++    ("png_set_chunk_cache_max", "upstream_png_set_chunk_cache_max"),
++    ("png_get_chunk_malloc_max", "upstream_png_get_chunk_malloc_max"),
++    ("png_set_chunk_malloc_max", "upstream_png_set_chunk_malloc_max"),
++    ("png_get_io_state", "upstream_png_get_io_state"),
++    ("png_get_io_chunk_type", "upstream_png_get_io_chunk_type"),
++    (
++        "png_set_check_for_invalid_index",
++        "upstream_png_set_check_for_invalid_index",
++    ),
++    ("png_get_palette_max", "upstream_png_get_palette_max"),
++    ("png_set_option", "upstream_png_set_option"),
      ("png_read_row", "upstream_png_read_row"),
      ("png_set_expand", "upstream_png_set_expand"),
      ("png_set_expand_16", "upstream_png_set_expand_16"),
-@@ -68,11 +83,6 @@ const UPSTREAM_RENAMES: &[(&str, &str)]
+@@ -68,11 +173,6 @@ const UPSTREAM_RENAMES: &[(&str, &str)]
      ("png_set_cHRM_XYZ_fixed", "upstream_png_set_cHRM_XYZ_fixed"),
      ("png_get_cHRM_XYZ", "upstream_png_get_cHRM_XYZ"),
      ("png_get_cHRM_XYZ_fixed", "upstream_png_get_cHRM_XYZ_fixed"),
@@ -20073,12 +20195,13 @@ Forwarded: not-needed
  ];
  
  fn main() -> Result<(), Box<dyn Error>> {
-@@ -97,16 +107,21 @@ fn main() -> Result<(), Box<dyn Error>>
+@@ -97,18 +197,27 @@ fn main() -> Result<(), Box<dyn Error>>
          exports_file,
          pkg_dir.join("libpng.pc.in"),
          pkg_dir.join("libpng-config.in"),
 -        cshim_dir.join("longjmp_bridge.c"),
          cshim_dir.join("read_phase_bridge.c"),
++        cshim_dir.join("longjmp_bridge.c"),
          manifest_dir.join("src/lib.rs"),
          manifest_dir.join("src/abi_exports.rs"),
 -        manifest_dir.join("src/read.rs"),
@@ -20096,8 +20219,13 @@ Forwarded: not-needed
 +        manifest_dir.join("src/state.rs"),
          manifest_dir.join("src/chunks.rs"),
          manifest_dir.join("src/interlace.rs"),
++        manifest_dir.join("src/types.rs"),
++        manifest_dir.join("src/write.rs"),
++        manifest_dir.join("src/write_transform.rs"),
          manifest_dir.join("src/zlib.rs"),
-@@ -129,15 +144,10 @@ fn main() -> Result<(), Box<dyn Error>>
+         manifest_dir.join("../original/png.h"),
+         manifest_dir.join("../original/pngconf.h"),
+@@ -129,21 +238,24 @@ fn main() -> Result<(), Box<dyn Error>>
      let generated_stubs = out_dir.join("abi_export_stubs.rs");
      fs::write(
          &generated_stubs,
@@ -20107,14 +20235,27 @@ Forwarded: not-needed
  
      cc::Build::new()
 -        .file(cshim_dir.join("longjmp_bridge.c"))
--        .warnings(true)
++        .file(cshim_dir.join("read_phase_bridge.c"))
+         .warnings(true)
 -        .compile("png16_longjmp_bridge");
--
--    cc::Build::new()
-         .file(cshim_dir.join("read_phase_bridge.c"))
++        .std("c99")
++        .include(&include_dir)
++        .include(manifest_dir.join("../original"))
++        .compile("png16_read_phase_bridge");
+ 
+     cc::Build::new()
+-        .file(cshim_dir.join("read_phase_bridge.c"))
++        .file(cshim_dir.join("longjmp_bridge.c"))
          .warnings(true)
          .std("c99")
-@@ -151,6 +161,7 @@ fn main() -> Result<(), Box<dyn Error>>
+         .include(&include_dir)
+         .include(manifest_dir.join("../original"))
+-        .compile("png16_read_phase_bridge");
++        .compile("png16_longjmp_bridge");
+ 
+     let mut upstream = cc::Build::new();
+     upstream
+@@ -151,6 +263,7 @@ fn main() -> Result<(), Box<dyn Error>>
          .std("c99")
          .include(&include_dir)
          .include(manifest_dir.join("../original"))
@@ -21114,17 +21255,26 @@ Forwarded: not-needed
  }
 --- libpng1.6-1.6.43.orig/src/lib.rs
 +++ libpng1.6-1.6.43/src/lib.rs
-@@ -5,9 +5,9 @@
+@@ -5,12 +5,18 @@
  
  pub mod abi_exports;
  mod chunks;
 +mod common;
  mod colorspace;
++mod error;
++mod get;
  mod interlace;
 -mod read;
++mod io;
++mod memory;
  mod read_progressive;
  mod read_transform;
  mod read_util;
++mod set;
++mod state;
+ mod types;
+ mod write;
+ mod write_transform;
 --- libpng1.6-1.6.43.orig/src/read.rs
 +++ libpng1.6-1.6.43/src/read.rs
 @@ -1,5 +1,4 @@
@@ -24016,15 +24166,16 @@ Forwarded: not-needed
  }
 --- libpng1.6-1.6.43.orig/src/error.rs
 +++ libpng1.6-1.6.43/src/error.rs
-@@ -1,54 +1,34 @@
+@@ -1,54 +1,43 @@
 -use crate::common::{
 -    INTERNAL_PANIC_MESSAGE, PNG_FLAG_APP_ERRORS_WARN, PNG_FLAG_APP_WARNINGS_WARN,
 -    PNG_FLAG_BENIGN_ERRORS_WARN, build_chunk_message, write_stderr, write_stderr_cstr,
 -};
 -use crate::state::{png_ptr_state, png_ptr_state_const};
-+use crate::common::INTERNAL_PANIC_MESSAGE;
++use crate::state;
  use crate::types::*;
  use core::ffi::c_int;
++use core::ptr;
  
 -unsafe fn default_warning(_png_ptr: png_const_structrp, warning_message: png_const_charp) {
 -    write_stderr(b"libpng warning: ");
@@ -24045,6 +24196,11 @@ Forwarded: not-needed
 -    }
 -    write_stderr(b"\n");
 -    png_longjmp(png_ptr, 1);
+-}
++const INTERNAL_PANIC_MESSAGE: &[u8] = b"libpng safe internal panic\0";
+ 
+-pub(crate) unsafe fn panic_to_png_error(png_ptr: png_structrp) -> ! {
+-    default_error(png_ptr, INTERNAL_PANIC_MESSAGE.as_ptr().cast());
 +unsafe extern "C" {
 +    fn upstream_png_warning(png_ptr: png_const_structrp, warning_message: png_const_charp);
 +    fn upstream_png_error(png_ptr: png_const_structrp, error_message: png_const_charp) -> !;
@@ -24062,18 +24218,20 @@ Forwarded: not-needed
 +        warning_fn: png_error_ptr,
 +    );
 +    fn upstream_png_get_error_ptr(png_ptr: png_const_structrp) -> png_voidp;
-+    fn upstream_png_set_longjmp_fn(
++    fn upstream_png_malloc_warn(png_ptr: png_const_structrp, size: png_alloc_size_t) -> png_voidp;
++    fn png_safe_longjmp_state_size() -> usize;
++    fn png_safe_longjmp_local_buffer(png_ptr: png_structrp) -> *mut JmpBuf;
++    fn png_safe_longjmp_get_buffer(png_ptr: png_const_structrp) -> *mut JmpBuf;
++    fn png_safe_longjmp_get_size(png_ptr: png_const_structrp) -> usize;
++    fn png_safe_longjmp_set_fields(
 +        png_ptr: png_structrp,
 +        longjmp_fn: png_longjmp_ptr,
++        jmp_buf_ptr: *mut JmpBuf,
 +        jmp_buf_size: usize,
-+    ) -> *mut JmpBuf;
-+    fn upstream_png_longjmp(png_ptr: png_const_structrp, val: c_int) -> !;
++    );
++    fn png_safe_longjmp_call(png_ptr: png_const_structrp, val: c_int);
  }
  
- pub(crate) unsafe fn panic_to_png_error(png_ptr: png_structrp) -> ! {
--    default_error(png_ptr, INTERNAL_PANIC_MESSAGE.as_ptr().cast());
--}
--
 -pub(crate) unsafe fn png_app_warning(png_ptr: png_const_structrp, error_message: png_const_charp) {
 -    if let Some(state) = png_ptr_state_const(png_ptr) {
 -        if (state.flags & PNG_FLAG_APP_WARNINGS_WARN) != 0 {
@@ -24092,11 +24250,12 @@ Forwarded: not-needed
 -            png_error(png_ptr, error_message);
 -        }
 -    }
++pub(crate) unsafe fn panic_to_png_error(png_ptr: png_structrp) -> ! {
 +    unsafe { upstream_png_error(png_ptr, INTERNAL_PANIC_MESSAGE.as_ptr().cast()) }
  }
  
  #[unsafe(no_mangle)]
-@@ -56,16 +36,8 @@ pub unsafe extern "C" fn png_warning(
+@@ -56,16 +45,8 @@ pub unsafe extern "C" fn png_warning(
      png_ptr: png_const_structrp,
      warning_message: png_const_charp,
  ) {
@@ -24115,7 +24274,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -74,13 +46,8 @@ pub unsafe extern "C" fn png_error(
+@@ -74,13 +55,8 @@ pub unsafe extern "C" fn png_error(
      png_ptr: png_const_structrp,
      error_message: png_const_charp,
  ) -> ! {
@@ -24131,7 +24290,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -89,21 +56,8 @@ pub unsafe extern "C" fn png_benign_erro
+@@ -89,21 +65,8 @@ pub unsafe extern "C" fn png_benign_erro
      png_ptr: png_const_structrp,
      error_message: png_const_charp,
  ) {
@@ -24155,7 +24314,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -112,14 +66,8 @@ pub unsafe extern "C" fn png_chunk_warni
+@@ -112,14 +75,8 @@ pub unsafe extern "C" fn png_chunk_warni
      png_ptr: png_const_structrp,
      warning_message: png_const_charp,
  ) {
@@ -24172,7 +24331,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -128,14 +76,8 @@ pub unsafe extern "C" fn png_chunk_error
+@@ -128,14 +85,8 @@ pub unsafe extern "C" fn png_chunk_error
      png_ptr: png_const_structrp,
      error_message: png_const_charp,
  ) -> ! {
@@ -24189,7 +24348,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -144,14 +86,8 @@ pub unsafe extern "C" fn png_chunk_benig
+@@ -144,14 +95,8 @@ pub unsafe extern "C" fn png_chunk_benig
      png_ptr: png_const_structrp,
      error_message: png_const_charp,
  ) {
@@ -24206,33 +24365,35 @@ Forwarded: not-needed
      });
  }
  
-@@ -162,22 +98,14 @@ pub unsafe extern "C" fn png_set_error_f
+@@ -162,21 +107,22 @@ pub unsafe extern "C" fn png_set_error_f
      error_fn: png_error_ptr,
      warning_fn: png_error_ptr,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
--            state.error_ptr = error_ptr;
--            state.error_fn = error_fn;
--            state.warning_fn = warning_fn;
--        }
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_error_fn(png_ptr, error_ptr, error_fn, warning_fn)
++        upstream_png_set_error_fn(png_ptr, error_ptr, error_fn, warning_fn);
++        state::update_png(png_ptr, |state| {
+             state.error_ptr = error_ptr;
+             state.error_fn = error_fn;
+             state.warning_fn = warning_fn;
+-        }
++        });
      });
  }
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_error_ptr(png_ptr: png_const_structrp) -> png_voidp {
--    crate::abi_guard!(png_ptr.cast_mut(), {
+     crate::abi_guard!(png_ptr.cast_mut(), {
 -        png_ptr_state_const(png_ptr)
--            .map(|state| state.error_ptr)
++        state::get_png(png_ptr.cast_mut())
+             .map(|state| state.error_ptr)
 -            .unwrap_or(core::ptr::null_mut())
--    })
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_get_error_ptr(png_ptr) })
++            .unwrap_or_else(|| unsafe { upstream_png_get_error_ptr(png_ptr) })
+     })
  }
  
- #[unsafe(no_mangle)]
-@@ -186,108 +114,12 @@ pub unsafe extern "C" fn png_set_longjmp
+@@ -186,108 +132,65 @@ pub unsafe extern "C" fn png_set_longjmp
      longjmp_fn: png_longjmp_ptr,
      jmp_buf_size: usize,
  ) -> *mut JmpBuf {
@@ -24246,40 +24407,79 @@ Forwarded: not-needed
 -            if state.longjmp_storage.is_null() || builtin_jmp_buf_size == 0 {
 -                return core::ptr::null_mut();
 -            }
--
++    crate::abi_guard!(png_ptr, unsafe {
++        if png_ptr.is_null() {
++            return ptr::null_mut();
++        }
+ 
 -            if jmp_buf_size <= builtin_jmp_buf_size {
 -                state.jmp_buf_ptr = crate::state::png_safe_longjmp_state_buf(state.longjmp_storage)
 -                    .cast::<JmpBuf>();
 -                state.jmp_buf_size = 0;
--            } else {
++        let local_size = png_safe_longjmp_state_size();
++        let local_buffer = png_safe_longjmp_local_buffer(png_ptr);
++        let mut current_buffer = png_safe_longjmp_get_buffer(png_ptr);
++        let current_size = png_safe_longjmp_get_size(png_ptr);
++
++        if current_buffer.is_null() {
++            current_buffer = if jmp_buf_size <= local_size {
++                local_buffer
+             } else {
 -                let allocated = crate::memory::png_malloc_warn(png_ptr, jmp_buf_size);
 -                if allocated.is_null() {
 -                    return core::ptr::null_mut();
 -                }
--
++                upstream_png_malloc_warn(png_ptr, jmp_buf_size).cast()
++            };
+ 
 -                state.jmp_buf_ptr = allocated.cast::<JmpBuf>();
 -                state.jmp_buf_size = jmp_buf_size;
--            }
--        } else {
++            if current_buffer.is_null() {
++                return ptr::null_mut();
+             }
++
++            let stored_size = if current_buffer == local_buffer {
++                0
++            } else {
++                jmp_buf_size
++            };
++            png_safe_longjmp_set_fields(png_ptr, longjmp_fn, current_buffer, stored_size);
+         } else {
 -            let allocated_size = if state.jmp_buf_size == 0 {
 -                builtin_jmp_buf_size
--            } else {
++            let effective_size = if current_size == 0 {
++                if current_buffer != local_buffer {
++                    upstream_png_error(png_ptr, c"Libpng jmp_buf still allocated".as_ptr());
++                }
++                local_size
+             } else {
 -                state.jmp_buf_size
--            };
--
++                current_size
+             };
+ 
 -            if allocated_size != jmp_buf_size {
 -                png_warning(
 -                    png_ptr,
 -                    b"Application jmp_buf size changed\0".as_ptr().cast(),
 -                );
 -                return core::ptr::null_mut();
--            }
--        }
--
++            if effective_size != jmp_buf_size {
++                upstream_png_warning(png_ptr, c"Application jmp_buf size changed".as_ptr());
++                return ptr::null_mut();
+             }
++
++            png_safe_longjmp_set_fields(png_ptr, longjmp_fn, current_buffer, current_size);
+         }
+ 
 -        state.longjmp_fn = longjmp_fn;
 -        state.jmp_buf_ptr
-+    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_longjmp_fn(png_ptr, longjmp_fn, jmp_buf_size)
++        state::update_png(png_ptr, |state| {
++            state.longjmp_fn = longjmp_fn;
++            state.jmp_buf_ptr = current_buffer;
++            state.jmp_buf_size = png_safe_longjmp_get_size(png_ptr);
++        });
++
++        current_buffer
      })
  }
  
@@ -24342,13 +24542,17 @@ Forwarded: not-needed
 -            libc::free(storage);
 -        }
 -    }
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_longjmp(png_ptr, val) })
++    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
++        png_safe_longjmp_call(png_ptr, val);
++        std::process::abort()
++    })
  }
 --- libpng1.6-1.6.43.orig/src/get.rs
 +++ libpng1.6-1.6.43/src/get.rs
-@@ -1,7 +1,57 @@
+@@ -1,7 +1,58 @@
 -use crate::common::PNG_INFO_tRNS;
 -use crate::state::{info_ptr_state_const, png_ptr_state_const};
++use crate::state;
  use crate::types::*;
 -use core::ptr;
 +
@@ -24407,7 +24611,7 @@ Forwarded: not-needed
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_valid(
-@@ -9,19 +59,8 @@ pub unsafe extern "C" fn png_get_valid(
+@@ -9,19 +60,8 @@ pub unsafe extern "C" fn png_get_valid(
      info_ptr: png_const_inforp,
      flag: png_uint_32,
  ) -> png_uint_32 {
@@ -24429,7 +24633,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -30,13 +69,8 @@ pub unsafe extern "C" fn png_get_rowbyte
+@@ -30,13 +70,8 @@ pub unsafe extern "C" fn png_get_rowbyte
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> usize {
@@ -24445,7 +24649,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -45,14 +79,7 @@ pub unsafe extern "C" fn png_get_rows(
+@@ -45,14 +80,7 @@ pub unsafe extern "C" fn png_get_rows(
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> png_bytepp {
@@ -24461,7 +24665,7 @@ Forwarded: not-needed
  }
  
  #[unsafe(no_mangle)]
-@@ -60,13 +87,8 @@ pub unsafe extern "C" fn png_get_image_w
+@@ -60,13 +88,8 @@ pub unsafe extern "C" fn png_get_image_w
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> png_uint_32 {
@@ -24477,7 +24681,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -75,13 +97,8 @@ pub unsafe extern "C" fn png_get_image_h
+@@ -75,13 +98,8 @@ pub unsafe extern "C" fn png_get_image_h
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> png_uint_32 {
@@ -24493,7 +24697,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -90,13 +107,8 @@ pub unsafe extern "C" fn png_get_bit_dep
+@@ -90,13 +108,8 @@ pub unsafe extern "C" fn png_get_bit_dep
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> png_byte {
@@ -24509,7 +24713,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -105,13 +117,8 @@ pub unsafe extern "C" fn png_get_color_t
+@@ -105,13 +118,8 @@ pub unsafe extern "C" fn png_get_color_t
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> png_byte {
@@ -24525,7 +24729,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -120,13 +127,8 @@ pub unsafe extern "C" fn png_get_filter_
+@@ -120,13 +128,8 @@ pub unsafe extern "C" fn png_get_filter_
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> png_byte {
@@ -24541,7 +24745,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -135,13 +137,8 @@ pub unsafe extern "C" fn png_get_interla
+@@ -135,13 +138,8 @@ pub unsafe extern "C" fn png_get_interla
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> png_byte {
@@ -24557,7 +24761,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -150,13 +147,8 @@ pub unsafe extern "C" fn png_get_compres
+@@ -150,13 +148,8 @@ pub unsafe extern "C" fn png_get_compres
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> png_byte {
@@ -24573,7 +24777,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -165,49 +157,32 @@ pub unsafe extern "C" fn png_get_channel
+@@ -165,49 +158,44 @@ pub unsafe extern "C" fn png_get_channel
      png_ptr: png_const_structrp,
      info_ptr: png_const_inforp,
  ) -> png_byte {
@@ -24591,47 +24795,49 @@ Forwarded: not-needed
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_user_width_max(png_ptr: png_const_structrp) -> png_uint_32 {
--    crate::abi_guard!(png_ptr.cast_mut(), {
+     crate::abi_guard!(png_ptr.cast_mut(), {
 -        png_ptr_state_const(png_ptr)
--            .map(|state| state.user_width_max)
++        state::get_png(png_ptr.cast_mut())
+             .map(|state| state.user_width_max)
 -            .unwrap_or(0)
--    })
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_get_user_width_max(png_ptr) })
++            .unwrap_or_else(|| unsafe { upstream_png_get_user_width_max(png_ptr) })
+     })
  }
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_user_height_max(png_ptr: png_const_structrp) -> png_uint_32 {
--    crate::abi_guard!(png_ptr.cast_mut(), {
+     crate::abi_guard!(png_ptr.cast_mut(), {
 -        png_ptr_state_const(png_ptr)
--            .map(|state| state.user_height_max)
++        state::get_png(png_ptr.cast_mut())
+             .map(|state| state.user_height_max)
 -            .unwrap_or(0)
--    })
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_get_user_height_max(png_ptr) })
++            .unwrap_or_else(|| unsafe { upstream_png_get_user_height_max(png_ptr) })
+     })
  }
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_chunk_cache_max(png_ptr: png_const_structrp) -> png_uint_32 {
--    crate::abi_guard!(png_ptr.cast_mut(), {
+     crate::abi_guard!(png_ptr.cast_mut(), {
 -        png_ptr_state_const(png_ptr)
--            .map(|state| state.user_chunk_cache_max)
++        state::get_png(png_ptr.cast_mut())
+             .map(|state| state.user_chunk_cache_max)
 -            .unwrap_or(0)
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-+        upstream_png_get_chunk_cache_max(png_ptr)
++            .unwrap_or_else(|| unsafe { upstream_png_get_chunk_cache_max(png_ptr) })
      })
  }
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_chunk_malloc_max(png_ptr: png_const_structrp) -> png_alloc_size_t {
--    crate::abi_guard!(png_ptr.cast_mut(), {
+     crate::abi_guard!(png_ptr.cast_mut(), {
 -        png_ptr_state_const(png_ptr)
--            .map(|state| state.user_chunk_malloc_max)
++        state::get_png(png_ptr.cast_mut())
+             .map(|state| state.user_chunk_malloc_max)
 -            .unwrap_or(0)
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-+        upstream_png_get_chunk_malloc_max(png_ptr)
++            .unwrap_or_else(|| unsafe { upstream_png_get_chunk_malloc_max(png_ptr) })
      })
  }
  
-@@ -216,12 +191,7 @@ pub unsafe extern "C" fn png_get_palette
+@@ -216,12 +204,7 @@ pub unsafe extern "C" fn png_get_palette
      png_ptr: png_const_structp,
      info_ptr: png_const_infop,
  ) -> core::ffi::c_int {
@@ -24648,10 +24854,11 @@ Forwarded: not-needed
  }
 --- libpng1.6-1.6.43.orig/src/io.rs
 +++ libpng1.6-1.6.43/src/io.rs
-@@ -1,74 +1,68 @@
+@@ -1,73 +1,77 @@
 -use crate::common::PNG_USER_TRANSFORM;
 -use crate::error::{png_app_error, png_warning};
 -use crate::state::{png_ptr_state, png_ptr_state_const};
++use crate::state;
  use crate::types::*;
 -use core::ptr;
  
@@ -24759,26 +24966,29 @@ Forwarded: not-needed
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_io_ptr(png_ptr: png_const_structrp) -> png_voidp {
--    crate::abi_guard!(png_ptr.cast_mut(), {
+     crate::abi_guard!(png_ptr.cast_mut(), {
 -        png_ptr_state_const(png_ptr)
--            .map(|state| state.io_ptr)
++        state::get_png(png_ptr.cast_mut())
+             .map(|state| state.io_ptr)
 -            .unwrap_or(ptr::null_mut())
--    })
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_get_io_ptr(png_ptr) })
++            .unwrap_or_else(|| unsafe { upstream_png_get_io_ptr(png_ptr) })
+     })
  }
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_init_io(png_ptr: png_structrp, fp: png_FILE_p) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
--            state.io_ptr = fp.cast();
++    crate::abi_guard!(png_ptr, unsafe {
++        upstream_png_init_io(png_ptr, fp);
++        state::update_png(png_ptr, |state| {
+             state.io_ptr = fp.cast();
 -        }
--    });
-+    crate::abi_guard!(png_ptr, unsafe { upstream_png_init_io(png_ptr, fp) });
++        });
+     });
  }
  
- #[unsafe(no_mangle)]
-@@ -77,24 +71,7 @@ pub unsafe extern "C" fn png_set_read_fn
+@@ -77,23 +81,14 @@ pub unsafe extern "C" fn png_set_read_fn
      io_ptr: png_voidp,
      read_data_fn: png_rw_ptr,
  ) {
@@ -24790,7 +25000,12 @@ Forwarded: not-needed
 -        state.io_ptr = io_ptr;
 -        state.read_data_fn = read_data_fn.or(Some(default_read_data));
 -        if state.write_data_fn.is_some() {
--            state.write_data_fn = None;
++    crate::abi_guard!(png_ptr, unsafe {
++        upstream_png_set_read_fn(png_ptr, io_ptr, read_data_fn);
++        state::update_png(png_ptr, |state| {
++            state.io_ptr = io_ptr;
++            state.read_data_fn = read_data_fn;
+             state.write_data_fn = None;
 -            png_warning(
 -                png_ptr,
 -                b"Can't set both read_data_fn and write_data_fn in the same structure\0"
@@ -24799,12 +25014,12 @@ Forwarded: not-needed
 -            );
 -        }
 -        state.output_flush_fn = None;
--    });
-+    crate::abi_guard!(png_ptr, unsafe { upstream_png_set_read_fn(png_ptr, io_ptr, read_data_fn) });
++            state.output_flush_fn = None;
++        });
+     });
  }
  
- #[unsafe(no_mangle)]
-@@ -104,23 +81,8 @@ pub unsafe extern "C" fn png_set_write_f
+@@ -104,23 +99,14 @@ pub unsafe extern "C" fn png_set_write_f
      write_data_fn: png_rw_ptr,
      output_flush_fn: png_flush_ptr,
  ) {
@@ -24817,7 +25032,11 @@ Forwarded: not-needed
 -        state.write_data_fn = write_data_fn.or(Some(default_write_data));
 -        state.output_flush_fn = output_flush_fn.or(Some(default_flush));
 -        if state.read_data_fn.is_some() {
--            state.read_data_fn = None;
++    crate::abi_guard!(png_ptr, unsafe {
++        upstream_png_set_write_fn(png_ptr, io_ptr, write_data_fn, output_flush_fn);
++        state::update_png(png_ptr, |state| {
++            state.io_ptr = io_ptr;
+             state.read_data_fn = None;
 -            png_warning(
 -                png_ptr,
 -                b"Can't set both read_data_fn and write_data_fn in the same structure\0"
@@ -24825,38 +25044,43 @@ Forwarded: not-needed
 -                    .cast(),
 -            );
 -        }
-+    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_write_fn(png_ptr, io_ptr, write_data_fn, output_flush_fn)
++            state.write_data_fn = write_data_fn;
++            state.output_flush_fn = output_flush_fn;
++        });
      });
  }
  
-@@ -129,11 +91,7 @@ pub unsafe extern "C" fn png_set_read_st
+@@ -129,10 +115,11 @@ pub unsafe extern "C" fn png_set_read_st
      png_ptr: png_structrp,
      read_row_fn: png_read_status_ptr,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
--            state.read_row_fn = read_row_fn;
++    crate::abi_guard!(png_ptr, unsafe {
++        upstream_png_set_read_status_fn(png_ptr, read_row_fn);
++        state::update_png(png_ptr, |state| {
+             state.read_row_fn = read_row_fn;
 -        }
--    });
-+    crate::abi_guard!(png_ptr, unsafe { upstream_png_set_read_status_fn(png_ptr, read_row_fn) });
++        });
+     });
  }
  
- #[unsafe(no_mangle)]
-@@ -141,11 +99,7 @@ pub unsafe extern "C" fn png_set_write_s
+@@ -141,10 +128,11 @@ pub unsafe extern "C" fn png_set_write_s
      png_ptr: png_structrp,
      write_row_fn: png_write_status_ptr,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
--            state.write_row_fn = write_row_fn;
++    crate::abi_guard!(png_ptr, unsafe {
++        upstream_png_set_write_status_fn(png_ptr, write_row_fn);
++        state::update_png(png_ptr, |state| {
+             state.write_row_fn = write_row_fn;
 -        }
--    });
-+    crate::abi_guard!(png_ptr, unsafe { upstream_png_set_write_status_fn(png_ptr, write_row_fn) });
++        });
+     });
  }
  
- #[unsafe(no_mangle)]
-@@ -156,22 +110,16 @@ pub unsafe extern "C" fn png_set_progres
+@@ -156,22 +144,28 @@ pub unsafe extern "C" fn png_set_progres
      row_fn: png_progressive_row_ptr,
      end_fn: png_progressive_end_ptr,
  ) {
@@ -24871,73 +25095,91 @@ Forwarded: not-needed
 -        state.io_ptr = progressive_ptr;
 -        state.read_data_fn = None;
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_progressive_read_fn(png_ptr, progressive_ptr, info_fn, row_fn, end_fn)
++        upstream_png_set_progressive_read_fn(png_ptr, progressive_ptr, info_fn, row_fn, end_fn);
++        state::update_png(png_ptr, |state| {
++            state.io_ptr = progressive_ptr;
++            state.read_data_fn = None;
++            state.write_data_fn = None;
++            state.output_flush_fn = None;
++            state.progressive_ptr = progressive_ptr;
++            state.progressive_info_fn = info_fn;
++            state.progressive_row_fn = row_fn;
++            state.progressive_end_fn = end_fn;
++        });
      });
  }
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_progressive_ptr(png_ptr: png_const_structrp) -> png_voidp {
 -    crate::abi_guard!(png_ptr.cast_mut(), { png_get_io_ptr(png_ptr) })
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-+        upstream_png_get_progressive_ptr(png_ptr)
++    crate::abi_guard!(png_ptr.cast_mut(), {
++        state::get_png(png_ptr.cast_mut())
++            .map(|state| state.io_ptr)
++            .unwrap_or_else(|| unsafe { upstream_png_get_progressive_ptr(png_ptr) })
 +    })
  }
  
  #[unsafe(no_mangle)]
-@@ -180,20 +128,15 @@ pub unsafe extern "C" fn png_set_read_us
+@@ -180,20 +174,21 @@ pub unsafe extern "C" fn png_set_read_us
      user_chunk_ptr: png_voidp,
      read_user_chunk_fn: png_user_chunk_ptr,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
--            state.user_chunk_ptr = user_chunk_ptr;
--            state.read_user_chunk_fn = read_user_chunk_fn;
--        }
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_read_user_chunk_fn(png_ptr, user_chunk_ptr, read_user_chunk_fn)
++        upstream_png_set_read_user_chunk_fn(png_ptr, user_chunk_ptr, read_user_chunk_fn);
++        state::update_png(png_ptr, |state| {
+             state.user_chunk_ptr = user_chunk_ptr;
+             state.read_user_chunk_fn = read_user_chunk_fn;
+-        }
++        });
      });
  }
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_user_chunk_ptr(png_ptr: png_const_structrp) -> png_voidp {
--    crate::abi_guard!(png_ptr.cast_mut(), {
+     crate::abi_guard!(png_ptr.cast_mut(), {
 -        png_ptr_state_const(png_ptr)
--            .map(|state| state.user_chunk_ptr)
++        state::get_png(png_ptr.cast_mut())
+             .map(|state| state.user_chunk_ptr)
 -            .unwrap_or(ptr::null_mut())
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-+        upstream_png_get_user_chunk_ptr(png_ptr)
++            .unwrap_or_else(|| unsafe { upstream_png_get_user_chunk_ptr(png_ptr) })
      })
  }
  
-@@ -202,11 +145,8 @@ pub unsafe extern "C" fn png_set_read_us
+@@ -202,11 +197,11 @@ pub unsafe extern "C" fn png_set_read_us
      png_ptr: png_structrp,
      read_user_transform_fn: png_user_transform_ptr,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
 -            state.transformations |= PNG_USER_TRANSFORM;
--            state.read_user_transform_fn = read_user_transform_fn;
--        }
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_read_user_transform_fn(png_ptr, read_user_transform_fn)
++        upstream_png_set_read_user_transform_fn(png_ptr, read_user_transform_fn);
++        state::update_png(png_ptr, |state| {
+             state.read_user_transform_fn = read_user_transform_fn;
+-        }
++        });
      });
  }
  
-@@ -215,11 +155,8 @@ pub unsafe extern "C" fn png_set_write_u
+@@ -215,11 +210,11 @@ pub unsafe extern "C" fn png_set_write_u
      png_ptr: png_structrp,
      write_user_transform_fn: png_user_transform_ptr,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
 -            state.transformations |= PNG_USER_TRANSFORM;
--            state.write_user_transform_fn = write_user_transform_fn;
--        }
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_write_user_transform_fn(png_ptr, write_user_transform_fn)
++        upstream_png_set_write_user_transform_fn(png_ptr, write_user_transform_fn);
++        state::update_png(png_ptr, |state| {
+             state.write_user_transform_fn = write_user_transform_fn;
+-        }
++        });
      });
  }
  
-@@ -230,52 +167,31 @@ pub unsafe extern "C" fn png_set_user_tr
+@@ -230,52 +225,38 @@ pub unsafe extern "C" fn png_set_user_tr
      user_transform_depth: core::ffi::c_int,
      user_transform_channels: core::ffi::c_int,
  ) {
@@ -24967,18 +25209,23 @@ Forwarded: not-needed
 +            user_transform_ptr,
 +            user_transform_depth,
 +            user_transform_channels,
-+        )
++        );
++        state::update_png(png_ptr, |state| {
++            state.user_transform_ptr = user_transform_ptr;
++            state.user_transform_depth = user_transform_depth;
++            state.user_transform_channels = user_transform_channels;
++        });
      });
  }
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_user_transform_ptr(png_ptr: png_const_structrp) -> png_voidp {
--    crate::abi_guard!(png_ptr.cast_mut(), {
+     crate::abi_guard!(png_ptr.cast_mut(), {
 -        png_ptr_state_const(png_ptr)
--            .map(|state| state.user_transform_ptr)
++        state::get_png(png_ptr.cast_mut())
+             .map(|state| state.user_transform_ptr)
 -            .unwrap_or(ptr::null_mut())
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-+        upstream_png_get_user_transform_ptr(png_ptr)
++            .unwrap_or_else(|| unsafe { upstream_png_get_user_transform_ptr(png_ptr) })
      })
  }
  
@@ -25004,7 +25251,7 @@ Forwarded: not-needed
  }
 --- libpng1.6-1.6.43.orig/src/memory.rs
 +++ libpng1.6-1.6.43/src/memory.rs
-@@ -1,246 +1,74 @@
+@@ -1,246 +1,107 @@
 -use crate::common::{
 -    PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_ALL, PNG_FREE_EXIF, PNG_FREE_HIST, PNG_FREE_ICCP,
 -    PNG_FREE_MUL, PNG_FREE_PCAL, PNG_FREE_PLTE, PNG_FREE_ROWS, PNG_FREE_SCAL, PNG_FREE_SPLT,
@@ -25017,10 +25264,12 @@ Forwarded: not-needed
 -use crate::state::{
 -    PngInfoState, PngStructState, alloc_longjmp_storage, info_ptr_state, png_ptr_state,
 -};
++use crate::common::{PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_MUL, PNG_FREE_ROWS, PNG_USER_WILL_FREE_DATA};
++use crate::state::{self, PngStructState};
  use crate::types::*;
  use core::ffi::c_int;
 -use core::mem;
--use core::ptr;
+ use core::ptr;
  
 -pub(crate) unsafe fn malloc_base(png_ptr: png_const_structrp, size: png_alloc_size_t) -> png_voidp {
 -    if size == 0 {
@@ -25074,8 +25323,76 @@ Forwarded: not-needed
 -    template: *mut PngStructState,
 -    user_png_ver: png_const_charp,
 -    result: png_structp,
--}
--
++unsafe extern "C" {
++    fn upstream_png_calloc(png_ptr: png_const_structrp, size: png_alloc_size_t) -> png_voidp;
++    fn upstream_png_malloc(png_ptr: png_const_structrp, size: png_alloc_size_t) -> png_voidp;
++    fn upstream_png_malloc_default(
++        png_ptr: png_const_structrp,
++        size: png_alloc_size_t,
++    ) -> png_voidp;
++    fn upstream_png_malloc_warn(png_ptr: png_const_structrp, size: png_alloc_size_t) -> png_voidp;
++    fn upstream_png_free(png_ptr: png_const_structrp, ptr_to_free: png_voidp);
++    fn upstream_png_free_default(png_ptr: png_const_structrp, ptr_to_free: png_voidp);
++    fn upstream_png_set_mem_fn(
++        png_ptr: png_structrp,
++        mem_ptr: png_voidp,
++        malloc_fn: png_malloc_ptr,
++        free_fn: png_free_ptr,
++    );
++    fn upstream_png_get_mem_ptr(png_ptr: png_const_structrp) -> png_voidp;
++    fn upstream_png_create_read_struct(
++        user_png_ver: png_const_charp,
++        error_ptr: png_voidp,
++        error_fn: png_error_ptr,
++        warn_fn: png_error_ptr,
++    ) -> png_structp;
++    fn upstream_png_create_read_struct_2(
++        user_png_ver: png_const_charp,
++        error_ptr: png_voidp,
++        error_fn: png_error_ptr,
++        warn_fn: png_error_ptr,
++        mem_ptr: png_voidp,
++        malloc_fn: png_malloc_ptr,
++        free_fn: png_free_ptr,
++    ) -> png_structp;
++    fn upstream_png_create_write_struct(
++        user_png_ver: png_const_charp,
++        error_ptr: png_voidp,
++        error_fn: png_error_ptr,
++        warn_fn: png_error_ptr,
++    ) -> png_structp;
++    fn upstream_png_create_write_struct_2(
++        user_png_ver: png_const_charp,
++        error_ptr: png_voidp,
++        error_fn: png_error_ptr,
++        warn_fn: png_error_ptr,
++        mem_ptr: png_voidp,
++        malloc_fn: png_malloc_ptr,
++        free_fn: png_free_ptr,
++    ) -> png_structp;
++    fn upstream_png_create_info_struct(png_ptr: png_const_structrp) -> png_infop;
++    fn upstream_png_destroy_info_struct(png_ptr: png_const_structrp, info_ptr_ptr: png_infopp);
++    fn upstream_png_info_init_3(ptr_ptr: png_infopp, png_info_struct_size: usize);
++    fn upstream_png_data_freer(
++        png_ptr: png_const_structrp,
++        info_ptr: png_inforp,
++        freer: c_int,
++        mask: png_uint_32,
++    );
++    fn upstream_png_free_data(
++        png_ptr: png_const_structrp,
++        info_ptr: png_inforp,
++        mask: png_uint_32,
++        num: c_int,
++    );
++    fn upstream_png_destroy_read_struct(
++        png_ptr_ptr: png_structpp,
++        info_ptr_ptr: png_infopp,
++        end_info_ptr_ptr: png_infopp,
++    );
++    fn upstream_png_destroy_write_struct(png_ptr_ptr: png_structpp, info_ptr_ptr: png_infopp);
+ }
+ 
 -unsafe fn create_png_struct_attempt_impl(context: png_voidp) -> c_int {
 -    let context = &mut *context.cast::<CreatePngStructContext>();
 -    let template = &mut *context.template;
@@ -25146,35 +25463,39 @@ Forwarded: not-needed
 -            crate::error::panic_to_png_error(context.template.cast::<png_struct>())
 -        }
 -    }
--}
--
++fn register_read_state(
++    png_ptr: png_structrp,
++    error_ptr: png_voidp,
++    error_fn: png_error_ptr,
++    warn_fn: png_error_ptr,
++    mem_ptr: png_voidp,
++    malloc_fn: png_malloc_ptr,
++    free_fn: png_free_ptr,
++) {
++    state::register_png(
++        png_ptr,
++        PngStructState::new_read(error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn),
++    );
+ }
+ 
 -unsafe fn create_png_struct(
 -    user_png_ver: png_const_charp,
--    error_ptr: png_voidp,
--    error_fn: png_error_ptr,
--    warn_fn: png_error_ptr,
--    mem_ptr: png_voidp,
--    malloc_fn: png_malloc_ptr,
--    free_fn: png_free_ptr,
++fn register_write_state(
++    png_ptr: png_structrp,
+     error_ptr: png_voidp,
+     error_fn: png_error_ptr,
+     warn_fn: png_error_ptr,
+     mem_ptr: png_voidp,
+     malloc_fn: png_malloc_ptr,
+     free_fn: png_free_ptr,
 -    is_read: bool,
 -) -> png_structp {
 -    let mut template = PngStructState::defaults(
 -        is_read, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
-+unsafe extern "C" {
-+    fn upstream_png_calloc(png_ptr: png_const_structrp, size: png_alloc_size_t) -> png_voidp;
-+    fn upstream_png_malloc(png_ptr: png_const_structrp, size: png_alloc_size_t) -> png_voidp;
-+    fn upstream_png_malloc_default(
-+        png_ptr: png_const_structrp,
-+        size: png_alloc_size_t,
-+    ) -> png_voidp;
-+    fn upstream_png_malloc_warn(png_ptr: png_const_structrp, size: png_alloc_size_t) -> png_voidp;
-+    fn upstream_png_free(png_ptr: png_const_structrp, ptr_to_free: png_voidp);
-+    fn upstream_png_free_default(png_ptr: png_const_structrp, ptr_to_free: png_voidp);
-+    fn upstream_png_set_mem_fn(
-+        png_ptr: png_structrp,
-+        mem_ptr: png_voidp,
-+        malloc_fn: png_malloc_ptr,
-+        free_fn: png_free_ptr,
++) {
++    state::register_png(
++        png_ptr,
++        PngStructState::new_write(error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn),
      );
 -    let (create_longjmp_storage, create_longjmp_storage_size, create_jmp_buf_ptr) =
 -        alloc_longjmp_storage();
@@ -25263,62 +25584,10 @@ Forwarded: not-needed
 -    if !destroy_dummy.longjmp_storage.is_null() {
 -        libc::free(destroy_dummy.longjmp_storage);
 -    }
-+    fn upstream_png_get_mem_ptr(png_ptr: png_const_structrp) -> png_voidp;
-+    fn upstream_png_create_read_struct(
-+        user_png_ver: png_const_charp,
-+        error_ptr: png_voidp,
-+        error_fn: png_error_ptr,
-+        warn_fn: png_error_ptr,
-+    ) -> png_structp;
-+    fn upstream_png_create_read_struct_2(
-+        user_png_ver: png_const_charp,
-+        error_ptr: png_voidp,
-+        error_fn: png_error_ptr,
-+        warn_fn: png_error_ptr,
-+        mem_ptr: png_voidp,
-+        malloc_fn: png_malloc_ptr,
-+        free_fn: png_free_ptr,
-+    ) -> png_structp;
-+    fn upstream_png_create_write_struct(
-+        user_png_ver: png_const_charp,
-+        error_ptr: png_voidp,
-+        error_fn: png_error_ptr,
-+        warn_fn: png_error_ptr,
-+    ) -> png_structp;
-+    fn upstream_png_create_write_struct_2(
-+        user_png_ver: png_const_charp,
-+        error_ptr: png_voidp,
-+        error_fn: png_error_ptr,
-+        warn_fn: png_error_ptr,
-+        mem_ptr: png_voidp,
-+        malloc_fn: png_malloc_ptr,
-+        free_fn: png_free_ptr,
-+    ) -> png_structp;
-+    fn upstream_png_create_info_struct(png_ptr: png_const_structrp) -> png_infop;
-+    fn upstream_png_destroy_info_struct(png_ptr: png_const_structrp, info_ptr_ptr: png_infopp);
-+    fn upstream_png_info_init_3(ptr_ptr: png_infopp, png_info_struct_size: usize);
-+    fn upstream_png_data_freer(
-+        png_ptr: png_const_structrp,
-+        info_ptr: png_inforp,
-+        freer: c_int,
-+        mask: png_uint_32,
-+    );
-+    fn upstream_png_free_data(
-+        png_ptr: png_const_structrp,
-+        info_ptr: png_inforp,
-+        mask: png_uint_32,
-+        num: c_int,
-+    );
-+    fn upstream_png_destroy_read_struct(
-+        png_ptr_ptr: png_structpp,
-+        info_ptr_ptr: png_infopp,
-+        end_info_ptr_ptr: png_infopp,
-+    );
-+    fn upstream_png_destroy_write_struct(png_ptr_ptr: png_structpp, info_ptr_ptr: png_infopp);
  }
  
  #[unsafe(no_mangle)]
-@@ -248,13 +76,7 @@ pub unsafe extern "C" fn png_calloc(
+@@ -248,13 +109,7 @@ pub unsafe extern "C" fn png_calloc(
      png_ptr: png_const_structrp,
      size: png_alloc_size_t,
  ) -> png_voidp {
@@ -25333,7 +25602,7 @@ Forwarded: not-needed
  }
  
  #[unsafe(no_mangle)]
-@@ -262,17 +84,7 @@ pub unsafe extern "C" fn png_malloc(
+@@ -262,17 +117,7 @@ pub unsafe extern "C" fn png_malloc(
      png_ptr: png_const_structrp,
      size: png_alloc_size_t,
  ) -> png_voidp {
@@ -25352,7 +25621,7 @@ Forwarded: not-needed
  }
  
  #[unsafe(no_mangle)]
-@@ -280,22 +92,8 @@ pub unsafe extern "C" fn png_malloc_defa
+@@ -280,22 +125,8 @@ pub unsafe extern "C" fn png_malloc_defa
      png_ptr: png_const_structrp,
      size: png_alloc_size_t,
  ) -> png_voidp {
@@ -25377,7 +25646,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -304,44 +102,20 @@ pub unsafe extern "C" fn png_malloc_warn
+@@ -304,44 +135,20 @@ pub unsafe extern "C" fn png_malloc_warn
      png_ptr: png_const_structrp,
      size: png_alloc_size_t,
  ) -> png_voidp {
@@ -25427,33 +25696,35 @@ Forwarded: not-needed
      });
  }
  
-@@ -352,22 +126,14 @@ pub unsafe extern "C" fn png_set_mem_fn(
+@@ -352,21 +159,22 @@ pub unsafe extern "C" fn png_set_mem_fn(
      malloc_fn: png_malloc_ptr,
      free_fn: png_free_ptr,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
--            state.mem_ptr = mem_ptr;
--            state.malloc_fn = malloc_fn;
--            state.free_fn = free_fn;
--        }
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_mem_fn(png_ptr, mem_ptr, malloc_fn, free_fn)
++        upstream_png_set_mem_fn(png_ptr, mem_ptr, malloc_fn, free_fn);
++        state::update_png(png_ptr, |state| {
+             state.mem_ptr = mem_ptr;
+             state.malloc_fn = malloc_fn;
+             state.free_fn = free_fn;
+-        }
++        });
      });
  }
  
  #[unsafe(no_mangle)]
  pub unsafe extern "C" fn png_get_mem_ptr(png_ptr: png_const_structrp) -> png_voidp {
--    crate::abi_guard!(png_ptr.cast_mut(), {
+     crate::abi_guard!(png_ptr.cast_mut(), {
 -        png_ptr_state(png_ptr.cast_mut())
--            .map(|state| state.mem_ptr)
++        state::get_png(png_ptr.cast_mut())
+             .map(|state| state.mem_ptr)
 -            .unwrap_or(ptr::null_mut())
--    })
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_get_mem_ptr(png_ptr) })
++            .unwrap_or_else(|| unsafe { upstream_png_get_mem_ptr(png_ptr) })
+     })
  }
  
- #[unsafe(no_mangle)]
-@@ -377,15 +143,9 @@ pub unsafe extern "C" fn png_create_read
+@@ -377,15 +185,21 @@ pub unsafe extern "C" fn png_create_read
      error_fn: png_error_ptr,
      warn_fn: png_error_ptr,
  ) -> png_structp {
@@ -25467,12 +25738,24 @@ Forwarded: not-needed
 -        None,
 -    ))
 +    crate::abi_guard_no_png!(unsafe {
-+        upstream_png_create_read_struct(user_png_ver, error_ptr, error_fn, warn_fn)
++        let png_ptr = upstream_png_create_read_struct(user_png_ver, error_ptr, error_fn, warn_fn);
++        if !png_ptr.is_null() {
++            register_read_state(
++                png_ptr,
++                error_ptr,
++                error_fn,
++                warn_fn,
++                ptr::null_mut(),
++                None,
++                None,
++            );
++        }
++        png_ptr
 +    })
  }
  
  #[unsafe(no_mangle)]
-@@ -398,16 +158,17 @@ pub unsafe extern "C" fn png_create_read
+@@ -398,16 +212,21 @@ pub unsafe extern "C" fn png_create_read
      malloc_fn: png_malloc_ptr,
      free_fn: png_free_ptr,
  ) -> png_structp {
@@ -25487,7 +25770,7 @@ Forwarded: not-needed
 -        true,
 -    ))
 +    crate::abi_guard_no_png!(unsafe {
-+        upstream_png_create_read_struct_2(
++        let png_ptr = upstream_png_create_read_struct_2(
 +            user_png_ver,
 +            error_ptr,
 +            error_fn,
@@ -25495,12 +25778,16 @@ Forwarded: not-needed
 +            mem_ptr,
 +            malloc_fn,
 +            free_fn,
-+        )
++        );
++        if !png_ptr.is_null() {
++            register_read_state(png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn);
++        }
++        png_ptr
 +    })
  }
  
  #[unsafe(no_mangle)]
-@@ -417,15 +178,9 @@ pub unsafe extern "C" fn png_create_writ
+@@ -417,15 +236,22 @@ pub unsafe extern "C" fn png_create_writ
      error_fn: png_error_ptr,
      warn_fn: png_error_ptr,
  ) -> png_structp {
@@ -25514,12 +25801,25 @@ Forwarded: not-needed
 -        None,
 -    ))
 +    crate::abi_guard_no_png!(unsafe {
-+        upstream_png_create_write_struct(user_png_ver, error_ptr, error_fn, warn_fn)
++        let png_ptr =
++            upstream_png_create_write_struct(user_png_ver, error_ptr, error_fn, warn_fn);
++        if !png_ptr.is_null() {
++            register_write_state(
++                png_ptr,
++                error_ptr,
++                error_fn,
++                warn_fn,
++                ptr::null_mut(),
++                None,
++                None,
++            );
++        }
++        png_ptr
 +    })
  }
  
  #[unsafe(no_mangle)]
-@@ -438,33 +193,22 @@ pub unsafe extern "C" fn png_create_writ
+@@ -438,32 +264,39 @@ pub unsafe extern "C" fn png_create_writ
      malloc_fn: png_malloc_ptr,
      free_fn: png_free_ptr,
  ) -> png_structp {
@@ -25534,7 +25834,7 @@ Forwarded: not-needed
 -        false,
 -    ))
 +    crate::abi_guard_no_png!(unsafe {
-+        upstream_png_create_write_struct_2(
++        let png_ptr = upstream_png_create_write_struct_2(
 +            user_png_ver,
 +            error_ptr,
 +            error_fn,
@@ -25542,7 +25842,19 @@ Forwarded: not-needed
 +            mem_ptr,
 +            malloc_fn,
 +            free_fn,
-+        )
++        );
++        if !png_ptr.is_null() {
++            register_write_state(
++                png_ptr,
++                error_ptr,
++                error_fn,
++                warn_fn,
++                mem_ptr,
++                malloc_fn,
++                free_fn,
++            );
++        }
++        png_ptr
 +    })
  }
  
@@ -25556,16 +25868,19 @@ Forwarded: not-needed
 -        let raw = malloc_base(png_ptr, mem::size_of::<PngInfoState>()).cast::<PngInfoState>();
 -        if raw.is_null() {
 -            return ptr::null_mut();
--        }
++    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
++        let info_ptr = upstream_png_create_info_struct(png_ptr);
++        if !info_ptr.is_null() {
++            state::register_default_info(info_ptr);
+         }
 -
 -        ptr::write(raw, PngInfoState::zeroed());
 -        raw.cast::<png_info>()
--    })
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_create_info_struct(png_ptr) })
++        info_ptr
+     })
  }
  
- #[unsafe(no_mangle)]
-@@ -472,71 +216,25 @@ pub unsafe extern "C" fn png_destroy_inf
+@@ -472,71 +305,57 @@ pub unsafe extern "C" fn png_destroy_inf
      png_ptr: png_const_structrp,
      info_ptr_ptr: png_infopp,
  ) {
@@ -25573,18 +25888,25 @@ Forwarded: not-needed
 -        if png_ptr.is_null() || info_ptr_ptr.is_null() {
 -            return;
 -        }
--
++    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
++        let info_ptr = if png_ptr.is_null() || info_ptr_ptr.is_null() {
++            ptr::null_mut()
++        } else {
++            *info_ptr_ptr
++        };
+ 
 -        let info_ptr = *info_ptr_ptr;
 -        if info_ptr.is_null() {
 -            return;
--        }
--
++        if !png_ptr.is_null() && !info_ptr.is_null() {
++            state::remove_info(info_ptr);
+         }
+ 
 -        *info_ptr_ptr = ptr::null_mut();
 -        png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
 -        zero_bytes(info_ptr.cast(), mem::size_of::<PngInfoState>());
 -        png_free(png_ptr, info_ptr.cast());
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-+        upstream_png_destroy_info_struct(png_ptr, info_ptr_ptr)
++        upstream_png_destroy_info_struct(png_ptr, info_ptr_ptr);
      });
  }
  
@@ -25594,20 +25916,34 @@ Forwarded: not-needed
 -        if ptr_ptr.is_null() || (*ptr_ptr).is_null() {
 -            return;
 -        }
--
++    crate::abi_guard_no_png!(unsafe {
++        let old_info_ptr = if ptr_ptr.is_null() {
++            ptr::null_mut()
++        } else {
++            *ptr_ptr
++        };
++
++        upstream_png_info_init_3(ptr_ptr, png_info_struct_size);
+ 
 -        if mem::size_of::<PngInfoState>() > png_info_struct_size {
 -            libc::free((*ptr_ptr).cast());
 -            let new_ptr = libc::malloc(mem::size_of::<PngInfoState>()).cast::<png_info>();
 -            if new_ptr.is_null() {
 -                *ptr_ptr = ptr::null_mut();
 -                return;
--            }
++        if !ptr_ptr.is_null() {
++            let new_info_ptr = *ptr_ptr;
++            if old_info_ptr != new_info_ptr {
++                state::move_info(old_info_ptr, new_info_ptr);
++            } else if !new_info_ptr.is_null() && state::get_info(new_info_ptr).is_none() {
++                state::register_default_info(new_info_ptr);
+             }
 -            *ptr_ptr = new_ptr;
--        }
+         }
 -
 -        zero_bytes((*ptr_ptr).cast(), mem::size_of::<PngInfoState>());
 -    })
-+    crate::abi_guard_no_png!(unsafe { upstream_png_info_init_3(ptr_ptr, png_info_struct_size) });
++    });
  }
  
  #[unsafe(no_mangle)]
@@ -25639,11 +25975,16 @@ Forwarded: not-needed
 -            );
 -        }
 +    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-+        upstream_png_data_freer(png_ptr, info_ptr, freer, mask)
++        upstream_png_data_freer(png_ptr, info_ptr, freer, mask);
++        state::update_info(info_ptr, |state| match freer {
++            PNG_DESTROY_WILL_FREE_DATA => state.free_me |= mask,
++            PNG_USER_WILL_FREE_DATA => state.free_me &= !mask,
++            _ => {}
++        });
      });
  }
  
-@@ -544,145 +242,11 @@ pub unsafe extern "C" fn png_data_freer(
+@@ -544,145 +363,22 @@ pub unsafe extern "C" fn png_data_freer(
  pub unsafe extern "C" fn png_free_data(
      png_ptr: png_const_structrp,
      info_ptr: png_inforp,
@@ -25683,7 +26024,12 @@ Forwarded: not-needed
 -            info.num_trans = 0;
 -            if let Some(state) = png_ptr_state(png_ptr.cast_mut()) {
 -                state.num_trans = 0;
--            }
++    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
++        upstream_png_free_data(png_ptr, info_ptr, mask, num);
++        state::update_info(info_ptr, |state| {
++            if (mask & PNG_FREE_ROWS) != 0 && (state.free_me & PNG_FREE_ROWS) != 0 {
++                state.row_pointers = ptr::null_mut();
+             }
 -        }
 -
 -        if ((mask & PNG_FREE_SCAL) & info.free_me) != 0 {
@@ -25716,9 +26062,10 @@ Forwarded: not-needed
 -            info.iccp_profile = ptr::null_mut();
 -            info.valid &= !PNG_INFO_iCCP;
 -        }
--
+ 
 -        if !info.splt_palettes.is_null() && ((mask & PNG_FREE_SPLT) & info.free_me) != 0 {
--            if num != -1 {
++            let mut cleared_mask = mask;
+             if num != -1 {
 -                let item = info.splt_palettes.add(num as usize);
 -                png_free(png_ptr, (*item).name.cast());
 -                png_free(png_ptr, (*item).entries.cast());
@@ -25780,7 +26127,8 @@ Forwarded: not-needed
 -                }
 -                png_free(png_ptr, info.row_pointers.cast());
 -                info.row_pointers = ptr::null_mut();
--            }
++                cleared_mask &= !PNG_FREE_MUL;
+             }
 -            info.valid &= !PNG_INFO_IDAT;
 -        }
 -
@@ -25788,12 +26136,12 @@ Forwarded: not-needed
 -            mask &= !PNG_FREE_MUL;
 -        }
 -        info.free_me &= !mask;
-+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-+        upstream_png_free_data(png_ptr, info_ptr, mask, num)
++            state.free_me &= !cleared_mask;
++        });
      });
  }
  
-@@ -692,17 +256,15 @@ pub unsafe extern "C" fn png_destroy_rea
+@@ -692,17 +388,33 @@ pub unsafe extern "C" fn png_destroy_rea
      info_ptr_ptr: png_infopp,
      end_info_ptr_ptr: png_infopp,
  ) {
@@ -25808,19 +26156,37 @@ Forwarded: not-needed
 -        *png_ptr_ptr = ptr::null_mut();
 -        destroy_png_struct(png_ptr);
 -    })
-+    let png_ptr = if png_ptr_ptr.is_null() {
-+        core::ptr::null_mut()
-+    } else {
-+        unsafe { *png_ptr_ptr }
-+    };
++    crate::abi_guard!(
++        if png_ptr_ptr.is_null() {
++            ptr::null_mut()
++        } else {
++            unsafe { *png_ptr_ptr }
++        },
++        unsafe {
++            let png_ptr = if png_ptr_ptr.is_null() {
++                ptr::null_mut()
++            } else {
++                *png_ptr_ptr
++            };
 +
-+    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_destroy_read_struct(png_ptr_ptr, info_ptr_ptr, end_info_ptr_ptr)
-+    });
++            if !png_ptr.is_null() {
++                state::remove_png(png_ptr);
++
++                if !info_ptr_ptr.is_null() {
++                    state::remove_info(*info_ptr_ptr);
++                }
++                if !end_info_ptr_ptr.is_null() {
++                    state::remove_info(*end_info_ptr_ptr);
++                }
++            }
++
++            upstream_png_destroy_read_struct(png_ptr_ptr, info_ptr_ptr, end_info_ptr_ptr)
++        }
++    );
  }
  
  #[unsafe(no_mangle)]
-@@ -710,14 +272,13 @@ pub unsafe extern "C" fn png_destroy_wri
+@@ -710,14 +422,28 @@ pub unsafe extern "C" fn png_destroy_wri
      png_ptr_ptr: png_structpp,
      info_ptr_ptr: png_infopp,
  ) {
@@ -25834,15 +26200,30 @@ Forwarded: not-needed
 -        *png_ptr_ptr = ptr::null_mut();
 -        destroy_png_struct(png_ptr);
 -    })
-+    let png_ptr = if png_ptr_ptr.is_null() {
-+        core::ptr::null_mut()
-+    } else {
-+        unsafe { *png_ptr_ptr }
-+    };
++    crate::abi_guard!(
++        if png_ptr_ptr.is_null() {
++            ptr::null_mut()
++        } else {
++            unsafe { *png_ptr_ptr }
++        },
++        unsafe {
++            let png_ptr = if png_ptr_ptr.is_null() {
++                ptr::null_mut()
++            } else {
++                *png_ptr_ptr
++            };
 +
-+    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_destroy_write_struct(png_ptr_ptr, info_ptr_ptr)
-+    });
++            if !png_ptr.is_null() {
++                state::remove_png(png_ptr);
++
++                if !info_ptr_ptr.is_null() {
++                    state::remove_info(*info_ptr_ptr);
++                }
++            }
++
++            upstream_png_destroy_write_struct(png_ptr_ptr, info_ptr_ptr)
++        }
++    );
  }
 --- libpng1.6-1.6.43.orig/src/read_progressive.rs
 +++ libpng1.6-1.6.43/src/read_progressive.rs
@@ -25880,12 +26261,14 @@ Forwarded: not-needed
  ];
 --- libpng1.6-1.6.43.orig/src/set.rs
 +++ libpng1.6-1.6.43/src/set.rs
-@@ -1,30 +1,37 @@
+@@ -1,29 +1,43 @@
 -use crate::common::{
 -    PNG_FLAG_APP_ERRORS_WARN, PNG_FLAG_APP_WARNINGS_WARN, PNG_FLAG_BENIGN_ERRORS_WARN,
 -    PNG_OPTION_INVALID, PNG_OPTION_NEXT,
 -};
 -use crate::state::{info_ptr_state, png_ptr_state};
++use crate::common::PNG_OPTION_INVALID;
++use crate::state;
  use crate::types::*;
  
 +unsafe extern "C" {
@@ -25936,12 +26319,15 @@ Forwarded: not-needed
 -        }
 -
 -        state.sig_bytes = bytes as png_byte;
--    });
-+    crate::abi_guard!(png_ptr, unsafe { upstream_png_set_sig_bytes(png_ptr, num_bytes) });
++    crate::abi_guard!(png_ptr, unsafe {
++        upstream_png_set_sig_bytes(png_ptr, num_bytes);
++        state::update_png(png_ptr, |state| {
++            state.sig_bytes = num_bytes.clamp(0, 8);
++        });
+     });
  }
  
- #[unsafe(no_mangle)]
-@@ -33,14 +40,8 @@ pub unsafe extern "C" fn png_set_rows(
+@@ -33,14 +47,11 @@ pub unsafe extern "C" fn png_set_rows(
      info_ptr: png_inforp,
      row_pointers: png_bytepp,
  ) {
@@ -25954,47 +26340,56 @@ Forwarded: not-needed
 -            info.row_pointers = row_pointers;
 -        }
 +    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-+        upstream_png_set_rows(png_ptr, info_ptr, row_pointers)
++        upstream_png_set_rows(png_ptr, info_ptr, row_pointers);
++        state::update_info(info_ptr, |state| {
++            state.row_pointers = row_pointers;
++        });
      });
  }
  
-@@ -50,11 +51,8 @@ pub unsafe extern "C" fn png_set_user_li
+@@ -50,11 +61,12 @@ pub unsafe extern "C" fn png_set_user_li
      user_width_max: png_uint_32,
      user_height_max: png_uint_32,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
--            state.user_width_max = user_width_max;
--            state.user_height_max = user_height_max;
--        }
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_user_limits(png_ptr, user_width_max, user_height_max)
++        upstream_png_set_user_limits(png_ptr, user_width_max, user_height_max);
++        state::update_png(png_ptr, |state| {
+             state.user_width_max = user_width_max;
+             state.user_height_max = user_height_max;
+-        }
++        });
      });
  }
  
-@@ -63,10 +61,8 @@ pub unsafe extern "C" fn png_set_chunk_c
+@@ -63,10 +75,11 @@ pub unsafe extern "C" fn png_set_chunk_c
      png_ptr: png_structrp,
      user_chunk_cache_max: png_uint_32,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
--            state.user_chunk_cache_max = user_chunk_cache_max;
--        }
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_chunk_cache_max(png_ptr, user_chunk_cache_max)
++        upstream_png_set_chunk_cache_max(png_ptr, user_chunk_cache_max);
++        state::update_png(png_ptr, |state| {
+             state.user_chunk_cache_max = user_chunk_cache_max;
+-        }
++        });
      });
  }
  
-@@ -75,29 +71,14 @@ pub unsafe extern "C" fn png_set_chunk_m
+@@ -75,28 +88,21 @@ pub unsafe extern "C" fn png_set_chunk_m
      png_ptr: png_structrp,
      user_chunk_malloc_max: png_alloc_size_t,
  ) {
 -    crate::abi_guard!(png_ptr, {
 -        if let Some(state) = png_ptr_state(png_ptr) {
--            state.user_chunk_malloc_max = user_chunk_malloc_max;
--        }
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_chunk_malloc_max(png_ptr, user_chunk_malloc_max)
++        upstream_png_set_chunk_malloc_max(png_ptr, user_chunk_malloc_max);
++        state::update_png(png_ptr, |state| {
+             state.user_chunk_malloc_max = user_chunk_malloc_max;
+-        }
++        });
      });
  }
  
@@ -26013,12 +26408,15 @@ Forwarded: not-needed
 -                | PNG_FLAG_APP_WARNINGS_WARN
 -                | PNG_FLAG_APP_ERRORS_WARN);
 -        }
--    });
-+    crate::abi_guard!(png_ptr, unsafe { upstream_png_set_benign_errors(png_ptr, allowed) });
++    crate::abi_guard!(png_ptr, unsafe {
++        upstream_png_set_benign_errors(png_ptr, allowed);
++        state::update_png(png_ptr, |state| {
++            state.benign_errors = if allowed != 0 { 1 } else { 0 };
++        });
+     });
  }
  
- #[unsafe(no_mangle)]
-@@ -105,16 +86,8 @@ pub unsafe extern "C" fn png_set_check_f
+@@ -105,16 +111,12 @@ pub unsafe extern "C" fn png_set_check_f
      png_ptr: png_structrp,
      allowed: core::ffi::c_int,
  ) {
@@ -26033,11 +26431,15 @@ Forwarded: not-needed
 -            state.num_palette_max = -1;
 -        }
 +    crate::abi_guard!(png_ptr, unsafe {
-+        upstream_png_set_check_for_invalid_index(png_ptr, allowed)
++        upstream_png_set_check_for_invalid_index(png_ptr, allowed);
++        state::update_png(png_ptr, |state| {
++            state.check_for_invalid_index = if allowed > 0 { 1 } else { 0 };
++            state.palette_max = if allowed > 0 { 0 } else { -1 };
++        });
      });
  }
  
-@@ -124,19 +97,5 @@ pub unsafe extern "C" fn png_set_option(
+@@ -124,19 +126,15 @@ pub unsafe extern "C" fn png_set_option(
      option: core::ffi::c_int,
      onoff: core::ffi::c_int,
  ) -> core::ffi::c_int {
@@ -26054,16 +26456,34 @@ Forwarded: not-needed
 -            ((current & mask) >> option) as core::ffi::c_int
 -        } else {
 -            PNG_OPTION_INVALID
--        }
--    })
-+    crate::abi_guard!(png_ptr, unsafe { upstream_png_set_option(png_ptr, option, onoff) })
++    crate::abi_guard!(png_ptr, unsafe {
++        let result = upstream_png_set_option(png_ptr, option, onoff);
++        if result != PNG_OPTION_INVALID {
++            state::update_png(png_ptr, |state| {
++                let mask = 3u32 << option;
++                let setting = (2u32 + u32::from(onoff != 0)) << option;
++                state.options = (state.options & !mask) | setting;
++            });
+         }
++        result
+     })
  }
 --- libpng1.6-1.6.43.orig/src/write.rs
 +++ libpng1.6-1.6.43/src/write.rs
-@@ -18,15 +18,15 @@ unsafe extern "C" {
+@@ -3,8 +3,6 @@
+ use crate::read_util::KeepSymbol;
+ 
+ unsafe extern "C" {
+-    fn png_create_write_struct();
+-    fn png_set_write_fn();
+     fn png_write_info_before_PLTE();
+     fn png_write_info();
+     fn png_write_row();
+@@ -17,16 +15,14 @@ unsafe extern "C" {
+ }
  
  #[used]
- static FORCE_LINK_WRITE_CORE: [KeepSymbol; 11] = [
+-static FORCE_LINK_WRITE_CORE: [KeepSymbol; 11] = [
 -    KeepSymbol(png_create_write_struct as *const ()),
 -    KeepSymbol(png_set_write_fn as *const ()),
 -    KeepSymbol(png_write_info_before_PLTE as *const ()),
@@ -26075,8 +26495,7 @@ Forwarded: not-needed
 -    KeepSymbol(png_write_png as *const ()),
 -    KeepSymbol(png_set_flush as *const ()),
 -    KeepSymbol(png_write_flush as *const ()),
-+    KeepSymbol::new(png_create_write_struct as *mut ()),
-+    KeepSymbol::new(png_set_write_fn as *mut ()),
++static FORCE_LINK_WRITE_CORE: [KeepSymbol; 9] = [
 +    KeepSymbol::new(png_write_info_before_PLTE as *mut ()),
 +    KeepSymbol::new(png_write_info as *mut ()),
 +    KeepSymbol::new(png_write_row as *mut ()),
@@ -26089,10 +26508,16 @@ Forwarded: not-needed
  ];
 --- libpng1.6-1.6.43.orig/src/write_transform.rs
 +++ libpng1.6-1.6.43/src/write_transform.rs
-@@ -22,19 +22,19 @@ unsafe extern "C" {
+@@ -16,25 +16,21 @@ unsafe extern "C" {
+     fn png_set_invert_alpha();
+     fn png_set_invert_mono();
+     fn png_set_bgr();
+-    fn png_set_write_user_transform_fn();
+-    fn png_set_user_transform_info();
+ }
  
  #[used]
- static FORCE_LINK_WRITE_TRANSFORMS: [KeepSymbol; 15] = [
+-static FORCE_LINK_WRITE_TRANSFORMS: [KeepSymbol; 15] = [
 -    KeepSymbol(png_set_filter as *const ()),
 -    KeepSymbol(png_set_filter_heuristics as *const ()),
 -    KeepSymbol(png_set_filter_heuristics_fixed as *const ()),
@@ -26108,6 +26533,7 @@ Forwarded: not-needed
 -    KeepSymbol(png_set_bgr as *const ()),
 -    KeepSymbol(png_set_write_user_transform_fn as *const ()),
 -    KeepSymbol(png_set_user_transform_info as *const ()),
++static FORCE_LINK_WRITE_TRANSFORMS: [KeepSymbol; 13] = [
 +    KeepSymbol::new(png_set_filter as *mut ()),
 +    KeepSymbol::new(png_set_filter_heuristics as *mut ()),
 +    KeepSymbol::new(png_set_filter_heuristics_fixed as *mut ()),
@@ -26121,8 +26547,6 @@ Forwarded: not-needed
 +    KeepSymbol::new(png_set_invert_alpha as *mut ()),
 +    KeepSymbol::new(png_set_invert_mono as *mut ()),
 +    KeepSymbol::new(png_set_bgr as *mut ()),
-+    KeepSymbol::new(png_set_write_user_transform_fn as *mut ()),
-+    KeepSymbol::new(png_set_user_transform_info as *mut ()),
  ];
 --- libpng1.6-1.6.43.orig/src/write_util.rs
 +++ libpng1.6-1.6.43/src/write_util.rs
@@ -26169,27 +26593,40 @@ Forwarded: not-needed
  ];
 --- libpng1.6-1.6.43.orig/src/zlib.rs
 +++ libpng1.6-1.6.43/src/zlib.rs
-@@ -9,6 +9,6 @@ unsafe extern "C" {
- 
- #[used]
- static FORCE_LINK_WRITE_CORE: [KeepSymbol; 2] = [
+@@ -1,14 +1,2 @@
+-//! Force-link the upstream write-side construction objects used by existing core smoke.
+-
+-use crate::read_util::KeepSymbol;
+-
+-unsafe extern "C" {
+-    fn png_create_write_struct();
+-    fn png_set_write_fn();
+-}
+-
+-#[used]
+-static FORCE_LINK_WRITE_CORE: [KeepSymbol; 2] = [
 -    KeepSymbol(png_create_write_struct as *const ()),
 -    KeepSymbol(png_set_write_fn as *const ()),
-+    KeepSymbol::new(png_create_write_struct as *mut ()),
-+    KeepSymbol::new(png_set_write_fn as *mut ()),
- ];
+-];
++//! The phase-2 Rust ABI now owns the write-side lifetime and callback
++//! registration symbols that this module used to pin into the final archive.
 --- libpng1.6-1.6.43.orig/src/state.rs
 +++ libpng1.6-1.6.43/src/state.rs
-@@ -1,204 +1,4 @@
--use crate::common::{
+@@ -1,85 +1,105 @@
+ use crate::common::{
 -    PNG_FLAG_APP_WARNINGS_WARN, PNG_FLAG_BENIGN_ERRORS_WARN, PNG_IS_READ_STRUCT,
 -    PNG_USER_CHUNK_CACHE_MAX, PNG_USER_CHUNK_MALLOC_MAX, PNG_USER_HEIGHT_MAX, PNG_USER_WIDTH_MAX,
--};
--use crate::types::*;
++    PNG_USER_CHUNK_CACHE_MAX, PNG_USER_CHUNK_MALLOC_MAX, PNG_USER_HEIGHT_MAX,
++    PNG_USER_WIDTH_MAX,
+ };
+ use crate::types::*;
 -use core::ffi::{c_char, c_int, c_void};
 -use core::mem;
--use core::ptr;
--
++use core::ffi::c_int;
+ use core::ptr;
++use std::collections::HashMap;
++use std::sync::{Mutex, OnceLock};
+ 
 -unsafe extern "C" {
 -    pub fn png_safe_longjmp_state_size() -> usize;
 -    pub fn png_safe_longjmp_state_set(storage: *mut c_void) -> c_int;
@@ -26203,20 +26640,28 @@ Forwarded: not-needed
 -}
 -
 -#[repr(C)]
--#[derive(Clone, Copy)]
+ #[derive(Clone, Copy)]
 -pub struct PngStructState {
 -    pub jmp_buf_ptr: *mut JmpBuf,
 -    pub longjmp_fn: png_longjmp_ptr,
 -    pub jmp_buf_size: usize,
 -    pub longjmp_storage: *mut c_void,
 -    pub longjmp_storage_size: usize,
--    pub error_fn: png_error_ptr,
--    pub warning_fn: png_error_ptr,
++pub(crate) struct PngStructState {
++    pub is_read_struct: bool,
++    pub error_ptr: png_voidp,
+     pub error_fn: png_error_ptr,
+     pub warning_fn: png_error_ptr,
 -    pub error_ptr: png_voidp,
 -    pub write_data_fn: png_rw_ptr,
 -    pub read_data_fn: png_rw_ptr,
--    pub io_ptr: png_voidp,
--    pub output_flush_fn: png_flush_ptr,
++    pub mem_ptr: png_voidp,
++    pub malloc_fn: png_malloc_ptr,
++    pub free_fn: png_free_ptr,
+     pub io_ptr: png_voidp,
++    pub read_data_fn: png_rw_ptr,
++    pub write_data_fn: png_rw_ptr,
+     pub output_flush_fn: png_flush_ptr,
 -    pub read_user_transform_fn: png_user_transform_ptr,
 -    pub write_user_transform_fn: png_user_transform_ptr,
 -    pub user_transform_ptr: png_voidp,
@@ -26234,42 +26679,109 @@ Forwarded: not-needed
 -    pub row_number: png_uint_32,
 -    pub chunk_name: png_uint_32,
 -    pub write_row_fn: png_write_status_ptr,
--    pub read_row_fn: png_read_status_ptr,
+     pub read_row_fn: png_read_status_ptr,
 -    pub info_fn: png_progressive_info_ptr,
 -    pub row_fn: png_progressive_row_ptr,
 -    pub end_fn: png_progressive_end_ptr,
 -    pub options: png_uint_32,
 -    pub time_buffer: [c_char; 29],
 -    pub free_me: png_uint_32,
--    pub user_chunk_ptr: png_voidp,
--    pub read_user_chunk_fn: png_user_chunk_ptr,
++    pub write_row_fn: png_write_status_ptr,
++    pub progressive_ptr: png_voidp,
++    pub progressive_info_fn: png_progressive_info_ptr,
++    pub progressive_row_fn: png_progressive_row_ptr,
++    pub progressive_end_fn: png_progressive_end_ptr,
+     pub user_chunk_ptr: png_voidp,
+     pub read_user_chunk_fn: png_user_chunk_ptr,
 -    pub num_palette_max: c_int,
 -    pub num_trans: png_uint_16,
 -    pub mem_ptr: png_voidp,
 -    pub malloc_fn: png_malloc_ptr,
 -    pub free_fn: png_free_ptr,
--    pub user_width_max: png_uint_32,
--    pub user_height_max: png_uint_32,
--    pub user_chunk_cache_max: png_uint_32,
--    pub user_chunk_malloc_max: png_alloc_size_t,
++    pub read_user_transform_fn: png_user_transform_ptr,
++    pub write_user_transform_fn: png_user_transform_ptr,
++    pub user_transform_ptr: png_voidp,
++    pub user_transform_depth: c_int,
++    pub user_transform_channels: c_int,
+     pub user_width_max: png_uint_32,
+     pub user_height_max: png_uint_32,
+     pub user_chunk_cache_max: png_uint_32,
+     pub user_chunk_malloc_max: png_alloc_size_t,
 -    pub io_state: png_uint_32,
 -    pub zbuffer_size: png_uint,
--}
--
--impl PngStructState {
++    pub benign_errors: c_int,
++    pub check_for_invalid_index: c_int,
++    pub palette_max: c_int,
++    pub options: png_uint_32,
++    pub sig_bytes: c_int,
++    pub longjmp_fn: png_longjmp_ptr,
++    pub jmp_buf_ptr: *mut JmpBuf,
++    pub jmp_buf_size: usize,
+ }
+ 
++unsafe impl Send for PngStructState {}
++
+ impl PngStructState {
 -    pub fn zeroed() -> Self {
 -        unsafe { mem::zeroed() }
--    }
--
++    pub(crate) fn new_read(
++        error_ptr: png_voidp,
++        error_fn: png_error_ptr,
++        warning_fn: png_error_ptr,
++        mem_ptr: png_voidp,
++        malloc_fn: png_malloc_ptr,
++        free_fn: png_free_ptr,
++    ) -> Self {
++        Self {
++            is_read_struct: true,
++            error_ptr,
++            error_fn,
++            warning_fn,
++            mem_ptr,
++            malloc_fn,
++            free_fn,
++            io_ptr: ptr::null_mut(),
++            read_data_fn: None,
++            write_data_fn: None,
++            output_flush_fn: None,
++            read_row_fn: None,
++            write_row_fn: None,
++            progressive_ptr: ptr::null_mut(),
++            progressive_info_fn: None,
++            progressive_row_fn: None,
++            progressive_end_fn: None,
++            user_chunk_ptr: ptr::null_mut(),
++            read_user_chunk_fn: None,
++            read_user_transform_fn: None,
++            write_user_transform_fn: None,
++            user_transform_ptr: ptr::null_mut(),
++            user_transform_depth: 0,
++            user_transform_channels: 0,
++            user_width_max: PNG_USER_WIDTH_MAX,
++            user_height_max: PNG_USER_HEIGHT_MAX,
++            user_chunk_cache_max: PNG_USER_CHUNK_CACHE_MAX,
++            user_chunk_malloc_max: PNG_USER_CHUNK_MALLOC_MAX,
++            benign_errors: 1,
++            check_for_invalid_index: 1,
++            palette_max: 0,
++            options: 0,
++            sig_bytes: 0,
++            longjmp_fn: None,
++            jmp_buf_ptr: ptr::null_mut(),
++            jmp_buf_size: 0,
++        }
+     }
+ 
 -    pub fn defaults(
 -        is_read: bool,
--        error_ptr: png_voidp,
--        error_fn: png_error_ptr,
--        warning_fn: png_error_ptr,
--        mem_ptr: png_voidp,
--        malloc_fn: png_malloc_ptr,
--        free_fn: png_free_ptr,
--    ) -> Self {
++    pub(crate) fn new_write(
+         error_ptr: png_voidp,
+         error_fn: png_error_ptr,
+         warning_fn: png_error_ptr,
+@@ -87,118 +107,108 @@ impl PngStructState {
+         malloc_fn: png_malloc_ptr,
+         free_fn: png_free_ptr,
+     ) -> Self {
 -        let mut state = Self::zeroed();
 -        state.error_ptr = error_ptr;
 -        state.error_fn = error_fn;
@@ -26287,11 +26799,15 @@ Forwarded: not-needed
 -        if is_read {
 -            state.mode = PNG_IS_READ_STRUCT;
 -            state.flags |= PNG_FLAG_BENIGN_ERRORS_WARN;
--        }
++        Self {
++            is_read_struct: false,
++            benign_errors: 0,
++            ..Self::new_read(error_ptr, error_fn, warning_fn, mem_ptr, malloc_fn, free_fn)
+         }
 -        state
--    }
--}
--
+     }
+ }
+ 
 -#[repr(C)]
 -#[derive(Clone, Copy)]
 -pub struct PngInfoState {
@@ -26339,7 +26855,9 @@ Forwarded: not-needed
 -    pub pcal_params: png_charpp,
 -    pub pcal_type: png_byte,
 -    pub pcal_nparams: png_byte,
--    pub free_me: png_uint_32,
++#[derive(Clone, Copy, Default)]
++pub(crate) struct PngInfoState {
+     pub free_me: png_uint_32,
 -    pub unknown_chunks: png_unknown_chunkp,
 -    pub unknown_chunks_num: c_int,
 -    pub splt_palettes: png_sPLT_tp,
@@ -26347,45 +26865,1375 @@ Forwarded: not-needed
 -    pub scal_unit: png_byte,
 -    pub scal_s_width: png_charp,
 -    pub scal_s_height: png_charp,
--    pub row_pointers: png_bytepp,
--}
--
+     pub row_pointers: png_bytepp,
+ }
+ 
 -impl PngInfoState {
 -    pub fn zeroed() -> Self {
 -        unsafe { mem::zeroed() }
--    }
--}
--
++unsafe impl Send for PngInfoState {}
++
++fn png_struct_states() -> &'static Mutex<HashMap<usize, PngStructState>> {
++    static STATES: OnceLock<Mutex<HashMap<usize, PngStructState>>> = OnceLock::new();
++    STATES.get_or_init(|| Mutex::new(HashMap::new()))
++}
++
++fn png_info_states() -> &'static Mutex<HashMap<usize, PngInfoState>> {
++    static STATES: OnceLock<Mutex<HashMap<usize, PngInfoState>>> = OnceLock::new();
++    STATES.get_or_init(|| Mutex::new(HashMap::new()))
++}
++
++fn png_key<T>(ptr: *mut T) -> Option<usize> {
++    (!ptr.is_null()).then_some(ptr as usize)
++}
++
++fn info_key<T>(ptr: *mut T) -> Option<usize> {
++    (!ptr.is_null()).then_some(ptr as usize)
++}
++
++pub(crate) fn register_png(png_ptr: png_structrp, state: PngStructState) {
++    if let Some(key) = png_key(png_ptr) {
++        png_struct_states().lock().unwrap().insert(key, state);
++    }
++}
++
++pub(crate) fn get_png(png_ptr: png_structrp) -> Option<PngStructState> {
++    let key = png_key(png_ptr)?;
++    png_struct_states().lock().unwrap().get(&key).copied()
++}
++
++pub(crate) fn update_png(png_ptr: png_structrp, update: impl FnOnce(&mut PngStructState)) {
++    let Some(key) = png_key(png_ptr) else {
++        return;
++    };
++
++    if let Some(state) = png_struct_states().lock().unwrap().get_mut(&key) {
++        update(state);
+     }
+ }
+ 
 -pub fn png_ptr_state<'a>(png_ptr: png_structrp) -> Option<&'a mut PngStructState> {
 -    unsafe { png_ptr.cast::<PngStructState>().as_mut() }
--}
--
++pub(crate) fn remove_png(png_ptr: png_structrp) -> Option<PngStructState> {
++    let key = png_key(png_ptr)?;
++    png_struct_states().lock().unwrap().remove(&key)
+ }
+ 
 -pub fn png_ptr_state_const<'a>(png_ptr: png_const_structrp) -> Option<&'a PngStructState> {
 -    unsafe { png_ptr.cast::<PngStructState>().as_ref() }
--}
--
++pub(crate) fn register_info(info_ptr: png_infop, state: PngInfoState) {
++    if let Some(key) = info_key(info_ptr) {
++        png_info_states().lock().unwrap().insert(key, state);
++    }
+ }
+ 
 -pub fn info_ptr_state<'a>(info_ptr: png_inforp) -> Option<&'a mut PngInfoState> {
 -    unsafe { info_ptr.cast::<PngInfoState>().as_mut() }
--}
--
++pub(crate) fn register_default_info(info_ptr: png_infop) {
++    register_info(info_ptr, PngInfoState::default());
+ }
+ 
 -pub fn info_ptr_state_const<'a>(info_ptr: png_const_inforp) -> Option<&'a PngInfoState> {
 -    unsafe { info_ptr.cast::<PngInfoState>().as_ref() }
--}
--
++pub(crate) fn get_info(info_ptr: png_infop) -> Option<PngInfoState> {
++    let key = info_key(info_ptr)?;
++    png_info_states().lock().unwrap().get(&key).copied()
+ }
+ 
 -pub fn alloc_longjmp_storage() -> (*mut c_void, usize, *mut JmpBuf) {
 -    let size = unsafe { png_safe_longjmp_state_size() };
 -    let storage = unsafe { libc::malloc(size) };
 -    if storage.is_null() {
 -        return (ptr::null_mut(), size, ptr::null_mut());
--    }
--
++pub(crate) fn update_info(info_ptr: png_infop, update: impl FnOnce(&mut PngInfoState)) {
++    let Some(key) = info_key(info_ptr) else {
++        return;
++    };
++
++    if let Some(state) = png_info_states().lock().unwrap().get_mut(&key) {
++        update(state);
+     }
++}
++
++pub(crate) fn remove_info(info_ptr: png_infop) -> Option<PngInfoState> {
++    let key = info_key(info_ptr)?;
++    png_info_states().lock().unwrap().remove(&key)
++}
++
++pub(crate) fn move_info(old_info_ptr: png_infop, new_info_ptr: png_infop) {
++    let Some(old_key) = info_key(old_info_ptr) else {
++        if !new_info_ptr.is_null() {
++            register_default_info(new_info_ptr);
++        }
++        return;
++    };
++
++    let mut states = png_info_states().lock().unwrap();
++    let state = states.remove(&old_key);
+ 
 -    unsafe {
 -        libc::memset(storage, 0, size);
--    }
++    if let Some(new_key) = info_key(new_info_ptr) {
++        states.insert(new_key, state.unwrap_or_default());
+     }
 -    let jmp_buf_ptr = unsafe { png_safe_longjmp_state_buf(storage) }.cast::<JmpBuf>();
 -    (storage, size, jmp_buf_ptr)
+ }
+--- libpng1.6-1.6.43.orig/cshim/longjmp_bridge.c
++++ libpng1.6-1.6.43/cshim/longjmp_bridge.c
+@@ -1,39 +1,51 @@
+ #include <setjmp.h>
+ #include <stddef.h>
+ 
+-typedef struct png_safe_longjmp_state {
+-    jmp_buf env;
+-} png_safe_longjmp_state;
+-
+-typedef int (*png_safe_longjmp_callback_fn)(void *context);
++#include "pngpriv.h"
+ 
+ size_t png_safe_longjmp_state_size(void) {
+-    return sizeof(png_safe_longjmp_state);
++    return sizeof(jmp_buf);
+ }
+ 
+-int png_safe_longjmp_state_set(void *storage) {
+-    png_safe_longjmp_state *state = (png_safe_longjmp_state *)storage;
+-    return setjmp(state->env);
++jmp_buf *png_safe_longjmp_local_buffer(png_structrp png_ptr) {
++    if (png_ptr == NULL) {
++        return NULL;
++    }
++
++    return &png_ptr->jmp_buf_local;
+ }
+ 
+-int png_safe_longjmp_state_invoke(void *storage,
+-                                  png_safe_longjmp_callback_fn callback,
+-                                  void *context) {
+-    png_safe_longjmp_state *state = (png_safe_longjmp_state *)storage;
++jmp_buf *png_safe_longjmp_get_buffer(png_const_structrp png_ptr) {
++    if (png_ptr == NULL) {
++        return NULL;
++    }
++
++    return png_ptr->jmp_buf_ptr;
++}
+ 
+-    if (setjmp(state->env) != 0) {
++size_t png_safe_longjmp_get_size(png_const_structrp png_ptr) {
++    if (png_ptr == NULL) {
+         return 0;
+     }
+ 
+-    return callback(context);
++    return png_ptr->jmp_buf_size;
+ }
+ 
+-void png_safe_longjmp_state_jump(void *storage, int value) {
+-    png_safe_longjmp_state *state = (png_safe_longjmp_state *)storage;
+-    longjmp(state->env, value);
++void png_safe_longjmp_set_fields(png_structrp png_ptr, png_longjmp_ptr longjmp_fn,
++                                 jmp_buf *jmp_buf_ptr, size_t jmp_buf_size) {
++    if (png_ptr == NULL) {
++        return;
++    }
++
++    png_ptr->longjmp_fn = longjmp_fn;
++    png_ptr->jmp_buf_ptr = jmp_buf_ptr;
++    png_ptr->jmp_buf_size = jmp_buf_size;
+ }
+ 
+-void *png_safe_longjmp_state_buf(void *storage) {
+-    png_safe_longjmp_state *state = (png_safe_longjmp_state *)storage;
+-    return state->env;
++void png_safe_longjmp_call(png_const_structrp png_ptr, int val) {
++    if (png_ptr == NULL || png_ptr->longjmp_fn == NULL || png_ptr->jmp_buf_ptr == NULL) {
++        return;
++    }
++
++    png_ptr->longjmp_fn(*png_ptr->jmp_buf_ptr, val);
+ }
+--- libpng1.6-1.6.43.orig/src/types.rs
++++ libpng1.6-1.6.43/src/types.rs
+@@ -37,6 +37,8 @@ pub struct JmpBuf {
+     _private: [u8; 0],
+ }
+ 
++pub type png_jmpbufp = *mut JmpBuf;
++
+ pub type png_structp = *mut png_struct;
+ pub type png_const_structp = *const png_struct;
+ pub type png_structpp = *mut png_structp;
+@@ -222,7 +224,7 @@ pub type png_user_transform_ptr =
+     Option<unsafe extern "C" fn(png_structp, png_row_infop, png_bytep)>;
+ pub type png_user_chunk_ptr =
+     Option<unsafe extern "C" fn(png_structp, png_unknown_chunkp) -> c_int>;
+-pub type png_longjmp_ptr = Option<unsafe extern "C" fn(*mut JmpBuf, c_int)>;
++pub type png_longjmp_ptr = Option<unsafe extern "C" fn(png_jmpbufp, c_int)>;
+ pub type png_malloc_ptr = Option<unsafe extern "C" fn(png_structp, png_alloc_size_t) -> png_voidp>;
+ pub type png_free_ptr = Option<unsafe extern "C" fn(png_structp, png_voidp)>;
+ 
+--- libpng1.6-1.6.43.orig/tests/core-smoke/callbacks_and_longjmp.c
++++ libpng1.6-1.6.43/tests/core-smoke/callbacks_and_longjmp.c
+@@ -119,7 +119,9 @@ static void user_transform(png_structp p
+ 
+ int main(void) {
+     int error_cookie = 17;
++    int replacement_error_cookie = 19;
+     int mem_cookie = 23;
++    int replacement_mem_cookie = 29;
+     size_t errors_before = error_calls;
+ 
+     create_error_enabled = 1;
+@@ -136,6 +138,12 @@ int main(void) {
+     assert(png_get_mem_ptr(read_ptr) == &mem_cookie);
+     assert(malloc_calls > 0);
+ 
++    png_set_error_fn(read_ptr, &replacement_error_cookie, noop_error, noop_warning);
++    assert(png_get_error_ptr(read_ptr) == &replacement_error_cookie);
++
++    png_set_mem_fn(read_ptr, &replacement_mem_cookie, tracked_malloc, tracked_free);
++    assert(png_get_mem_ptr(read_ptr) == &replacement_mem_cookie);
++
+     int read_cookie = 31;
+     png_set_read_fn(read_ptr, &read_cookie, read_data);
+     assert(png_get_io_ptr(read_ptr) == &read_cookie);
+@@ -167,7 +175,7 @@ int main(void) {
+     assert(error_calls == errors_before + 1);
+ 
+     destroy_error_target = read_ptr;
+-    destroy_expected_mem_ptr = &mem_cookie;
++    destroy_expected_mem_ptr = &replacement_mem_cookie;
+     destroy_context_check_enabled = 1;
+     destroy_error_enabled = 1;
+     if (setjmp(*jmp) == 0) {
+@@ -185,6 +193,9 @@ int main(void) {
+         png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, noop_error, noop_warning);
+     assert(write_ptr != NULL);
+ 
++    png_init_io(write_ptr, stdout);
++    assert(png_get_io_ptr(write_ptr) == stdout);
++
+     int write_cookie = 73;
+     png_set_write_fn(write_ptr, &write_cookie, write_data, flush_data);
+     assert(png_get_io_ptr(write_ptr) == &write_cookie);
+--- libpng1.6-1.6.43.orig/tests/core-smoke/limits_and_options.c
++++ libpng1.6-1.6.43/tests/core-smoke/limits_and_options.c
+@@ -28,9 +28,15 @@ int main(void) {
+            PNG_OPTION_OFF);
+     assert(png_set_option(png_ptr, PNG_OPTION_NEXT, 1) == PNG_OPTION_INVALID);
+ 
++    png_set_sig_bytes(png_ptr, 4);
++    png_set_sig_bytes(png_ptr, -1);
++
+     png_infop info_ptr = png_create_info_struct(png_ptr);
+     assert(info_ptr != NULL);
+     assert(png_get_palette_max(png_ptr, info_ptr) == 0);
++    png_set_rows(png_ptr, info_ptr, NULL);
++    png_data_freer(png_ptr, info_ptr, PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_ROWS);
++    png_free_data(png_ptr, info_ptr, PNG_FREE_ROWS, 0);
+     png_set_check_for_invalid_index(png_ptr, 0);
+     assert(png_get_palette_max(png_ptr, info_ptr) == -1);
+     png_set_check_for_invalid_index(png_ptr, 1);
+--- libpng1.6-1.6.43.orig/tests/upstream/common.sh
++++ libpng1.6-1.6.43/tests/upstream/common.sh
+@@ -14,8 +14,66 @@ readonly target_root="${CARGO_TARGET_DIR
+ readonly stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
+ 
+ libpng_stage_shared_lib=""
++libpng_stage_static_lib=""
+ libpng_stage_lib_dir=""
+ libpng_stage_include_dir=""
++libpng_stage_header_dir=""
++
++original_stage_workspace=""
++original_stage_root=""
++original_stage_shared_lib=""
++original_stage_static_lib=""
++original_stage_lib_dir=""
++original_stage_include_dir=""
++original_stage_header_dir=""
++original_stage_pkgconfig_dir=""
++original_stage_config_script=""
++
++build_jobs() {
++  if command -v nproc >/dev/null 2>&1; then
++    nproc
++    return 0
++  fi
++
++  getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1\n'
++}
++
++detect_multiarch() {
++  local value
++
++  if [[ -n "${LIBPNG_MULTIARCH:-}" ]]; then
++    printf '%s\n' "$LIBPNG_MULTIARCH"
++    return 0
++  fi
++
++  if command -v dpkg-architecture >/dev/null 2>&1; then
++    value="$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || true)"
++    if [[ -n "$value" ]]; then
++      printf '%s\n' "$value"
++      return 0
++    fi
++  fi
++
++  if command -v gcc >/dev/null 2>&1; then
++    value="$(gcc -print-multiarch 2>/dev/null || true)"
++    if [[ -n "$value" ]]; then
++      printf '%s\n' "$value"
++      return 0
++    fi
++  fi
++
++  case "$(uname -m)" in
++    x86_64)
++      printf 'x86_64-linux-gnu\n'
++      ;;
++    aarch64)
++      printf 'aarch64-linux-gnu\n'
++      ;;
++    *)
++      uname -m
++      ;;
++  esac
++}
+ 
+ build_safe_stage() {
+   local build_args=(build --manifest-path "$safe_dir/Cargo.toml")
+@@ -39,7 +97,14 @@ locate_safe_stage() {
+   fi
+ 
+   libpng_stage_lib_dir="$(dirname "$libpng_stage_shared_lib")"
++  libpng_stage_static_lib="$libpng_stage_lib_dir/libpng16.a"
+   libpng_stage_include_dir="$stage_root/usr/include"
++  libpng_stage_header_dir="$libpng_stage_include_dir/libpng16"
++
++  if [[ ! -f "$libpng_stage_static_lib" ]]; then
++    printf 'unable to locate staged libpng static library under %s\n' "$libpng_stage_lib_dir" >&2
++    exit 1
++  fi
+ }
+ 
+ ensure_safe_stage() {
+@@ -54,6 +119,79 @@ ensure_safe_stage() {
+   fi
+ }
+ 
++locate_original_stage() {
++  original_stage_shared_lib="$(find "$original_stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
++  if [[ -z "$original_stage_shared_lib" ]]; then
++    printf 'unable to locate staged original libpng shared library under %s\n' \
++      "$original_stage_root/usr/lib" >&2
++    exit 1
++  fi
++
++  original_stage_lib_dir="$(dirname "$original_stage_shared_lib")"
++  original_stage_static_lib="$original_stage_lib_dir/libpng16.a"
++  original_stage_include_dir="$original_stage_root/usr/include"
++  original_stage_header_dir="$original_stage_include_dir/libpng16"
++  original_stage_pkgconfig_dir="$original_stage_lib_dir/pkgconfig"
++  original_stage_config_script="$original_stage_root/usr/bin/libpng16-config"
++
++  if [[ ! -f "$original_stage_static_lib" ]]; then
++    printf 'unable to locate staged original libpng static library under %s\n' \
++      "$original_stage_lib_dir" >&2
++    exit 1
++  fi
++}
++
++ensure_original_stage() {
++  local build_dir
++  local install_root
++  local multiarch
++
++  if [[ -n "$original_stage_root" && -d "$original_stage_root/usr" ]]; then
++    locate_original_stage
++    return 0
++  fi
++
++  original_stage_workspace="$(mktemp -d)"
++  build_dir="$original_stage_workspace/build"
++  install_root="$original_stage_workspace/install"
++  mkdir -p "$build_dir" "$install_root"
++
++  multiarch="$(detect_multiarch)"
++
++  (
++    cd "$build_dir"
++    "$repo_root/original/configure" \
++      --prefix=/usr \
++      --libdir="/usr/lib/$multiarch" \
++      --includedir=/usr/include \
++      --enable-shared \
++      --enable-static \
++      --enable-tools \
++      --disable-silent-rules
++    make -j"$(build_jobs)"
++    make install DESTDIR="$install_root"
++  )
++
++  original_stage_root="$install_root"
++  locate_original_stage
++}
++
++cleanup_original_stage() {
++  if [[ -n "$original_stage_workspace" && -d "$original_stage_workspace" ]]; then
++    rm -rf "$original_stage_workspace"
++  fi
++
++  original_stage_workspace=""
++  original_stage_root=""
++  original_stage_shared_lib=""
++  original_stage_static_lib=""
++  original_stage_lib_dir=""
++  original_stage_include_dir=""
++  original_stage_header_dir=""
++  original_stage_pkgconfig_dir=""
++  original_stage_config_script=""
++}
++
+ extract_upstream_tests() {
+   awk '
+     !in_tests && /^TESTS =[[:space:]]*\\/ {
+@@ -117,8 +255,7 @@ compile_libpng_client() {
+     -Werror
+     -Wno-deprecated-declarations
+     -DPNG_FREESTANDING_TESTS
+-    -I"$libpng_stage_include_dir"
+-    -I"$repo_root/original"
++    -I"$libpng_stage_header_dir"
+     -I"$repo_root/original/contrib/visupng"
+   )
+   cc_args+=("$@")
+@@ -157,6 +294,32 @@ prepare_pngtest_source() {
+   printf '%s\n' "$dest"
+ }
+ 
++build_preserved_original_object() {
++  local output="$1"
++  local source="$2"
++  local build_dir="$3"
++  shift 3
++
++  ensure_original_stage
++
++  local -a cc_args=(
++    -std=c99
++    -Wall
++    -Wextra
++    -Werror
++    -Wno-deprecated-declarations
++    -DPNG_FREESTANDING_TESTS
++    -I"$original_stage_header_dir"
++  )
++  cc_args+=("$@")
++  cc_args+=(
++    -c "$source"
++    -o "$build_dir/$output.o"
++  )
++
++  cc "${cc_args[@]}"
++}
++
+ compile_wrapper_program() {
+   local program="$1"
+   local build_dir="$2"
+@@ -167,8 +330,7 @@ compile_wrapper_program() {
+       ensure_safe_stage
+       pngtest_source="$(prepare_pngtest_source "$build_dir")"
+       cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+-        -I"$libpng_stage_include_dir" \
+-        -I"$repo_root/original" \
++        -I"$libpng_stage_header_dir" \
+         "$pngtest_source" \
+         -L"$libpng_stage_lib_dir" \
+         -Wl,-rpath,"$libpng_stage_lib_dir" \
+--- libpng1.6-1.6.43.orig/tools/build-original-baseline.sh
++++ libpng1.6-1.6.43/tools/build-original-baseline.sh
+@@ -11,76 +11,122 @@ if [[ ! -x "$original_dir/configure" ]];
+   exit 1
+ fi
+ 
+-if command -v dpkg-architecture >/dev/null 2>&1; then
+-  multiarch="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
+-elif command -v gcc >/dev/null 2>&1; then
+-  multiarch="$(gcc -print-multiarch)"
+-else
+-  printf 'unable to determine multiarch libdir: need dpkg-architecture or gcc\n' >&2
+-  exit 1
+-fi
++detect_multiarch() {
++  local value
++
++  if [[ -n "${LIBPNG_MULTIARCH:-}" ]]; then
++    printf '%s\n' "$LIBPNG_MULTIARCH"
++    return 0
++  fi
++
++  if command -v dpkg-architecture >/dev/null 2>&1; then
++    value="$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || true)"
++    if [[ -n "$value" ]]; then
++      printf '%s\n' "$value"
++      return 0
++    fi
++  fi
++
++  if command -v gcc >/dev/null 2>&1; then
++    value="$(gcc -print-multiarch 2>/dev/null || true)"
++    if [[ -n "$value" ]]; then
++      printf '%s\n' "$value"
++      return 0
++    fi
++  fi
+ 
+-if [[ -z "$multiarch" ]]; then
+-  printf 'failed to determine a non-empty multiarch triplet\n' >&2
++  printf 'unable to determine multiarch libdir: need LIBPNG_MULTIARCH, dpkg-architecture, or gcc\n' >&2
+   exit 1
+-fi
++}
++
++build_jobs() {
++  if command -v nproc >/dev/null 2>&1; then
++    nproc
++    return 0
++  fi
+ 
++  getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1\n'
++}
++
++update_file_if_changed() {
++  local source="$1"
++  local target="$2"
++
++  if [[ -f "$target" ]] && cmp -s "$source" "$target"; then
++    printf 'unchanged %s\n' "$target"
++    return 0
++  fi
++
++  install -m 0644 "$source" "$target"
++  printf 'updated %s\n' "$target"
++}
++
++multiarch="$(detect_multiarch)"
+ build_dir="$(mktemp -d)"
+ install_root="$(mktemp -d)"
++generated_pnglibconf="$(mktemp)"
++generated_version_script="$(mktemp)"
++generated_exports="$(mktemp)"
++generated_install_layout="$(mktemp)"
+ 
+ cleanup() {
+   rm -rf "$build_dir" "$install_root"
++  rm -f \
++    "$generated_pnglibconf" \
++    "$generated_version_script" \
++    "$generated_exports" \
++    "$generated_install_layout"
+ }
+ 
+ trap cleanup EXIT
+ 
+ mkdir -p "$safe_dir/abi" "$safe_dir/include"
+ 
+-cd "$build_dir"
+-"$original_dir/configure" \
+-  --prefix=/usr \
+-  --libdir="/usr/lib/$multiarch" \
+-  --includedir=/usr/include \
+-  --enable-shared \
+-  --enable-static \
+-  --enable-tools \
+-  --disable-silent-rules
+-make -j"$(nproc)"
+-make install DESTDIR="$install_root"
+-
+-install -m 0644 "$install_root/usr/include/libpng16/pnglibconf.h" \
+-  "$safe_dir/include/pnglibconf.h"
+-install -m 0644 "$build_dir/libpng.vers" \
+-  "$safe_dir/abi/libpng.vers"
++(
++  cd "$build_dir"
++  "$original_dir/configure" \
++    --prefix=/usr \
++    --libdir="/usr/lib/$multiarch" \
++    --includedir=/usr/include \
++    --enable-shared \
++    --enable-static \
++    --enable-tools \
++    --disable-silent-rules
++  make -j"$(build_jobs)"
++  make install DESTDIR="$install_root"
++)
++
++install -m 0644 "$install_root/usr/include/libpng16/pnglibconf.h" "$generated_pnglibconf"
++install -m 0644 "$build_dir/libpng.vers" "$generated_version_script"
+ 
+ nm -D --defined-only "$build_dir/.libs/libpng16.so.16.43.0" \
+   | awk '{print $3}' \
+   | sed 's/@.*$//' \
+   | grep '^png_' \
+   | LC_ALL=C sort -u \
+-  > "$safe_dir/abi/exports.txt"
++  > "$generated_exports"
+ 
+ find "$install_root" \( -type f -o -type l \) -printf '%P\n' \
+   | LC_ALL=C sort \
+-  > "$safe_dir/abi/install-layout.txt"
++  > "$generated_install_layout"
+ 
+-export_count="$(wc -l < "$safe_dir/abi/exports.txt" | tr -d ' ')"
++export_count="$(wc -l < "$generated_exports" | tr -d ' ')"
+ if [[ "$export_count" != "246" ]]; then
+   printf 'unexpected export count: expected 246, found %s\n' "$export_count" >&2
+   exit 1
+ fi
+ 
+-if grep -qx 'png_err' "$safe_dir/abi/exports.txt"; then
++if grep -qx 'png_err' "$generated_exports"; then
+   printf 'png_err unexpectedly present in frozen export list\n' >&2
+   exit 1
+ fi
+ 
+-if grep -qx 'png_set_strip_error_numbers' "$safe_dir/abi/exports.txt"; then
++if grep -qx 'png_set_strip_error_numbers' "$generated_exports"; then
+   printf 'png_set_strip_error_numbers unexpectedly present in frozen export list\n' >&2
+   exit 1
+ fi
+ 
+-printf 'wrote %s\n' "$safe_dir/include/pnglibconf.h"
+-printf 'wrote %s\n' "$safe_dir/abi/libpng.vers"
+-printf 'wrote %s\n' "$safe_dir/abi/exports.txt"
+-printf 'wrote %s\n' "$safe_dir/abi/install-layout.txt"
++update_file_if_changed "$generated_pnglibconf" "$safe_dir/include/pnglibconf.h"
++update_file_if_changed "$generated_version_script" "$safe_dir/abi/libpng.vers"
++update_file_if_changed "$generated_exports" "$safe_dir/abi/exports.txt"
++update_file_if_changed "$generated_install_layout" "$safe_dir/abi/install-layout.txt"
+--- libpng1.6-1.6.43.orig/tools/check-build-layout.sh
++++ libpng1.6-1.6.43/tools/check-build-layout.sh
+@@ -15,32 +15,87 @@ else
+   build_args+=(--profile "$profile")
+ fi
+ 
+-cargo "${build_args[@]}"
+-"$safe_dir/tools/stage-install-tree.sh"
++baseline_has_path() {
++  grep -qxF "$1" "$layout_baseline"
++}
++
++libdir_rel="$(grep -E '^usr/lib/.*/libpng16\.so\.16\.43\.0$' "$layout_baseline" | sed 's#/libpng16\.so\.16\.43\.0$##')"
++if [[ -z "$libdir_rel" ]]; then
++  printf 'unable to determine the frozen libdir from %s\n' "$layout_baseline" >&2
++  exit 1
++fi
+ 
+-mapfile -t required_paths < <(
+-  grep -E \
+-    '(^usr/bin/libpng(16)?-config$)|(^usr/include/libpng$)|(^usr/include/(libpng16/)?png(libconf|conf)?\.h$)|(^usr/lib/.*/(libpng16\.so\.16\.43\.0|libpng16\.so\.16|libpng16\.so|libpng16\.a|libpng\.so|libpng\.a)$)|(^usr/lib/.*/pkgconfig/libpng(16)?\.pc$)' \
+-    "$layout_baseline"
++package_only_paths=(
++  "usr/bin/png-fix-itxt"
++  "usr/bin/pngfix"
++  "$libdir_rel/libpng.la"
++  "$libdir_rel/libpng16.la"
++  "usr/share/man/man3/libpng.3"
++  "usr/share/man/man3/libpngpf.3"
++  "usr/share/man/man5/png.5"
+ )
+ 
+-for rel in "${required_paths[@]}"; do
+-  path="$stage_root/$rel"
+-  if [[ ! -e "$path" && ! -L "$path" ]]; then
+-    printf 'missing staged install path: %s\n' "$path" >&2
++for rel in "${package_only_paths[@]}"; do
++  if ! baseline_has_path "$rel"; then
++    printf 'expected original-only install path missing from %s: %s\n' "$layout_baseline" "$rel" >&2
+     exit 1
+   fi
+ done
+ 
+-libdir_rel="$(grep -E '^usr/lib/.*/libpng16\.so\.16\.43\.0$' "$layout_baseline" | sed 's#/libpng16\.so\.16\.43\.0$##')"
++if baseline_has_path 'usr/include/libpng'; then
++  printf 'original install-layout baseline unexpectedly already contains usr/include/libpng\n' >&2
++  exit 1
++fi
++
++cargo "${build_args[@]}"
++"$safe_dir/tools/stage-install-tree.sh"
++
++actual_paths="$(mktemp)"
++expected_paths="$(mktemp)"
++trap 'rm -f "$actual_paths" "$expected_paths"' EXIT
++
++find "$stage_root" -mindepth 1 \( -type f -o -type l \) -printf '%P\n' \
++  | LC_ALL=C sort \
++  > "$actual_paths"
++
++grep -Fvx \
++  -e 'usr/bin/png-fix-itxt' \
++  -e 'usr/bin/pngfix' \
++  -e "$libdir_rel/libpng.la" \
++  -e "$libdir_rel/libpng16.la" \
++  -e 'usr/share/man/man3/libpng.3' \
++  -e 'usr/share/man/man3/libpngpf.3' \
++  -e 'usr/share/man/man5/png.5' \
++  "$layout_baseline" \
++  > "$expected_paths"
++printf '%s\n' 'usr/include/libpng' >> "$expected_paths"
++LC_ALL=C sort -u -o "$expected_paths" "$expected_paths"
++
++if ! diff -u "$expected_paths" "$actual_paths"; then
++  printf 'staged build layout diverged from the expected safe delta over %s\n' "$layout_baseline" >&2
++  exit 1
++fi
++
+ libdir="$stage_root/$libdir_rel"
+ 
+-for staged_file in "$libdir/libpng16.so.16.43.0" "$libdir/libpng16.a"; do
++for staged_file in \
++  "$stage_root/usr/bin/libpng16-config" \
++  "$libdir/libpng16.so.16.43.0" \
++  "$libdir/libpng16.a" \
++  "$libdir/pkgconfig/libpng16.pc"
++do
+   if [[ ! -f "$staged_file" || -L "$staged_file" ]]; then
+     printf 'staged install artifact must be a regular file: %s\n' "$staged_file" >&2
+     exit 1
+   fi
++done
+ 
++if [[ ! -x "$stage_root/usr/bin/libpng16-config" ]]; then
++  printf 'staged config script is not executable: %s\n' "$stage_root/usr/bin/libpng16-config" >&2
++  exit 1
++fi
++
++for staged_file in "$libdir/libpng16.so.16.43.0" "$libdir/libpng16.a"; do
+   if [[ "$(readlink -f "$staged_file")" != "$staged_file" ]]; then
+     printf 'staged install artifact resolves outside the staged tree: %s\n' "$staged_file" >&2
+     exit 1
+@@ -89,4 +144,4 @@ if [[ "$(readlink "$stage_root/usr/inclu
+   exit 1
+ fi
+ 
+-printf 'bootstrap install layout matches the frozen subset baseline\n'
++printf 'staged build layout matches the expected safe install-surface delta from the frozen original baseline\n'
+--- libpng1.6-1.6.43.orig/tools/check-examples-and-tools.sh
++++ libpng1.6-1.6.43/tools/check-examples-and-tools.sh
+@@ -3,79 +3,22 @@ set -euo pipefail
+ 
+ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ safe_dir="$(cd -- "$script_dir/.." && pwd)"
+-repo_root="$(cd -- "$safe_dir/.." && pwd)"
+-profile="${PROFILE:-release}"
+-target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
+-stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
+-
+-build_args=(build --manifest-path "$safe_dir/Cargo.toml")
+-if [[ "$profile" == "release" ]]; then
+-  build_args+=(--release)
+-else
+-  build_args+=(--profile "$profile")
+-fi
+-
+-cargo "${build_args[@]}"
+-"$safe_dir/tools/stage-install-tree.sh"
++source "$safe_dir/tests/upstream/common.sh"
+ 
+-lib_path="$(find "$stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
+-if [[ -z "$lib_path" ]]; then
+-  printf 'unable to locate staged libpng shared library under %s\n' "$stage_root/usr/lib" >&2
+-  exit 1
+-fi
+-
+-lib_dir="$(dirname "$lib_path")"
+-include_dir="$stage_root/usr/include"
+ build_dir="$(mktemp -d)"
+ trap 'rm -rf "$build_dir"' EXIT
+ 
+-compile_libpng_client() {
+-  local output="$1"
+-  local source="$2"
+-
+-  cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+-    -DPNG_FREESTANDING_TESTS \
+-    -I"$include_dir" \
+-    -I"$repo_root/original" \
+-    "$source" \
+-    -L"$lib_dir" \
+-    -Wl,-rpath,"$lib_dir" \
+-    -lpng16 -lz -lm \
+-    -o "$build_dir/$output"
 -}
-+//! Dormant state-mirror experiment retained in the tree for reference.
-+//!
-+//! The shipped phase-8 build does not compile this module; layout-sensitive
-+//! libpng object state continues to live in the upstream C implementation.
+-
+-compile_libpng_client pngcp "$repo_root/original/contrib/tools/pngcp.c"
+-compile_libpng_client pngfix "$repo_root/original/contrib/tools/pngfix.c"
+-compile_libpng_client timepng "$repo_root/original/contrib/libtests/timepng.c"
+-compile_libpng_client pngtopng "$safe_dir/tests/upstream/pngtopng.c"
+-
+-cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+-  "$repo_root/original/contrib/tools/png-fix-itxt.c" \
+-  -lz \
+-  -o "$build_dir/png-fix-itxt"
+-
+-pngcp_output="$build_dir/pngcp-fixed.png"
+-"$build_dir/pngcp" \
+-  --fix-palette-index \
+-  "$repo_root/original/contrib/testpngs/badpal/regression-palette-8.png" \
+-  "$pngcp_output"
+-
+-if [[ ! -s "$pngcp_output" ]]; then
+-  printf 'pngcp did not produce an output file for the invalid-index path\n' >&2
+-  exit 1
+-fi
+-
+-pngfix_output="$build_dir/pngfix-output.png"
+-"$build_dir/pngfix" \
+-  "--out=$pngfix_output" \
+-  "$repo_root/original/pngtest.png"
++ensure_safe_stage
+ 
+-if [[ ! -s "$pngfix_output" ]]; then
+-  printf 'pngfix did not produce an output file\n' >&2
+-  exit 1
+-fi
+-
+-"$build_dir/timepng" "$repo_root/original/pngtest.png" >/dev/null
++build_pngcp_consumer "$build_dir"
++build_pngfix_consumer "$build_dir"
++build_timepng_consumer "$build_dir"
++compile_libpng_client pngtopng "$safe_dir/tests/upstream/pngtopng.c" "$build_dir"
++build_png_fix_itxt_tool "$build_dir"
++
++smoke_pngcp "$build_dir"
++smoke_pngfix "$build_dir"
++smoke_timepng "$build_dir"
+ 
+ pngtopng_output="$build_dir/pngtopng-output.png"
+ "$build_dir/pngtopng" \
+@@ -88,13 +31,7 @@ if [[ ! -s "$pngtopng_output" ]]; then
+ fi
+ 
+ "$build_dir/timepng" "$pngtopng_output" >/dev/null
++smoke_png_fix_itxt "$build_dir"
+ 
+-png_fix_itxt_output="$build_dir/png-fix-itxt-output.png"
+-"$build_dir/png-fix-itxt" \
+-  < "$repo_root/original/pngtest.png" \
+-  > "$png_fix_itxt_output"
+-
+-cmp -s "$repo_root/original/pngtest.png" "$png_fix_itxt_output"
+-
+-printf 'libpng C consumer smokes passed for pngcp, pngfix, timepng, and pngtopng\n'
+-printf 'standalone png-fix-itxt smoke passed separately from libpng ABI coverage\n'
++printf 'libpng consumer smokes passed for pngcp, pngfix, timepng, and pngtopng\n'
++printf 'standalone packaged-tool smoke passed separately for png-fix-itxt\n'
+--- libpng1.6-1.6.43.orig/tools/check-exports.sh
++++ libpng1.6-1.6.43/tools/check-exports.sh
+@@ -8,6 +8,7 @@ target_root="${CARGO_TARGET_DIR:-$safe_d
+ stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
+ baseline_exports="$safe_dir/abi/exports.txt"
+ layout_baseline="$safe_dir/abi/install-layout.txt"
++version_script="$safe_dir/abi/libpng.vers"
+ 
+ build_args=(build --manifest-path "$safe_dir/Cargo.toml")
+ if [[ "$profile" == "release" ]]; then
+@@ -22,13 +23,15 @@ cargo "${build_args[@]}"
+ lib_rel="$(grep -E '^usr/lib/.*/libpng16\.so\.16\.43\.0$' "$layout_baseline")"
+ lib_path="$stage_root/$lib_rel"
+ 
+-if [[ ! -e "$lib_path" && ! -L "$lib_path" ]]; then
++if [[ ! -f "$lib_path" ]]; then
+   printf 'missing staged shared library: %s\n' "$lib_path" >&2
+   exit 1
+ fi
+ 
+ actual_exports="$(mktemp)"
+-trap 'rm -f "$actual_exports"' EXIT
++version_script_exports="$(mktemp)"
++versioned_exports="$(mktemp)"
++trap 'rm -f "$actual_exports" "$version_script_exports" "$versioned_exports"' EXIT
+ 
+ readelf --dyn-syms --wide "$lib_path" \
+   | awk '/GLOBAL/ && /DEFAULT/ {print $NF}' \
+@@ -37,11 +40,49 @@ readelf --dyn-syms --wide "$lib_path" \
+   | LC_ALL=C sort -u \
+   > "$actual_exports"
+ 
++awk '
++  /^PNG16_0[[:space:]]*{global:/ {
++    in_global = 1
++    sub(/^.*{global:[[:space:]]*/, "", $0)
++    if (length($0) != 0) {
++      print $0
++    }
++    next
++  }
++  in_global {
++    if ($0 ~ /^[[:space:]]*local:[[:space:]]*\*;[[:space:]]*};[[:space:]]*$/) {
++      exit
++    }
++    print $0
++  }
++' "$version_script" \
++  | tr ';' '\n' \
++  | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
++  | grep '^png_' \
++  | LC_ALL=C sort -u \
++  > "$version_script_exports"
++
++objdump -T "$lib_path" \
++  | awk '$6 == "PNG16_0" {print $7}' \
++  | grep '^png_' \
++  | LC_ALL=C sort -u \
++  > "$versioned_exports"
++
++if ! diff -u "$baseline_exports" "$version_script_exports"; then
++  printf 'Linux version script diverged from the frozen export baseline\n' >&2
++  exit 1
++fi
++
+ if ! diff -u "$baseline_exports" "$actual_exports"; then
+   printf 'shared-library export set diverged from frozen baseline\n' >&2
+   exit 1
+ fi
+ 
++if ! diff -u "$baseline_exports" "$versioned_exports"; then
++  printf 'staged shared library no longer versions every frozen export as PNG16_0\n' >&2
++  exit 1
++fi
++
+ count="$(wc -l < "$actual_exports" | tr -d ' ')"
+ if [[ "$count" != "246" ]]; then
+   printf 'unexpected shared export count: expected 246, found %s\n' "$count" >&2
+@@ -63,4 +104,4 @@ if ! readelf --version-info "$lib_path"
+   exit 1
+ fi
+ 
+-printf 'export baseline matches staged safe shared library\n'
++printf 'export baseline and PNG16_0 versioning match the staged safe shared library\n'
+--- libpng1.6-1.6.43.orig/tools/check-headers.sh
++++ libpng1.6-1.6.43/tools/check-headers.sh
+@@ -17,12 +17,36 @@ fi
+ cargo "${build_args[@]}"
+ "$safe_dir/tools/stage-install-tree.sh"
+ 
++actual_headers="$(mktemp)"
++expected_headers="$(mktemp)"
++trap 'rm -f "$actual_headers" "$expected_headers"' EXIT
++
++find "$stage_root/usr/include" -mindepth 1 \( -type f -o -type l \) -printf '%P\n' \
++  | LC_ALL=C sort \
++  > "$actual_headers"
++
++cat <<'EOF' | LC_ALL=C sort > "$expected_headers"
++libpng
++libpng16/png.h
++libpng16/pngconf.h
++libpng16/pnglibconf.h
++png.h
++pngconf.h
++pnglibconf.h
++EOF
++
++if ! diff -u "$expected_headers" "$actual_headers"; then
++  printf 'staged header layout diverged from the exact current contract\n' >&2
++  exit 1
++fi
++
+ for header in png.h pngconf.h pnglibconf.h; do
+   baseline="$safe_dir/include/$header"
+   staged="$stage_root/usr/include/libpng16/$header"
++  top_level="$stage_root/usr/include/$header"
+ 
+-  if [[ ! -f "$staged" ]]; then
+-    printf 'missing staged header: %s\n' "$staged" >&2
++  if [[ ! -f "$staged" || -L "$staged" ]]; then
++    printf 'staged libpng16 header must be a regular file: %s\n' "$staged" >&2
+     exit 1
+   fi
+ 
+@@ -31,7 +55,6 @@ for header in png.h pngconf.h pnglibconf
+     exit 1
+   fi
+ 
+-  top_level="$stage_root/usr/include/$header"
+   if [[ "$(readlink "$top_level")" != "libpng16/$header" ]]; then
+     printf 'unexpected top-level header link target for %s\n' "$top_level" >&2
+     exit 1
+@@ -43,6 +66,11 @@ for header in png.h pngconf.h pnglibconf
+   fi
+ done
+ 
++if [[ "$(readlink "$stage_root/usr/include/libpng")" != "libpng16" ]]; then
++  printf 'unexpected /usr/include/libpng compatibility symlink target\n' >&2
++  exit 1
++fi
++
+ header="$safe_dir/include/png.h"
+ if ! rg -q 'PNG_(?:EXPORT|EXPORTA|FP_EXPORT|FIXED_EXPORT)\(249,' "$header"; then
+   printf 'png.h no longer exposes ordinal 249\n' >&2
+@@ -64,4 +92,9 @@ if rg -q 'PNG_(?:EXPORT|EXPORTA|FP_EXPOR
+   exit 1
+ fi
+ 
+-printf 'header baseline matches staged safe headers\n'
++if rg -q 'APNG' "$safe_dir/include/pnglibconf.h"; then
++  printf 'pnglibconf.h unexpectedly references APNG support\n' >&2
++  exit 1
++fi
++
++printf 'header baseline matches the exact staged header contract\n'
+--- libpng1.6-1.6.43.orig/tools/check-install-surface.sh
++++ libpng1.6-1.6.43/tools/check-install-surface.sh
+@@ -6,6 +6,7 @@ safe_dir="$(cd -- "$script_dir/.." && pw
+ profile="${PROFILE:-release}"
+ target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
+ stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
++layout_baseline="$safe_dir/abi/install-layout.txt"
+ 
+ build_args=(build --manifest-path "$safe_dir/Cargo.toml")
+ if [[ "$profile" == "release" ]]; then
+@@ -14,17 +15,42 @@ else
+   build_args+=(--profile "$profile")
+ fi
+ 
++libdir_rel="$(grep -E '^usr/lib/.*/libpng16\.so\.16\.43\.0$' "$layout_baseline" | sed 's#/libpng16\.so\.16\.43\.0$##')"
++if [[ -z "$libdir_rel" ]]; then
++  printf 'unable to determine the frozen libdir from %s\n' "$layout_baseline" >&2
++  exit 1
++fi
++
+ cargo "${build_args[@]}"
+ "$safe_dir/tools/stage-install-tree.sh"
+ 
+-shared_lib="$(find "$stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
+-static_lib="$(find "$stage_root/usr/lib" -name 'libpng16.a' -print -quit)"
+-if [[ -z "$shared_lib" || -z "$static_lib" ]]; then
+-  printf 'unable to locate staged safe libpng shared/static libraries under %s\n' "$stage_root/usr/lib" >&2
++actual_paths="$(mktemp)"
++expected_paths="$(mktemp)"
++trap 'rm -f "$actual_paths" "$expected_paths"' EXIT
++
++find "$stage_root" -mindepth 1 \( -type f -o -type l \) -printf '%P\n' \
++  | LC_ALL=C sort \
++  > "$actual_paths"
++
++grep -Fvx \
++  -e 'usr/bin/png-fix-itxt' \
++  -e 'usr/bin/pngfix' \
++  -e "$libdir_rel/libpng.la" \
++  -e "$libdir_rel/libpng16.la" \
++  -e 'usr/share/man/man3/libpng.3' \
++  -e 'usr/share/man/man3/libpngpf.3' \
++  -e 'usr/share/man/man5/png.5' \
++  "$layout_baseline" \
++  > "$expected_paths"
++printf '%s\n' 'usr/include/libpng' >> "$expected_paths"
++LC_ALL=C sort -u -o "$expected_paths" "$expected_paths"
++
++if ! diff -u "$expected_paths" "$actual_paths"; then
++  printf 'staged install surface diverged from the exact current contract\n' >&2
+   exit 1
+ fi
+ 
+-lib_dir="$(dirname "$shared_lib")"
++lib_dir="$stage_root/$libdir_rel"
+ pkg_dir="$lib_dir/pkgconfig"
+ include_dir="$stage_root/usr/include"
+ bin_dir="$stage_root/usr/bin"
+@@ -53,6 +79,23 @@ do
+   fi
+ done
+ 
++for regular_file in \
++  "$bin_dir/libpng16-config" \
++  "$pkg_dir/libpng16.pc" \
++  "$lib_dir/libpng16.so.16.43.0" \
++  "$lib_dir/libpng16.a"
++do
++  if [[ ! -f "$regular_file" || -L "$regular_file" ]]; then
++    printf 'staged install artifact must be a regular file: %s\n' "$regular_file" >&2
++    exit 1
++  fi
++done
++
++if [[ ! -x "$bin_dir/libpng16-config" ]]; then
++  printf 'staged config script is not executable: %s\n' "$bin_dir/libpng16-config" >&2
++  exit 1
++fi
++
+ if [[ "$(readlink "$include_dir/libpng")" != "libpng16" ]]; then
+   printf 'unexpected /usr/include/libpng symlink target\n' >&2
+   exit 1
+@@ -96,11 +139,6 @@ if [[ "$(readlink "$lib_dir/libpng.a")"
+ fi
+ 
+ for staged_file in "$lib_dir/libpng16.so.16.43.0" "$lib_dir/libpng16.a"; do
+-  if [[ ! -f "$staged_file" || -L "$staged_file" ]]; then
+-    printf 'staged install artifact must be a regular file: %s\n' "$staged_file" >&2
+-    exit 1
+-  fi
+-
+   if [[ "$(readlink -f "$staged_file")" != "$staged_file" ]]; then
+     printf 'staged install artifact resolves outside the staged tree: %s\n' "$staged_file" >&2
+     exit 1
+@@ -131,7 +169,7 @@ for package_name in libpng libpng16; do
+     exit 1
+   fi
+ 
+-  if [[ "$static_libs" != *"-lpng16"* || "$static_libs" != *"-lz"* ]]; then
++  if [[ "$static_libs" != "-lpng16 -lm -lz -lm -lz" ]]; then
+     printf 'unexpected pkg-config static libs for %s: %s\n' "$package_name" "$static_libs" >&2
+     exit 1
+   fi
+@@ -140,8 +178,10 @@ done
+ for config_script in "$bin_dir/libpng-config" "$bin_dir/libpng16-config"; do
+   prefix="$("$config_script" --prefix)"
+   version="$("$config_script" --version)"
++  cflags="$("$config_script" --cflags | normalize_tokens)"
+   i_opts="$("$config_script" --I_opts | normalize_tokens)"
+   libs="$("$config_script" --libs | normalize_tokens)"
++  ldflags="$("$config_script" --ldflags | normalize_tokens)"
+   static_ldflags="$("$config_script" --static --ldflags | normalize_tokens)"
+ 
+   if [[ "$prefix" != "/usr" ]]; then
+@@ -154,6 +194,11 @@ for config_script in "$bin_dir/libpng-co
+     exit 1
+   fi
+ 
++  if [[ "$cflags" != "-I/usr/include/libpng16" ]]; then
++    printf 'unexpected cflags from %s: %s\n' "$config_script" "$cflags" >&2
++    exit 1
++  fi
++
+   if [[ "$i_opts" != "-I/usr/include/libpng16" ]]; then
+     printf 'unexpected I_opts from %s: %s\n' "$config_script" "$i_opts" >&2
+     exit 1
+@@ -164,7 +209,12 @@ for config_script in "$bin_dir/libpng-co
+     exit 1
+   fi
+ 
+-  if [[ "$static_ldflags" != *"-lpng16"* || "$static_ldflags" != *"-lz"* ]]; then
++  if [[ "$ldflags" != "-lpng16" ]]; then
++    printf 'unexpected ldflags from %s: %s\n' "$config_script" "$ldflags" >&2
++    exit 1
++  fi
++
++  if [[ "$static_ldflags" != "-lpng16 -lm -lz -lm" ]]; then
+     printf 'unexpected static ldflags from %s: %s\n' "$config_script" "$static_ldflags" >&2
+     exit 1
+   fi
+@@ -184,4 +234,4 @@ if [[ "$libdir_output" != "libpng-config
+   exit 1
+ fi
+ 
+-printf 'install surface matches the staged Ubuntu-compatible libpng layout\n'
++printf 'install surface matches the exact staged Debian-compatible libpng contract\n'
+--- libpng1.6-1.6.43.orig/tools/check-link-compat.sh
++++ libpng1.6-1.6.43/tools/check-link-compat.sh
+@@ -6,67 +6,73 @@ safe_dir="$(cd -- "$script_dir/.." && pw
+ source "$safe_dir/tests/upstream/common.sh"
+ 
+ ensure_safe_stage
++ensure_original_stage
+ 
+-static_lib="$(find "$stage_root/usr/lib" -name 'libpng16.a' -print -quit)"
+-if [[ -z "$static_lib" ]]; then
+-  printf 'unable to locate staged safe static library under %s\n' "$stage_root/usr/lib" >&2
+-  exit 1
+-fi
+-
+-lib_dir="$libpng_stage_lib_dir"
+-include_dir="$libpng_stage_include_dir"
+-build_dir="$(mktemp -d)"
+-trap 'rm -rf "$build_dir"' EXIT
+-
+-shared_dir="$build_dir/shared"
+-static_dir="$build_dir/static"
+-mkdir -p "$shared_dir" "$static_dir"
++build_root="$(mktemp -d)"
++trap 'rm -rf "$build_root"; cleanup_original_stage' EXIT
+ 
+-compile_object() {
++staged_header_objects="$build_root/staged-header-objects"
++staged_header_shared="$build_root/staged-header-shared"
++staged_header_static="$build_root/staged-header-static"
++original_header_objects="$build_root/original-header-objects"
++old_object_shared="$build_root/old-object-shared"
++old_object_static="$build_root/old-object-static"
++
++mkdir -p \
++  "$staged_header_objects" \
++  "$staged_header_shared" \
++  "$staged_header_static" \
++  "$original_header_objects" \
++  "$old_object_shared" \
++  "$old_object_static"
++
++programs=(
++  pngtest
++  pngunknown
++  pngstest
++  pngimage
++  pngcp
++  timepng
++)
++
++compile_safe_header_object() {
+   local output="$1"
+   local source="$2"
+   shift 2
+ 
+   cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+-    -I"$include_dir" \
+-    -I"$repo_root/original" \
+-    -I"$repo_root/original/contrib/visupng" \
++    -DPNG_FREESTANDING_TESTS \
++    -I"$libpng_stage_header_dir" \
+     "$@" \
+     -c "$source" \
+-    -o "$build_dir/$output.o"
++    -o "$staged_header_objects/$output.o"
+ }
+ 
+ link_shared_program() {
+-  local name="$1"
+-
+-  cc "$build_dir/$name.o" \
+-    -L"$lib_dir" \
+-    -Wl,-rpath,"$lib_dir" \
++  local object_dir="$1"
++  local output_dir="$2"
++  local name="$3"
++
++  cc "$object_dir/$name.o" \
++    -L"$libpng_stage_lib_dir" \
++    -Wl,-rpath,"$libpng_stage_lib_dir" \
+     -lpng16 -lz -lm \
+-    -o "$shared_dir/$name"
++    -o "$output_dir/$name"
+ }
+ 
+ link_static_program() {
+-  local name="$1"
+-
+-  cc "$build_dir/$name.o" \
+-    "$static_lib" -lz -lm \
+-    -o "$static_dir/$name"
++  local object_dir="$1"
++  local output_dir="$2"
++  local name="$3"
++
++  cc "$object_dir/$name.o" \
++    "$libpng_stage_static_lib" -lz -lm \
++    -o "$output_dir/$name"
+ }
+ 
+-run_wrapper() {
++run_pngtest() {
+   local mode_dir="$1"
+-  local wrapper_name="$2"
+-  local wrapper="$repo_root/original/tests/$wrapper_name"
+-
+-  if [[ ! -f "$wrapper" ]]; then
+-    printf 'missing upstream wrapper: %s\n' "$wrapper" >&2
+-    exit 1
+-  fi
+-
+-  pushd "$mode_dir" >/dev/null
+-  srcdir="$repo_root/original" sh "$wrapper"
+-  popd >/dev/null
++  "$mode_dir/pngtest" --strict "$repo_root/original/pngtest.png" >/dev/null
+ }
+ 
+ run_pngcp() {
+@@ -89,51 +95,47 @@ run_timepng() {
+   "$mode_dir/timepng" "$repo_root/original/pngtest.png" >/dev/null
+ }
+ 
+-run_pngtest() {
+-  local mode_dir="$1"
+-  "$mode_dir/pngtest" --strict "$repo_root/original/pngtest.png" >/dev/null
+-}
+-
+-run_mode_matrix() {
+-  local mode_label="$1"
++run_lane_matrix() {
++  local lane_label="$1"
+   local mode_dir="$2"
+ 
+   run_pngtest "$mode_dir"
+-  run_wrapper "$mode_dir" pngunknown-discard
+-  run_wrapper "$mode_dir" pngstest-none
+-  run_wrapper "$mode_dir" pngvalid-standard
+-  run_wrapper "$mode_dir" pngimage-quick
+-  run_wrapper "$mode_dir" tarith-ascii
++  run_original_wrapper pngunknown-discard "$mode_dir"
++  run_original_wrapper pngstest-none "$mode_dir"
++  run_original_wrapper pngimage-quick "$mode_dir"
+   run_pngcp "$mode_dir"
+   run_timepng "$mode_dir"
+ 
+-  printf '%s link-compatibility matrix passed for pngtest, pngunknown, pngstest, pngvalid, pngimage, tarith, pngcp, and timepng\n' "$mode_label"
++  printf '%s lane passed for pngtest, pngunknown, pngstest, pngimage, pngcp, and timepng\n' \
++    "$lane_label"
+ }
+ 
+-pngtest_source="$(prepare_pngtest_source "$build_dir")"
+-compile_object pngtest "$pngtest_source"
+-compile_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c" -DPNG_FREESTANDING_TESTS
+-compile_object pngstest "$repo_root/original/contrib/libtests/pngstest.c" -DPNG_FREESTANDING_TESTS
+-compile_object pngvalid "$repo_root/original/contrib/libtests/pngvalid.c" -DPNG_FREESTANDING_TESTS
+-compile_object pngimage "$repo_root/original/contrib/libtests/pngimage.c" -DPNG_FREESTANDING_TESTS
+-compile_object tarith "$repo_root/original/contrib/libtests/tarith.c" -DPNG_FREESTANDING_TESTS
+-compile_object pngcp "$repo_root/original/contrib/tools/pngcp.c" -DPNG_FREESTANDING_TESTS
+-compile_object timepng "$repo_root/original/contrib/libtests/timepng.c" -DPNG_FREESTANDING_TESTS
+-
+-for program in pngtest pngunknown pngstest pngvalid pngimage tarith pngcp timepng; do
+-  link_shared_program "$program"
+-  link_static_program "$program"
++staged_pngtest_source="$(prepare_pngtest_source "$staged_header_objects")"
++compile_safe_header_object pngtest "$staged_pngtest_source"
++compile_safe_header_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c"
++compile_safe_header_object pngstest "$repo_root/original/contrib/libtests/pngstest.c"
++compile_safe_header_object pngimage "$repo_root/original/contrib/libtests/pngimage.c"
++compile_safe_header_object pngcp "$repo_root/original/contrib/tools/pngcp.c"
++compile_safe_header_object timepng "$repo_root/original/contrib/libtests/timepng.c"
++
++original_pngtest_source="$(prepare_pngtest_source "$original_header_objects")"
++build_preserved_original_object pngtest "$original_pngtest_source" "$original_header_objects"
++build_preserved_original_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c" "$original_header_objects"
++build_preserved_original_object pngstest "$repo_root/original/contrib/libtests/pngstest.c" "$original_header_objects"
++build_preserved_original_object pngimage "$repo_root/original/contrib/libtests/pngimage.c" "$original_header_objects"
++build_preserved_original_object pngcp "$repo_root/original/contrib/tools/pngcp.c" "$original_header_objects"
++build_preserved_original_object timepng "$repo_root/original/contrib/libtests/timepng.c" "$original_header_objects"
++
++for program in "${programs[@]}"; do
++  link_shared_program "$staged_header_objects" "$staged_header_shared" "$program"
++  link_static_program "$staged_header_objects" "$staged_header_static" "$program"
++  link_shared_program "$original_header_objects" "$old_object_shared" "$program"
++  link_static_program "$original_header_objects" "$old_object_static" "$program"
+ done
+ 
+-run_mode_matrix "shared" "$shared_dir"
+-run_mode_matrix "static" "$static_dir"
+-
+-cc "$build_dir/pngtest.o" \
+-  "$static_lib" -lz -lm \
+-  -o "$build_dir/pngtest-static"
+-
+-pushd "$repo_root/original" >/dev/null
+-"$build_dir/pngtest-static" >/dev/null
+-popd >/dev/null
++run_lane_matrix "staged-header shared" "$staged_header_shared"
++run_lane_matrix "staged-header static" "$staged_header_static"
++run_lane_matrix "old-object shared" "$old_object_shared"
++run_lane_matrix "old-object static" "$old_object_static"
+ 
+-printf 'debian pngtest-static scenario passed with original object reuse against the staged safe static archive\n'
++printf 'true old-object relinks reused the original-built .o files against both staged safe libraries without recompiling them\n'

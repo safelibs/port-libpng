@@ -1,3 +1,4 @@
+use crate::state;
 use crate::types::*;
 
 unsafe extern "C" {
@@ -164,25 +165,37 @@ pub unsafe extern "C" fn png_get_channels(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_get_user_width_max(png_ptr: png_const_structrp) -> png_uint_32 {
-    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_get_user_width_max(png_ptr) })
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        state::get_png(png_ptr.cast_mut())
+            .map(|state| state.user_width_max)
+            .unwrap_or_else(|| unsafe { upstream_png_get_user_width_max(png_ptr) })
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_get_user_height_max(png_ptr: png_const_structrp) -> png_uint_32 {
-    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_get_user_height_max(png_ptr) })
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        state::get_png(png_ptr.cast_mut())
+            .map(|state| state.user_height_max)
+            .unwrap_or_else(|| unsafe { upstream_png_get_user_height_max(png_ptr) })
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_get_chunk_cache_max(png_ptr: png_const_structrp) -> png_uint_32 {
-    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-        upstream_png_get_chunk_cache_max(png_ptr)
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        state::get_png(png_ptr.cast_mut())
+            .map(|state| state.user_chunk_cache_max)
+            .unwrap_or_else(|| unsafe { upstream_png_get_chunk_cache_max(png_ptr) })
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_get_chunk_malloc_max(png_ptr: png_const_structrp) -> png_alloc_size_t {
-    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
-        upstream_png_get_chunk_malloc_max(png_ptr)
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        state::get_png(png_ptr.cast_mut())
+            .map(|state| state.user_chunk_malloc_max)
+            .unwrap_or_else(|| unsafe { upstream_png_get_chunk_malloc_max(png_ptr) })
     })
 }
 
