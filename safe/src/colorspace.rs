@@ -131,6 +131,7 @@ fn set_endpoint_values(
     info: &mut png_safe_info_core,
     values: [png_fixed_point; 9],
 ) -> Result<(), ()> {
+    let fits_fixed = |value: i64| -> bool { (0..=i64::from(i32::MAX)).contains(&value) };
     let sums = [
         i64::from(values[0])
             .checked_add(i64::from(values[1]))
@@ -142,7 +143,10 @@ fn set_endpoint_values(
             .checked_add(i64::from(values[7]))
             .and_then(|sum| sum.checked_add(i64::from(values[8]))),
     ];
-    if values.iter().any(|value| *value < 0) || sums.iter().any(|sum| sum.is_none_or(|v| v <= 0))
+    if values.iter().any(|value| *value < 0)
+        || sums
+            .iter()
+            .any(|sum| sum.is_none_or(|v| v <= 0 || !fits_fixed(v)))
     {
         return Err(());
     }
@@ -150,27 +154,33 @@ fn set_endpoint_values(
     let white_x = i64::from(values[0]) + i64::from(values[3]) + i64::from(values[6]);
     let white_y = i64::from(values[1]) + i64::from(values[4]) + i64::from(values[7]);
     let white_z = i64::from(values[2]) + i64::from(values[5]) + i64::from(values[8]);
+    if !fits_fixed(white_x) || !fits_fixed(white_y) || !fits_fixed(white_z) {
+        return Err(());
+    }
     let white_sum = white_x
         .checked_add(white_y)
         .and_then(|sum| sum.checked_add(white_z))
-        .filter(|sum| *sum > 0)
+        .filter(|sum| *sum > 0 && fits_fixed(*sum))
         .ok_or(())?;
 
-    let xy_from_xyz = |x: png_fixed_point, y: png_fixed_point, sum: i64| -> Result<(png_fixed_point, png_fixed_point), ()> {
-        let x = ((i64::from(x) * i64::from(PNG_FP_1)) / sum)
-            .try_into()
-            .map_err(|_| ())?;
-        let y = ((i64::from(y) * i64::from(PNG_FP_1)) / sum)
-            .try_into()
-            .map_err(|_| ())?;
-        Ok((x, y))
-    };
+    let xy_from_xyz =
+        |x: i64, y: i64, sum: i64| -> Result<(png_fixed_point, png_fixed_point), ()> {
+            let x = ((x * i64::from(PNG_FP_1)) / sum)
+                .try_into()
+                .map_err(|_| ())?;
+            let y = ((y * i64::from(PNG_FP_1)) / sum)
+                .try_into()
+                .map_err(|_| ())?;
+            Ok((x, y))
+        };
 
-    let (redx, redy) = xy_from_xyz(values[0], values[1], sums[0].unwrap())?;
-    let (greenx, greeny) = xy_from_xyz(values[3], values[4], sums[1].unwrap())?;
-    let (bluex, bluey) = xy_from_xyz(values[6], values[7], sums[2].unwrap())?;
-    let (whitex, whitey) =
-        xy_from_xyz(white_x as png_fixed_point, white_y as png_fixed_point, white_sum)?;
+    let (redx, redy) =
+        xy_from_xyz(i64::from(values[0]), i64::from(values[1]), sums[0].unwrap())?;
+    let (greenx, greeny) =
+        xy_from_xyz(i64::from(values[3]), i64::from(values[4]), sums[1].unwrap())?;
+    let (bluex, bluey) =
+        xy_from_xyz(i64::from(values[6]), i64::from(values[7]), sums[2].unwrap())?;
+    let (whitex, whitey) = xy_from_xyz(white_x, white_y, white_sum)?;
 
     info.colorspace.end_points_XYZ = png_XYZ {
         red_X: values[0],

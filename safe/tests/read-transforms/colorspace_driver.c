@@ -129,9 +129,39 @@ static void run_invalid_endpoints_case(void) {
     png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
 }
 
+static void run_overflow_endpoints_case(void) {
+    test_ctx ctx;
+    memset(&ctx, 0, sizeof ctx);
+
+    png_structp png_ptr =
+        png_create_read_struct(PNG_LIBPNG_VER_STRING, &ctx, error_cb, warning_cb);
+    assert(png_ptr != NULL);
+    png_infop info_ptr = png_create_info_struct(png_ptr);
+    assert(info_ptr != NULL);
+
+    if (setjmp(ctx.env) != 0) {
+        assert(!"overflow cHRM endpoint case unexpectedly failed");
+    }
+
+    png_set_benign_errors(png_ptr, 1);
+    png_set_cHRM_XYZ_fixed(
+        png_ptr, info_ptr,
+        2000000000, 1, 1,
+        2000000000, 1, 1,
+        2000000000, 1, 1);
+
+    assert(ctx.warnings > 0);
+    assert(png_get_cHRM_XYZ_fixed(
+               png_ptr, info_ptr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+               NULL) == 0);
+
+    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+}
+
 int main(void) {
     run_fixed_roundtrip();
     run_float_roundtrip();
     run_invalid_endpoints_case();
+    run_overflow_endpoints_case();
     return 0;
 }

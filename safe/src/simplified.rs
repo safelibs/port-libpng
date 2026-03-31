@@ -1,6 +1,8 @@
 use crate::chunks::{read_core, read_info_core};
 use crate::read::png_destroy_read_struct;
-use crate::read_transform::{png_set_expand, png_set_gray_to_rgb, png_set_scale_16};
+use crate::read_transform::{
+    png_set_expand, png_set_expand_16, png_set_gray_to_rgb, png_set_scale_16,
+};
 use crate::types::*;
 use core::ffi::{c_char, c_int};
 use core::{mem, ptr, slice};
@@ -17,6 +19,7 @@ const PNG_FORMAT_FLAG_LINEAR: png_uint_32 = 0x04;
 const PNG_FORMAT_FLAG_COLORMAP: png_uint_32 = 0x08;
 const PNG_FORMAT_FLAG_BGR: png_uint_32 = 0x10;
 const PNG_FORMAT_FLAG_AFIRST: png_uint_32 = 0x20;
+const PNG_FORMAT_FLAG_ASSOCIATED_ALPHA: png_uint_32 = 0x40;
 
 const PNG_COLOR_MASK_PALETTE: png_byte = 1;
 const PNG_COLOR_MASK_COLOR: png_byte = 2;
@@ -25,6 +28,106 @@ const PNG_COLOR_MASK_ALPHA: png_byte = 4;
 const PNG_COLORSPACE_HAVE_ENDPOINTS: png_uint_16 = 0x0002;
 const PNG_COLORSPACE_ENDPOINTS_MATCH_sRGB: png_uint_16 = 0x0040;
 const PNG_COLORSPACE_INVALID: png_uint_16 = 0x8000;
+
+const MAX_SAMPLE_BYTES: usize = 8;
+const RGB_TO_GRAY_RED_COEFF: u32 = 6968;
+const RGB_TO_GRAY_GREEN_COEFF: u32 = 23_434;
+const RGB_TO_GRAY_BLUE_COEFF: u32 = 2366;
+
+#[derive(Clone, Copy, Debug)]
+struct FormatSpec {
+    format: png_uint_32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Pixel16 {
+    red: u16,
+    green: u16,
+    blue: u16,
+    alpha: u16,
+}
+
+impl FormatSpec {
+    fn parse(format: png_uint_32) -> Option<Self> {
+        let supported = PNG_FORMAT_FLAG_ALPHA
+            | PNG_FORMAT_FLAG_COLOR
+            | PNG_FORMAT_FLAG_LINEAR
+            | PNG_FORMAT_FLAG_COLORMAP
+            | PNG_FORMAT_FLAG_BGR
+            | PNG_FORMAT_FLAG_AFIRST
+            | PNG_FORMAT_FLAG_ASSOCIATED_ALPHA;
+        if (format & !supported) != 0 {
+            return None;
+        }
+
+        Some(Self { format })
+    }
+
+    fn alpha(self) -> bool {
+        (self.format & PNG_FORMAT_FLAG_ALPHA) != 0
+    }
+
+    fn color(self) -> bool {
+        (self.format & PNG_FORMAT_FLAG_COLOR) != 0
+    }
+
+    fn linear(self) -> bool {
+        (self.format & PNG_FORMAT_FLAG_LINEAR) != 0
+    }
+
+    fn colormap(self) -> bool {
+        (self.format & PNG_FORMAT_FLAG_COLORMAP) != 0
+    }
+
+    fn bgr(self) -> bool {
+        self.color() && (self.format & PNG_FORMAT_FLAG_BGR) != 0
+    }
+
+    fn afirst(self) -> bool {
+        self.alpha() && (self.format & PNG_FORMAT_FLAG_AFIRST) != 0
+    }
+
+    fn associated_alpha(self) -> bool {
+        self.alpha() && (self.format & PNG_FORMAT_FLAG_ASSOCIATED_ALPHA) != 0
+    }
+
+    fn sample_channels(self) -> usize {
+        usize::try_from((self.format & (PNG_FORMAT_FLAG_COLOR | PNG_FORMAT_FLAG_ALPHA)) + 1)
+            .unwrap_or(0)
+    }
+
+    fn sample_component_size(self) -> usize {
+        usize::try_from(((self.format & PNG_FORMAT_FLAG_LINEAR) >> 2) + 1).unwrap_or(0)
+    }
+
+    fn sample_size(self) -> usize {
+        self.sample_channels() * self.sample_component_size()
+    }
+
+    fn pixel_channels(self) -> usize {
+        if self.colormap() {
+            1
+        } else {
+            self.sample_channels()
+        }
+    }
+
+    fn pixel_component_size(self) -> usize {
+        if self.colormap() {
+            1
+        } else {
+            self.sample_component_size()
+        }
+    }
+
+    fn pixel_row_stride(self, width: png_uint_32) -> Option<png_uint_32> {
+        width.checked_mul(self.pixel_channels() as png_uint_32)
+    }
+
+    fn row_bytes(self, stride_units: usize) -> Option<usize> {
+        stride_units.checked_mul(self.pixel_component_size())
+    }
+}
 
 #[derive(Debug)]
 struct MemoryReader {
@@ -62,23 +165,6 @@ unsafe extern "C" {
     fn png_safe_call_read_update_info(png_ptr: png_structrp, info_ptr: png_inforp) -> c_int;
     fn png_safe_call_read_image(png_ptr: png_structrp, image: png_bytepp) -> c_int;
     fn png_safe_call_read_end(png_ptr: png_structrp, info_ptr: png_inforp) -> c_int;
-}
-
-fn supported_output_format(format: png_uint_32) -> bool {
-    (format & PNG_FORMAT_FLAG_COLOR) != 0
-        && (format & (PNG_FORMAT_FLAG_LINEAR | PNG_FORMAT_FLAG_COLORMAP)) == 0
-}
-
-fn output_channels(format: png_uint_32) -> usize {
-    if (format & PNG_FORMAT_FLAG_ALPHA) != 0 {
-        4
-    } else {
-        3
-    }
-}
-
-fn pixel_row_stride(width: png_uint_32, format: png_uint_32) -> Option<png_uint_32> {
-    width.checked_mul(output_channels(format) as png_uint_32)
 }
 
 unsafe fn reset_image(image: png_imagep) {
@@ -333,43 +419,151 @@ fn absolute_row_stride(row_stride: png_int_32) -> png_uint_32 {
     }
 }
 
-fn premultiply(channel: u8, alpha: u8) -> u8 {
-    (((u32::from(channel) * u32::from(alpha)) + 127) / 255) as u8
+fn expand_u8(value: u8) -> u16 {
+    u16::from(value) * 257
 }
 
-fn composite(channel: u8, alpha: u8, background: u8) -> u8 {
+fn reduce_u16(value: u16) -> u8 {
+    ((u32::from(value) + 128) / 257) as u8
+}
+
+fn premultiply_u16(channel: u16, alpha: u16) -> u16 {
+    (((u32::from(channel) * u32::from(alpha)) + 32_767) / 65_535) as u16
+}
+
+fn composite_u16(channel: u16, alpha: u16, background: u16) -> u16 {
     (((u32::from(channel) * u32::from(alpha))
-        + (u32::from(background) * u32::from(255 - alpha))
-        + 127)
-        / 255) as u8
+        + (u32::from(background) * u32::from(65_535 - alpha))
+        + 32_767)
+        / 65_535) as u16
 }
 
-fn write_output_pixel(format: png_uint_32, dst: &mut [u8], rgb: [u8; 3], alpha: u8) {
-    let channels = output_channels(format);
-    let bgr = (format & PNG_FORMAT_FLAG_BGR) != 0;
-    let afirst = (format & PNG_FORMAT_FLAG_AFIRST) != 0;
-    let ordered = if bgr {
-        [rgb[2], rgb[1], rgb[0]]
-    } else {
-        rgb
+fn grayscale_u16(pixel: Pixel16) -> u16 {
+    let gray = u64::from(pixel.red) * u64::from(RGB_TO_GRAY_RED_COEFF)
+        + u64::from(pixel.green) * u64::from(RGB_TO_GRAY_GREEN_COEFF)
+        + u64::from(pixel.blue) * u64::from(RGB_TO_GRAY_BLUE_COEFF)
+        + 16_384;
+    (gray >> 15) as u16
+}
+
+fn read_decoded_pixel(
+    row: &[u8],
+    x: usize,
+    decoded_channels: usize,
+    component_size: usize,
+) -> Option<Pixel16> {
+    let pixel_bytes = decoded_channels.checked_mul(component_size)?;
+    let start = x.checked_mul(pixel_bytes)?;
+    let src = row.get(start..start.checked_add(pixel_bytes)?)?;
+
+    let read_component = |component_index: usize| -> Option<u16> {
+        let offset = component_index.checked_mul(component_size)?;
+        let bytes = src.get(offset..offset.checked_add(component_size)?)?;
+        Some(if component_size == 2 {
+            u16::from_be_bytes([bytes[0], bytes[1]])
+        } else {
+            expand_u8(bytes[0])
+        })
     };
 
-    if channels == 4 {
-        if afirst {
-            dst[0] = alpha;
-            dst[1] = ordered[0];
-            dst[2] = ordered[1];
-            dst[3] = ordered[2];
+    let red = read_component(0)?;
+    let green = read_component(1)?;
+    let blue = read_component(2)?;
+    let alpha = if decoded_channels == 4 {
+        read_component(3)?
+    } else {
+        65_535
+    };
+
+    Some(Pixel16 {
+        red,
+        green,
+        blue,
+        alpha,
+    })
+}
+
+fn encode_component(dst: &mut [u8], offset: usize, value: u16, linear: bool) {
+    if linear {
+        dst[offset..offset + 2].copy_from_slice(&value.to_ne_bytes());
+    } else {
+        dst[offset] = reduce_u16(value);
+    }
+}
+
+fn write_sample_bytes(
+    spec: FormatSpec,
+    pixel: Pixel16,
+    background: Option<[u16; 3]>,
+    dst: &mut [u8],
+) {
+    let mut red = pixel.red;
+    let mut green = pixel.green;
+    let mut blue = pixel.blue;
+    let alpha = pixel.alpha;
+
+    if spec.alpha() {
+        if spec.associated_alpha() {
+            red = premultiply_u16(red, alpha);
+            green = premultiply_u16(green, alpha);
+            blue = premultiply_u16(blue, alpha);
+        }
+    } else if alpha < 65_535 {
+        let background = if spec.linear() {
+            [0, 0, 0]
         } else {
-            dst[0] = ordered[0];
-            dst[1] = ordered[1];
-            dst[2] = ordered[2];
-            dst[3] = alpha;
+            background.unwrap_or([0, 0, 0])
+        };
+        red = composite_u16(red, alpha, background[0]);
+        green = composite_u16(green, alpha, background[1]);
+        blue = composite_u16(blue, alpha, background[2]);
+    }
+
+    if spec.color() {
+        let ordered = if spec.bgr() {
+            [blue, green, red]
+        } else {
+            [red, green, blue]
+        };
+        let component_size = spec.sample_component_size();
+
+        if spec.alpha() {
+            if spec.afirst() {
+                encode_component(dst, 0, alpha, spec.linear());
+                encode_component(dst, component_size, ordered[0], spec.linear());
+                encode_component(dst, component_size * 2, ordered[1], spec.linear());
+                encode_component(dst, component_size * 3, ordered[2], spec.linear());
+            } else {
+                encode_component(dst, 0, ordered[0], spec.linear());
+                encode_component(dst, component_size, ordered[1], spec.linear());
+                encode_component(dst, component_size * 2, ordered[2], spec.linear());
+                encode_component(dst, component_size * 3, alpha, spec.linear());
+            }
+        } else {
+            encode_component(dst, 0, ordered[0], spec.linear());
+            encode_component(dst, component_size, ordered[1], spec.linear());
+            encode_component(dst, component_size * 2, ordered[2], spec.linear());
         }
     } else {
-        dst[0] = ordered[0];
-        dst[1] = ordered[1];
-        dst[2] = ordered[2];
+        let gray = grayscale_u16(Pixel16 {
+            red,
+            green,
+            blue,
+            alpha,
+        });
+        let component_size = spec.sample_component_size();
+
+        if spec.alpha() {
+            if spec.afirst() {
+                encode_component(dst, 0, alpha, spec.linear());
+                encode_component(dst, component_size, gray, spec.linear());
+            } else {
+                encode_component(dst, 0, gray, spec.linear());
+                encode_component(dst, component_size, alpha, spec.linear());
+            }
+        } else {
+            encode_component(dst, 0, gray, spec.linear());
+        }
     }
 }
 
@@ -378,25 +572,41 @@ unsafe fn finish_read_impl(
     control: &mut SimplifiedReadControl,
     background: png_const_colorp,
     buffer: png_voidp,
+    colormap: png_voidp,
     row_stride: png_int_32,
 ) -> bool {
-    let format = (*image).format;
-    if !supported_output_format(format) {
+    let Some(spec) = FormatSpec::parse(unsafe { (*image).format }) else {
         unsafe {
             image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
         }
         return false;
-    }
+    };
 
     let source = unsafe { read_core(control.png_ptr) };
     let source_info = unsafe { read_info_core(control.info_ptr) };
     let source_has_alpha =
         (source.color_type & PNG_COLOR_MASK_ALPHA) != 0 || source_info.num_trans > 0;
 
+    if spec.colormap()
+        && !spec.linear()
+        && !spec.alpha()
+        && source_has_alpha
+        && background.is_null()
+    {
+        unsafe {
+            image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
+        }
+        return false;
+    }
+
     unsafe {
-        png_set_expand(control.png_ptr);
+        if spec.linear() {
+            png_set_expand_16(control.png_ptr);
+        } else {
+            png_set_expand(control.png_ptr);
+        }
         png_set_gray_to_rgb(control.png_ptr);
-        if source.bit_depth == 16 {
+        if !spec.linear() && source.bit_depth == 16 {
             png_set_scale_16(control.png_ptr);
         }
     }
@@ -451,6 +661,16 @@ unsafe fn finish_read_impl(
     } else {
         updated.channels
     });
+    let decoded_bit_depth = if updated_info.bit_depth != 0 {
+        updated_info.bit_depth
+    } else {
+        updated.bit_depth
+    };
+    let decoded_component_size = if decoded_bit_depth == 16 {
+        2
+    } else {
+        1
+    };
     if decoded_channels != 3 && decoded_channels != 4 {
         unsafe {
             image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
@@ -458,39 +678,102 @@ unsafe fn finish_read_impl(
         return false;
     }
 
-    let output_channels = output_channels(format);
-    let stride = absolute_row_stride(row_stride) as usize;
-    let buffer = buffer.cast::<u8>();
-    let bg = if background.is_null() {
-        [0u8, 0u8, 0u8]
-    } else {
-        unsafe { [(*background).red, (*background).green, (*background).blue] }
+    let stride_units = absolute_row_stride(row_stride) as usize;
+    let Some(stride_bytes) = spec.row_bytes(stride_units) else {
+        unsafe {
+            image_error_bytes(image, b"png_image_finish_read: image too large\0");
+        }
+        return false;
     };
-    let want_alpha = (format & PNG_FORMAT_FLAG_ALPHA) != 0;
+    let buffer = buffer.cast::<u8>();
+    let background_16 = if background.is_null() {
+        None
+    } else {
+        Some(unsafe {
+            [
+                expand_u8((*background).red),
+                expand_u8((*background).green),
+                expand_u8((*background).blue),
+            ]
+        })
+    };
     let source_rows = decoded.as_slice();
+    let width = unsafe { (*image).width as usize };
+    let entry_size = spec.sample_size();
+
+    let mut colormap_entries = Vec::<Vec<u8>>::new();
+    let colormap_capacity = if spec.colormap() {
+        usize::try_from(unsafe { (*image).colormap_entries })
+            .unwrap_or(0)
+            .min(256)
+    } else {
+        0
+    };
 
     for y in 0..height {
         let src_row = &source_rows[y * rowbytes..(y + 1) * rowbytes];
         let dst_y = if row_stride < 0 { height - 1 - y } else { y };
-        let dst_row = unsafe { slice::from_raw_parts_mut(buffer.add(dst_y * stride), stride) };
+        let dst_row =
+            unsafe { slice::from_raw_parts_mut(buffer.add(dst_y * stride_bytes), stride_bytes) };
 
-        for x in 0..((*image).width as usize) {
-            let src = &src_row[x * decoded_channels..(x + 1) * decoded_channels];
-            let alpha = if decoded_channels == 4 { src[3] } else { 255 };
-            let rgb = if want_alpha {
-                [premultiply(src[0], alpha), premultiply(src[1], alpha), premultiply(src[2], alpha)]
-            } else if decoded_channels == 4 && source_has_alpha {
-                [
-                    composite(src[0], alpha, bg[0]),
-                    composite(src[1], alpha, bg[1]),
-                    composite(src[2], alpha, bg[2]),
-                ]
-            } else {
-                [src[0], src[1], src[2]]
+        for x in 0..width {
+            let Some(pixel) = read_decoded_pixel(src_row, x, decoded_channels, decoded_component_size)
+            else {
+                unsafe {
+                    image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
+                }
+                return false;
             };
 
-            let dst = &mut dst_row[x * output_channels..(x + 1) * output_channels];
-            write_output_pixel(format, dst, rgb, alpha);
+            if spec.colormap() {
+                let mut entry = [0u8; MAX_SAMPLE_BYTES];
+                write_sample_bytes(spec, pixel, background_16, &mut entry[..entry_size]);
+                let entry_slice = &entry[..entry_size];
+                let entry_index = if let Some(index) = colormap_entries
+                    .iter()
+                    .position(|existing| existing.as_slice() == entry_slice)
+                {
+                    index
+                } else {
+                    if colormap_entries.len() >= colormap_capacity {
+                        unsafe {
+                            image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
+                        }
+                        return false;
+                    }
+                    colormap_entries.push(entry_slice.to_vec());
+                    colormap_entries.len() - 1
+                };
+                dst_row[x] = entry_index as u8;
+            } else {
+                let pixel_size = spec.sample_size();
+                let start = x * pixel_size;
+                let end = start + pixel_size;
+                write_sample_bytes(spec, pixel, background_16, &mut dst_row[start..end]);
+            }
+        }
+    }
+
+    if spec.colormap() {
+        let colormap = colormap.cast::<u8>();
+        if colormap.is_null() {
+            unsafe {
+                image_error_bytes(image, b"png_image_finish_read[color-map]: no color-map\0");
+            }
+            return false;
+        }
+
+        for (index, entry) in colormap_entries.iter().enumerate() {
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    entry.as_ptr(),
+                    colormap.add(index * entry_size),
+                    entry_size,
+                );
+            }
+        }
+        unsafe {
+            (*image).colormap_entries = colormap_entries.len() as png_uint_32;
         }
     }
 
@@ -657,7 +940,10 @@ pub unsafe extern "C" fn png_image_finish_read(
     }
 
     let format = unsafe { (*image).format };
-    let Some(png_row_stride) = pixel_row_stride(unsafe { (*image).width }, format) else {
+    let Some(spec) = FormatSpec::parse(format) else {
+        return unsafe { image_error_bytes(image, b"png_image_finish_read: invalid argument\0") };
+    };
+    let Some(png_row_stride) = spec.pixel_row_stride(unsafe { (*image).width }) else {
         return unsafe {
             image_error_bytes(image, b"png_image_finish_read: row_stride too large\0")
         };
@@ -672,16 +958,25 @@ pub unsafe extern "C" fn png_image_finish_read(
         return unsafe { image_error_bytes(image, b"png_image_finish_read: invalid argument\0") };
     }
 
-    if !colormap.is_null() || (format & PNG_FORMAT_FLAG_COLORMAP) != 0 {
-        return unsafe { image_error_bytes(image, b"png_image_finish_read: invalid argument\0") };
+    if spec.colormap() && (unsafe { (*image).colormap_entries } == 0 || colormap.is_null()) {
+        return unsafe {
+            image_error_bytes(image, b"png_image_finish_read[color-map]: no color-map\0")
+        };
     }
 
-    if unsafe { (*image).height } > 0xffff_ffffu32 / check.max(1) {
+    let Some(component_check) = usize::try_from(check)
+        .ok()
+        .and_then(|stride| spec.row_bytes(stride))
+    else {
+        return unsafe { image_error_bytes(image, b"png_image_finish_read: image too large\0") };
+    };
+
+    if unsafe { (*image).height } > 0xffff_ffffu32 / (component_check.max(1) as png_uint_32) {
         return unsafe { image_error_bytes(image, b"png_image_finish_read: image too large\0") };
     }
 
     let control = unsafe { &mut *(*image).opaque.cast::<SimplifiedReadControl>() };
-    let result = unsafe { finish_read_impl(image, control, background, buffer, row_stride) };
+    let result = unsafe { finish_read_impl(image, control, background, buffer, colormap, row_stride) };
     unsafe {
         image_free_internal(image);
     }

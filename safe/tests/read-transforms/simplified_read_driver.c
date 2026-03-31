@@ -216,12 +216,85 @@ static void run_stride_regression_case(const char *path) {
     free(bottom_up);
 }
 
+static void run_grayscale_output_case(const char *path) {
+    png_image image;
+    memset(&image, 0, sizeof image);
+    image.version = PNG_IMAGE_VERSION;
+
+    assert(png_image_begin_read_from_file(&image, path) != 0);
+    image.format = PNG_FORMAT_GRAY;
+
+    size_t size = PNG_IMAGE_SIZE(image);
+    png_bytep buffer = (png_bytep)malloc(size);
+    assert(buffer != NULL);
+    memset(buffer, 0, size);
+    assert(png_image_finish_read(&image, NULL, buffer, 0, NULL) != 0);
+
+    assert(size == (size_t)image.width * image.height);
+    int saw_non_zero = 0;
+    for (size_t i = 0; i < size; ++i) {
+        if (buffer[i] != 0) {
+            saw_non_zero = 1;
+            break;
+        }
+    }
+    assert(saw_non_zero);
+    free(buffer);
+}
+
+static void run_linear_output_case(const char *path) {
+    png_image image;
+    memset(&image, 0, sizeof image);
+    image.version = PNG_IMAGE_VERSION;
+
+    assert(png_image_begin_read_from_file(&image, path) != 0);
+    image.format = PNG_FORMAT_LINEAR_RGB_ALPHA;
+
+    size_t size = PNG_IMAGE_SIZE(image);
+    png_bytep buffer = (png_bytep)malloc(size);
+    assert(buffer != NULL);
+    memset(buffer, 0, size);
+    assert(png_image_finish_read(&image, NULL, buffer, 0, NULL) != 0);
+
+    assert(size == (size_t)image.width * image.height * 8U);
+    free(buffer);
+}
+
+static void run_colormap_output_case(const char *path) {
+    png_image image;
+    memset(&image, 0, sizeof image);
+    image.version = PNG_IMAGE_VERSION;
+
+    assert(png_image_begin_read_from_file(&image, path) != 0);
+    image.format = PNG_FORMAT_RGBA_COLORMAP;
+
+    size_t size = PNG_IMAGE_SIZE(image);
+    size_t colormap_size = PNG_IMAGE_COLORMAP_SIZE(image);
+    png_bytep buffer = (png_bytep)malloc(size);
+    png_bytep colormap = (png_bytep)calloc(1, colormap_size);
+    assert(buffer != NULL);
+    assert(colormap != NULL);
+    memset(buffer, 0, size);
+    assert(png_image_finish_read(&image, NULL, buffer, 0, colormap) != 0);
+
+    assert(image.colormap_entries > 0);
+    for (size_t i = 0; i < size; ++i) {
+        assert(buffer[i] < image.colormap_entries);
+    }
+
+    free(buffer);
+    free(colormap);
+}
+
 int main(int argc, char **argv) {
-    assert(argc == 3);
+    assert(argc == 5);
 
     run_entrypoint_consistency_case(argv[1]);
     run_message_semantics_case(argv[1]);
     run_image_free_case(argv[1]);
     run_stride_regression_case(argv[2]);
+    run_linear_output_case(argv[2]);
+    run_grayscale_output_case(argv[3]);
+    run_colormap_output_case(argv[4]);
     return 0;
 }
