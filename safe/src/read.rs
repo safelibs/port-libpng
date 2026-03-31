@@ -1,5 +1,4 @@
 use crate::read_util::KeepSymbol;
-use crate::read_transform::clear_read_state;
 use crate::types::*;
 use core::ptr;
 
@@ -29,10 +28,12 @@ pub unsafe extern "C" fn png_destroy_read_struct(
     } else {
         unsafe { *png_ptr_ptr }
     };
-    clear_read_state(png_ptr);
-    unsafe {
-        upstream_png_destroy_read_struct(png_ptr_ptr, info_ptr_ptr, end_info_ptr_ptr);
-    }
+
+    crate::abi_guard!(png_ptr, {
+        unsafe {
+            upstream_png_destroy_read_struct(png_ptr_ptr, info_ptr_ptr, end_info_ptr_ptr);
+        }
+    });
 }
 
 #[used]

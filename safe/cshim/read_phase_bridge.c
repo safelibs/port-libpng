@@ -195,8 +195,8 @@ int png_safe_call_read_update_info(png_structrp png_ptr, png_inforp info_ptr) {
 }
 
 int png_safe_call_read_image(png_structrp png_ptr, png_bytepp image) {
-    png_error_ptr saved_warning_fn = NULL;
-    int suppress_interlace_warning = 0;
+    volatile png_error_ptr saved_warning_fn = NULL;
+    volatile int suppress_interlace_warning = 0;
 
     if (png_ptr != NULL &&
         (png_ptr->flags & PNG_FLAG_ROW_INIT) != 0 &&
@@ -209,7 +209,7 @@ int png_safe_call_read_image(png_structrp png_ptr, png_bytepp image) {
 
     if (setjmp(png_jmpbuf(png_ptr)) != 0) {
         if (suppress_interlace_warning != 0 && png_ptr != NULL) {
-            png_ptr->warning_fn = saved_warning_fn;
+            png_ptr->warning_fn = (png_error_ptr)saved_warning_fn;
         }
         return 0;
     }
@@ -217,7 +217,7 @@ int png_safe_call_read_image(png_structrp png_ptr, png_bytepp image) {
     png_read_image(png_ptr, image);
 
     if (suppress_interlace_warning != 0 && png_ptr != NULL) {
-        png_ptr->warning_fn = saved_warning_fn;
+        png_ptr->warning_fn = (png_error_ptr)saved_warning_fn;
     }
     return 1;
 }

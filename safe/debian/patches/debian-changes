@@ -19918,3 +19918,2760 @@ Forwarded: not-needed
 +version = "1.3.0"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
 +checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+--- /dev/null
++++ libpng1.6-1.6.43/UNSAFE.md
+@@ -0,0 +1,44 @@
++# Unsafe Boundaries
++
++The remaining `unsafe` in the Phase 8 tree is limited to ABI and runtime edges
++that Rust cannot express safely without changing the libpng contract.
++
++## FFI and ABI edges
++
++- `safe/src/lib.rs` exports a C ABI and must accept raw pointers, C enums, and
++  callback function pointers from untrusted callers.
++- `safe/src/chunks.rs`, `safe/src/read.rs`, `safe/src/read_transform.rs`,
++  `safe/src/colorspace.rs`, `safe/src/interlace.rs`, and
++  `safe/src/simplified.rs` call into upstream libpng C objects or C shims and
++  therefore cross raw-pointer boundaries.
++- `safe/src/state.rs` reinterprets `png_struct` and `png_info` storage as
++  Rust-side state mirrors with `#[repr(C)]` layouts.
++
++## Callback and longjmp interop
++
++- `safe/cshim/longjmp_bridge.c` is required because `jmp_buf`, `setjmp`, and
++  `longjmp` are not portable to model directly in Rust.
++- `safe/cshim/read_phase_bridge.c` wraps upstream read-phase entry points that
++  can `longjmp` and snapshots fields Rust needs without exposing libpng private
++  layouts directly to safe Rust.
++- `safe/src/simplified.rs` and the read-side modules still store raw callback
++  pointers and opaque context pointers supplied by C callers.
++
++## Allocation and buffer ownership
++
++- `safe/src/simplified.rs` writes directly into caller-provided output buffers.
++  The API contract is inherited from libpng, so Rust cannot prove the buffer
++  size or stride is correct without runtime checks plus raw-pointer writes.
++- Any path that invokes user allocator hooks or frees memory through caller
++  callbacks must remain `unsafe` because Rust cannot verify foreign ownership or
++  allocator identity at compile time.
++
++## Hardening stance
++
++- Internal arithmetic and state transitions are kept in safe Rust where
++  possible.
++- Exported entry points now wrap the remaining Rust logic in panic guards so
++  panics abort instead of unwinding across the C ABI.
++- New CVE coverage under `safe/tests/cve-regressions/` documents which bug
++  classes are exercised by tests versus enforced by checked arithmetic or state
++  invariants.
+--- libpng1.6-1.6.43.orig/build.rs
++++ libpng1.6-1.6.43/build.rs
+@@ -30,7 +30,10 @@ const UPSTREAM_SOURCES: &[&str] = &[
+ ];
+ 
+ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
+-    ("png_destroy_read_struct", "upstream_png_destroy_read_struct"),
++    (
++        "png_destroy_read_struct",
++        "upstream_png_destroy_read_struct",
++    ),
+     ("png_read_row", "upstream_png_read_row"),
+     ("png_set_expand", "upstream_png_set_expand"),
+     ("png_set_expand_16", "upstream_png_set_expand_16"),
+@@ -151,6 +154,7 @@ fn main() -> Result<(), Box<dyn Error>>
+         .std("c99")
+         .include(&include_dir)
+         .include(manifest_dir.join("../original"))
++        .define("PNG_DISABLE_ADLER32_CHECK_SUPPORTED", "1")
+         .define("PNG_INTEL_SSE_OPT", "0")
+         .define("PNG_ARM_NEON_OPT", "0")
+         .define("PNG_MIPS_MMI_OPT", "0")
+--- libpng1.6-1.6.43.orig/cshim/read_phase_bridge.c
++++ libpng1.6-1.6.43/cshim/read_phase_bridge.c
+@@ -195,8 +195,8 @@ int png_safe_call_read_update_info(png_s
+ }
+ 
+ int png_safe_call_read_image(png_structrp png_ptr, png_bytepp image) {
+-    png_error_ptr saved_warning_fn = NULL;
+-    int suppress_interlace_warning = 0;
++    volatile png_error_ptr saved_warning_fn = NULL;
++    volatile int suppress_interlace_warning = 0;
+ 
+     if (png_ptr != NULL &&
+         (png_ptr->flags & PNG_FLAG_ROW_INIT) != 0 &&
+@@ -209,7 +209,7 @@ int png_safe_call_read_image(png_structr
+ 
+     if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+         if (suppress_interlace_warning != 0 && png_ptr != NULL) {
+-            png_ptr->warning_fn = saved_warning_fn;
++            png_ptr->warning_fn = (png_error_ptr)saved_warning_fn;
+         }
+         return 0;
+     }
+@@ -217,7 +217,7 @@ int png_safe_call_read_image(png_structr
+     png_read_image(png_ptr, image);
+ 
+     if (suppress_interlace_warning != 0 && png_ptr != NULL) {
+-        png_ptr->warning_fn = saved_warning_fn;
++        png_ptr->warning_fn = (png_error_ptr)saved_warning_fn;
+     }
+     return 1;
+ }
+--- libpng1.6-1.6.43.orig/src/chunks.rs
++++ libpng1.6-1.6.43/src/chunks.rs
+@@ -14,7 +14,7 @@ unsafe extern "C" {
+     fn png_safe_call_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
+ }
+ 
+-pub(crate) unsafe fn read_core(png_ptr: png_const_structrp) -> png_safe_read_core {
++pub(crate) fn read_core(png_ptr: png_const_structrp) -> png_safe_read_core {
+     let mut out = MaybeUninit::<png_safe_read_core>::zeroed();
+     unsafe {
+         png_safe_read_core_get(png_ptr, out.as_mut_ptr());
+@@ -22,13 +22,13 @@ pub(crate) unsafe fn read_core(png_ptr:
+     }
+ }
+ 
+-pub(crate) unsafe fn write_core(png_ptr: png_structrp, core: &png_safe_read_core) {
++pub(crate) fn write_core(png_ptr: png_structrp, core: &png_safe_read_core) {
+     unsafe {
+         png_safe_read_core_set(png_ptr, core);
+     }
+ }
+ 
+-pub(crate) unsafe fn read_info_core(info_ptr: png_const_inforp) -> png_safe_info_core {
++pub(crate) fn read_info_core(info_ptr: png_const_inforp) -> png_safe_info_core {
+     let mut out = MaybeUninit::<png_safe_info_core>::zeroed();
+     unsafe {
+         png_safe_info_core_get(info_ptr, out.as_mut_ptr());
+@@ -36,7 +36,7 @@ pub(crate) unsafe fn read_info_core(info
+     }
+ }
+ 
+-pub(crate) unsafe fn write_info_core(info_ptr: png_inforp, core: &png_safe_info_core) {
++pub(crate) fn write_info_core(info_ptr: png_inforp, core: &png_safe_info_core) {
+     unsafe {
+         png_safe_info_core_set(info_ptr, core);
+     }
+@@ -60,15 +60,15 @@ pub(crate) unsafe fn call_error(png_ptr:
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_check_for_invalid_index(png_ptr: png_structrp, allowed: c_int) {
+-    if png_ptr.is_null() {
+-        return;
+-    }
++    crate::abi_guard!(png_ptr, {
++        if png_ptr.is_null() {
++            return;
++        }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
+-    core.num_palette_max = if allowed > 0 { 0 } else { -1 };
+-    unsafe {
++        let mut core = read_core(png_ptr);
++        core.num_palette_max = if allowed > 0 { 0 } else { -1 };
+         write_core(png_ptr, &core);
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -76,9 +76,11 @@ pub unsafe extern "C" fn png_get_palette
+     png_ptr: png_const_structp,
+     info_ptr: png_const_infop,
+ ) -> c_int {
+-    if png_ptr.is_null() || info_ptr.is_null() {
+-        return -1;
+-    }
++    crate::abi_guard!(png_ptr.cast_mut(), {
++        if png_ptr.is_null() || info_ptr.is_null() {
++            return -1;
++        }
+ 
+-    unsafe { read_core(png_ptr) }.num_palette_max
++        read_core(png_ptr).num_palette_max
++    })
+ }
+--- libpng1.6-1.6.43.orig/src/colorspace.rs
++++ libpng1.6-1.6.43/src/colorspace.rs
+@@ -7,7 +7,7 @@ use core::ffi::c_int;
+ 
+ const PNG_HAVE_IHDR: png_uint_32 = 0x01;
+ const PNG_FLAG_ROW_INIT: png_uint_32 = 0x0040;
+-const PNG_FLAG_ASSUME_sRGB: png_uint_32 = 0x1000;
++const PNG_FLAG_ASSUME_SRGB: png_uint_32 = 0x1000;
+ const PNG_FLAG_OPTIMIZE_ALPHA: png_uint_32 = 0x2000;
+ const PNG_FLAG_DETECT_UNINITIALIZED: png_uint_32 = 0x4000;
+ 
+@@ -27,17 +27,17 @@ const PNG_BACKGROUND_GAMMA_FILE: png_byt
+ 
+ const PNG_COLORSPACE_HAVE_GAMMA: png_uint_16 = 0x0001;
+ const PNG_COLORSPACE_HAVE_ENDPOINTS: png_uint_16 = 0x0002;
+-const PNG_COLORSPACE_FROM_cHRM: png_uint_16 = 0x0010;
++const PNG_COLORSPACE_FROM_CHRM: png_uint_16 = 0x0010;
+ const PNG_COLORSPACE_INVALID: png_uint_16 = 0x8000;
+-const PNG_INFO_cHRM: png_uint_32 = 0x0004;
++const PNG_INFO_CHRM: png_uint_32 = 0x0004;
+ 
+ const PNG_FP_1: png_fixed_point = 100_000;
+-const PNG_DEFAULT_sRGB: png_fixed_point = -1;
++const PNG_DEFAULT_SRGB: png_fixed_point = -1;
+ const PNG_GAMMA_MAC_18: png_fixed_point = -2;
+-const PNG_GAMMA_sRGB: png_fixed_point = 220_000;
++const PNG_GAMMA_SRGB: png_fixed_point = 220_000;
+ const PNG_GAMMA_MAC_OLD: png_fixed_point = 151_724;
+ const PNG_GAMMA_MAC_INVERSE: png_fixed_point = 65_909;
+-const PNG_GAMMA_sRGB_INVERSE: png_fixed_point = 45_455;
++const PNG_GAMMA_SRGB_INVERSE: png_fixed_point = 45_455;
+ 
+ const PNG_ERROR_ACTION_NONE: c_int = 1;
+ const PNG_ERROR_ACTION_WARN: c_int = 2;
+@@ -53,7 +53,7 @@ fn rtran_ok(png_ptr: png_structrp, need_
+         return false;
+     }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
++    let mut core = read_core(png_ptr);
+     if (core.flags & PNG_FLAG_ROW_INIT) != 0 {
+         unsafe {
+             let _ = call_app_error(
+@@ -66,18 +66,13 @@ fn rtran_ok(png_ptr: png_structrp, need_
+ 
+     if need_ihdr && (core.mode & PNG_HAVE_IHDR) == 0 {
+         unsafe {
+-            let _ = call_app_error(
+-                png_ptr,
+-                b"invalid before the PNG header has been read\0",
+-            );
++            let _ = call_app_error(png_ptr, b"invalid before the PNG header has been read\0");
+         }
+         return false;
+     }
+ 
+     core.flags |= PNG_FLAG_DETECT_UNINITIALIZED;
+-    unsafe {
+-        write_core(png_ptr, &core);
+-    }
++    write_core(png_ptr, &core);
+     true
+ }
+ 
+@@ -91,16 +86,14 @@ fn translate_gamma_flags(
+     output_gamma: png_fixed_point,
+     is_screen: bool,
+ ) -> png_fixed_point {
+-    if output_gamma == PNG_DEFAULT_sRGB || output_gamma == (PNG_FP_1 / PNG_DEFAULT_sRGB) {
+-        core.flags |= PNG_FLAG_ASSUME_sRGB;
++    if output_gamma == PNG_DEFAULT_SRGB || output_gamma == (PNG_FP_1 / PNG_DEFAULT_SRGB) {
++        core.flags |= PNG_FLAG_ASSUME_SRGB;
+         if is_screen {
+-            PNG_GAMMA_sRGB
++            PNG_GAMMA_SRGB
+         } else {
+-            PNG_GAMMA_sRGB_INVERSE
++            PNG_GAMMA_SRGB_INVERSE
+         }
+-    } else if output_gamma == PNG_GAMMA_MAC_18
+-        || output_gamma == (PNG_FP_1 / PNG_GAMMA_MAC_18)
+-    {
++    } else if output_gamma == PNG_GAMMA_MAC_18 || output_gamma == (PNG_FP_1 / PNG_GAMMA_MAC_18) {
+         if is_screen {
+             PNG_GAMMA_MAC_OLD
+         } else {
+@@ -174,12 +167,10 @@ fn set_endpoint_values(
+             Ok((x, y))
+         };
+ 
+-    let (redx, redy) =
+-        xy_from_xyz(i64::from(values[0]), i64::from(values[1]), sums[0].unwrap())?;
++    let (redx, redy) = xy_from_xyz(i64::from(values[0]), i64::from(values[1]), sums[0].unwrap())?;
+     let (greenx, greeny) =
+         xy_from_xyz(i64::from(values[3]), i64::from(values[4]), sums[1].unwrap())?;
+-    let (bluex, bluey) =
+-        xy_from_xyz(i64::from(values[6]), i64::from(values[7]), sums[2].unwrap())?;
++    let (bluex, bluey) = xy_from_xyz(i64::from(values[6]), i64::from(values[7]), sums[2].unwrap())?;
+     let (whitex, whitey) = xy_from_xyz(white_x, white_y, white_sum)?;
+ 
+     info.colorspace.end_points_XYZ = png_XYZ {
+@@ -204,8 +195,8 @@ fn set_endpoint_values(
+         whitey,
+     };
+     info.colorspace.flags &= !PNG_COLORSPACE_INVALID;
+-    info.colorspace.flags |= PNG_COLORSPACE_HAVE_ENDPOINTS | PNG_COLORSPACE_FROM_cHRM;
+-    info.valid |= PNG_INFO_cHRM;
++    info.colorspace.flags |= PNG_COLORSPACE_HAVE_ENDPOINTS | PNG_COLORSPACE_FROM_CHRM;
++    info.valid |= PNG_INFO_CHRM;
+     Ok(())
+ }
+ 
+@@ -216,52 +207,45 @@ pub unsafe extern "C" fn png_set_rgb_to_
+     red: png_fixed_point,
+     green: png_fixed_point,
+ ) {
+-    if !rtran_ok(png_ptr, true) {
+-        return;
+-    }
++    crate::abi_guard!(png_ptr, {
++        if !rtran_ok(png_ptr, true) {
++            return;
++        }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
+-    core.transformations &= !PNG_RGB_TO_GRAY;
+-    match error_action {
+-        PNG_ERROR_ACTION_NONE => core.transformations |= PNG_RGB_TO_GRAY,
+-        PNG_ERROR_ACTION_WARN => core.transformations |= PNG_RGB_TO_GRAY_WARN,
+-        PNG_ERROR_ACTION_ERROR => core.transformations |= PNG_RGB_TO_GRAY_ERR,
+-        _ => {
+-            unsafe {
++        let mut core = read_core(png_ptr);
++        core.transformations &= !PNG_RGB_TO_GRAY;
++        match error_action {
++            PNG_ERROR_ACTION_NONE => core.transformations |= PNG_RGB_TO_GRAY,
++            PNG_ERROR_ACTION_WARN => core.transformations |= PNG_RGB_TO_GRAY_WARN,
++            PNG_ERROR_ACTION_ERROR => core.transformations |= PNG_RGB_TO_GRAY_ERR,
++            _ => {
+                 let _ = call_error(png_ptr, b"invalid error action to rgb_to_gray\0");
++                return;
+             }
+-            return;
+         }
+-    }
+ 
+-    if core.color_type == PNG_COLOR_TYPE_PALETTE {
+-        core.transformations |= PNG_EXPAND;
+-    }
++        if core.color_type == PNG_COLOR_TYPE_PALETTE {
++            core.transformations |= PNG_EXPAND;
++        }
+ 
+-    if red >= 0 && green >= 0 && i64::from(red) + i64::from(green) <= i64::from(PNG_FP_1) {
+-        core.rgb_to_gray_red_coeff = (((u64::try_from(red).unwrap_or(0)) * 32768) / 100000)
+-            as png_uint_16;
+-        core.rgb_to_gray_green_coeff =
+-            (((u64::try_from(green).unwrap_or(0)) * 32768) / 100000) as png_uint_16;
+-        core.rgb_to_gray_coefficients_set = 1;
+-    } else {
+-        if red >= 0 && green >= 0 {
+-            unsafe {
+-                let _ = call_warning(
+-                    png_ptr,
+-                    b"ignoring out of range rgb_to_gray coefficients\0",
+-                );
++        if red >= 0 && green >= 0 && i64::from(red) + i64::from(green) <= i64::from(PNG_FP_1) {
++            core.rgb_to_gray_red_coeff =
++                (((u64::try_from(red).unwrap_or(0)) * 32768) / 100000) as png_uint_16;
++            core.rgb_to_gray_green_coeff =
++                (((u64::try_from(green).unwrap_or(0)) * 32768) / 100000) as png_uint_16;
++            core.rgb_to_gray_coefficients_set = 1;
++        } else {
++            if red >= 0 && green >= 0 {
++                let _ = call_warning(png_ptr, b"ignoring out of range rgb_to_gray coefficients\0");
++            }
++            if core.rgb_to_gray_red_coeff == 0 && core.rgb_to_gray_green_coeff == 0 {
++                core.rgb_to_gray_red_coeff = 6968;
++                core.rgb_to_gray_green_coeff = 23434;
+             }
+         }
+-        if core.rgb_to_gray_red_coeff == 0 && core.rgb_to_gray_green_coeff == 0 {
+-            core.rgb_to_gray_red_coeff = 6968;
+-            core.rgb_to_gray_green_coeff = 23434;
+-        }
+-    }
+ 
+-    unsafe {
+         write_core(png_ptr, &core);
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -271,11 +255,11 @@ pub unsafe extern "C" fn png_set_rgb_to_
+     red: f64,
+     green: f64,
+ ) {
+-    let red = float_to_fixed(red).unwrap_or(-1);
+-    let green = float_to_fixed(green).unwrap_or(-1);
+-    unsafe {
++    crate::abi_guard!(png_ptr, {
++        let red = float_to_fixed(red).unwrap_or(-1);
++        let green = float_to_fixed(green).unwrap_or(-1);
+         png_set_rgb_to_gray_fixed(png_ptr, error_action, red, green);
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -286,35 +270,33 @@ pub unsafe extern "C" fn png_set_backgro
+     need_expand: c_int,
+     background_gamma: png_fixed_point,
+ ) {
+-    if background_color.is_null() || !rtran_ok(png_ptr, false) {
+-        return;
+-    }
++    crate::abi_guard!(png_ptr, {
++        if background_color.is_null() || !rtran_ok(png_ptr, false) {
++            return;
++        }
+ 
+-    if background_gamma_code == PNG_BACKGROUND_GAMMA_UNKNOWN {
+-        unsafe {
++        if background_gamma_code == PNG_BACKGROUND_GAMMA_UNKNOWN {
+             let _ = call_warning(
+                 png_ptr,
+                 b"Application must supply a known background gamma\0",
+             );
++            return;
+         }
+-        return;
+-    }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
+-    core.transformations |= PNG_COMPOSE | PNG_STRIP_ALPHA;
+-    core.transformations &= !PNG_ENCODE_ALPHA;
+-    core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
+-    core.background = unsafe { *background_color };
+-    core.background_gamma = background_gamma;
+-    core.background_gamma_type = background_gamma_code as png_byte;
+-    if need_expand != 0 {
+-        core.transformations |= PNG_BACKGROUND_EXPAND;
+-    } else {
+-        core.transformations &= !PNG_BACKGROUND_EXPAND;
+-    }
+-    unsafe {
++        let mut core = read_core(png_ptr);
++        core.transformations |= PNG_COMPOSE | PNG_STRIP_ALPHA;
++        core.transformations &= !PNG_ENCODE_ALPHA;
++        core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
++        core.background = *background_color;
++        core.background_gamma = background_gamma;
++        core.background_gamma_type = background_gamma_code as png_byte;
++        if need_expand != 0 {
++            core.transformations |= PNG_BACKGROUND_EXPAND;
++        } else {
++            core.transformations &= !PNG_BACKGROUND_EXPAND;
++        }
+         write_core(png_ptr, &core);
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -325,8 +307,8 @@ pub unsafe extern "C" fn png_set_backgro
+     need_expand: c_int,
+     background_gamma: f64,
+ ) {
+-    let gamma = float_to_fixed(background_gamma).unwrap_or(0);
+-    unsafe {
++    crate::abi_guard!(png_ptr, {
++        let gamma = float_to_fixed(background_gamma).unwrap_or(0);
+         png_set_background_fixed(
+             png_ptr,
+             background_color,
+@@ -334,7 +316,7 @@ pub unsafe extern "C" fn png_set_backgro
+             need_expand,
+             gamma,
+         );
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -343,89 +325,79 @@ pub unsafe extern "C" fn png_set_alpha_m
+     mode: c_int,
+     output_gamma: png_fixed_point,
+ ) {
+-    if !rtran_ok(png_ptr, false) {
+-        return;
+-    }
++    crate::abi_guard!(png_ptr, {
++        if !rtran_ok(png_ptr, false) {
++            return;
++        }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
+-    let mut output_gamma = translate_gamma_flags(&mut core, output_gamma, true);
+-    if !(1000..=10000000).contains(&output_gamma) {
+-        unsafe {
++        let mut core = read_core(png_ptr);
++        let mut output_gamma = translate_gamma_flags(&mut core, output_gamma, true);
++        if !(1000..=10000000).contains(&output_gamma) {
+             let _ = call_error(png_ptr, b"output gamma out of expected range\0");
++            return;
+         }
+-        return;
+-    }
+ 
+-    let file_gamma = reciprocal(output_gamma);
+-    let mut compose = false;
++        let file_gamma = reciprocal(output_gamma);
++        let mut compose = false;
+ 
+-    match mode {
+-        PNG_ALPHA_PNG => {
+-            core.transformations &= !PNG_ENCODE_ALPHA;
+-            core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
+-        }
+-        PNG_ALPHA_ASSOCIATED => {
+-            compose = true;
+-            core.transformations &= !PNG_ENCODE_ALPHA;
+-            core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
+-            output_gamma = PNG_FP_1;
+-        }
+-        PNG_ALPHA_OPTIMIZED => {
+-            compose = true;
+-            core.transformations &= !PNG_ENCODE_ALPHA;
+-            core.flags |= PNG_FLAG_OPTIMIZE_ALPHA;
+-        }
+-        PNG_ALPHA_BROKEN => {
+-            compose = true;
+-            core.transformations |= PNG_ENCODE_ALPHA;
+-            core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
+-        }
+-        _ => {
+-            unsafe {
++        match mode {
++            PNG_ALPHA_PNG => {
++                core.transformations &= !PNG_ENCODE_ALPHA;
++                core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
++            }
++            PNG_ALPHA_ASSOCIATED => {
++                compose = true;
++                core.transformations &= !PNG_ENCODE_ALPHA;
++                core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
++                output_gamma = PNG_FP_1;
++            }
++            PNG_ALPHA_OPTIMIZED => {
++                compose = true;
++                core.transformations &= !PNG_ENCODE_ALPHA;
++                core.flags |= PNG_FLAG_OPTIMIZE_ALPHA;
++            }
++            PNG_ALPHA_BROKEN => {
++                compose = true;
++                core.transformations |= PNG_ENCODE_ALPHA;
++                core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
++            }
++            _ => {
+                 let _ = call_error(png_ptr, b"invalid alpha mode\0");
++                return;
+             }
+-            return;
+         }
+-    }
+ 
+-    if (core.colorspace.flags & PNG_COLORSPACE_HAVE_GAMMA) == 0 {
+-        core.colorspace.gamma = file_gamma;
+-        core.colorspace.flags |= PNG_COLORSPACE_HAVE_GAMMA;
+-    }
+-    core.screen_gamma = output_gamma;
++        if (core.colorspace.flags & PNG_COLORSPACE_HAVE_GAMMA) == 0 {
++            core.colorspace.gamma = file_gamma;
++            core.colorspace.flags |= PNG_COLORSPACE_HAVE_GAMMA;
++        }
++        core.screen_gamma = output_gamma;
+ 
+-    if compose {
+-        if (core.transformations & PNG_COMPOSE) != 0 {
+-            unsafe {
++        if compose {
++            if (core.transformations & PNG_COMPOSE) != 0 {
+                 let _ = call_error(
+                     png_ptr,
+                     b"conflicting calls to set alpha mode and background\0",
+                 );
++                return;
+             }
+-            return;
++            core.background = png_color_16::default();
++            core.background_gamma = core.colorspace.gamma;
++            core.background_gamma_type = PNG_BACKGROUND_GAMMA_FILE;
++            core.transformations &= !PNG_BACKGROUND_EXPAND;
++            core.transformations |= PNG_COMPOSE;
+         }
+-        core.background = png_color_16::default();
+-        core.background_gamma = core.colorspace.gamma;
+-        core.background_gamma_type = PNG_BACKGROUND_GAMMA_FILE;
+-        core.transformations &= !PNG_BACKGROUND_EXPAND;
+-        core.transformations |= PNG_COMPOSE;
+-    }
+-    unsafe {
+         write_core(png_ptr, &core);
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+-pub unsafe extern "C" fn png_set_alpha_mode(
+-    png_ptr: png_structrp,
+-    mode: c_int,
+-    output_gamma: f64,
+-) {
+-    if let Some(output_gamma) = float_to_fixed(output_gamma) {
+-        unsafe {
++pub unsafe extern "C" fn png_set_alpha_mode(png_ptr: png_structrp, mode: c_int, output_gamma: f64) {
++    crate::abi_guard!(png_ptr, {
++        if let Some(output_gamma) = float_to_fixed(output_gamma) {
+             png_set_alpha_mode_fixed(png_ptr, mode, output_gamma);
+         }
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -442,30 +414,30 @@ pub unsafe extern "C" fn png_set_cHRM_XY
+     blue_Y: png_fixed_point,
+     blue_Z: png_fixed_point,
+ ) {
+-    if png_ptr.is_null() || info_ptr.is_null() {
+-        return;
+-    }
++    crate::abi_guard!(png_ptr.cast_mut(), {
++        if png_ptr.is_null() || info_ptr.is_null() {
++            return;
++        }
+ 
+-    let mut info = unsafe { read_info_core(info_ptr) };
+-    if set_endpoint_values(
+-        &mut info,
+-        [red_X, red_Y, red_Z, green_X, green_Y, green_Z, blue_X, blue_Y, blue_Z],
+-    )
+-    .is_err()
+-    {
+-        info.colorspace.flags |= PNG_COLORSPACE_INVALID;
+-        info.colorspace.flags &= !PNG_COLORSPACE_HAVE_ENDPOINTS;
+-        info.valid &= !PNG_INFO_cHRM;
+-        unsafe {
++        let mut info = read_info_core(info_ptr);
++        if set_endpoint_values(
++            &mut info,
++            [
++                red_X, red_Y, red_Z, green_X, green_Y, green_Z, blue_X, blue_Y, blue_Z,
++            ],
++        )
++        .is_err()
++        {
++            info.colorspace.flags |= PNG_COLORSPACE_INVALID;
++            info.colorspace.flags &= !PNG_COLORSPACE_HAVE_ENDPOINTS;
++            info.valid &= !PNG_INFO_CHRM;
+             write_info_core(info_ptr, &info);
+             let _ = call_benign_error(png_ptr.cast_mut(), b"invalid end points\0");
++            return;
+         }
+-        return;
+-    }
+ 
+-    unsafe {
+         write_info_core(info_ptr, &info);
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -482,31 +454,38 @@ pub unsafe extern "C" fn png_set_cHRM_XY
+     blue_Y: f64,
+     blue_Z: f64,
+ ) {
+-    let values = [
+-        float_to_fixed(red_X),
+-        float_to_fixed(red_Y),
+-        float_to_fixed(red_Z),
+-        float_to_fixed(green_X),
+-        float_to_fixed(green_Y),
+-        float_to_fixed(green_Z),
+-        float_to_fixed(blue_X),
+-        float_to_fixed(blue_Y),
+-        float_to_fixed(blue_Z),
+-    ];
+-    if let [Some(red_X), Some(red_Y), Some(red_Z), Some(green_X), Some(green_Y), Some(green_Z), Some(blue_X), Some(blue_Y), Some(blue_Z)] =
+-        values
+-    {
+-        unsafe {
++    crate::abi_guard!(png_ptr.cast_mut(), {
++        let values = [
++            float_to_fixed(red_X),
++            float_to_fixed(red_Y),
++            float_to_fixed(red_Z),
++            float_to_fixed(green_X),
++            float_to_fixed(green_Y),
++            float_to_fixed(green_Z),
++            float_to_fixed(blue_X),
++            float_to_fixed(blue_Y),
++            float_to_fixed(blue_Z),
++        ];
++        if let [
++            Some(red_X),
++            Some(red_Y),
++            Some(red_Z),
++            Some(green_X),
++            Some(green_Y),
++            Some(green_Z),
++            Some(blue_X),
++            Some(blue_Y),
++            Some(blue_Z),
++        ] = values
++        {
+             png_set_cHRM_XYZ_fixed(
+-                png_ptr, info_ptr, red_X, red_Y, red_Z, green_X, green_Y, green_Z, blue_X,
+-                blue_Y, blue_Z,
++                png_ptr, info_ptr, red_X, red_Y, red_Z, green_X, green_Y, green_Z, blue_X, blue_Y,
++                blue_Z,
+             );
+-        }
+-    } else {
+-        unsafe {
++        } else {
+             let _ = call_benign_error(png_ptr.cast_mut(), b"invalid end points\0");
+         }
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -523,45 +502,47 @@ pub unsafe extern "C" fn png_get_cHRM_XY
+     blue_Y: *mut png_fixed_point,
+     blue_Z: *mut png_fixed_point,
+ ) -> png_uint_32 {
+-    if info_ptr.is_null() {
+-        return 0;
+-    }
+-
+-    let info = unsafe { read_info_core(info_ptr) };
+-    if (info.colorspace.flags & PNG_COLORSPACE_HAVE_ENDPOINTS) == 0 {
+-        return 0;
+-    }
+-
+-    unsafe {
+-        if !red_X.is_null() {
+-            *red_X = info.colorspace.end_points_XYZ.red_X;
+-        }
+-        if !red_Y.is_null() {
+-            *red_Y = info.colorspace.end_points_XYZ.red_Y;
+-        }
+-        if !red_Z.is_null() {
+-            *red_Z = info.colorspace.end_points_XYZ.red_Z;
+-        }
+-        if !green_X.is_null() {
+-            *green_X = info.colorspace.end_points_XYZ.green_X;
+-        }
+-        if !green_Y.is_null() {
+-            *green_Y = info.colorspace.end_points_XYZ.green_Y;
+-        }
+-        if !green_Z.is_null() {
+-            *green_Z = info.colorspace.end_points_XYZ.green_Z;
+-        }
+-        if !blue_X.is_null() {
+-            *blue_X = info.colorspace.end_points_XYZ.blue_X;
++    crate::abi_guard!(info_ptr.cast_mut(), {
++        if info_ptr.is_null() {
++            return 0;
+         }
+-        if !blue_Y.is_null() {
+-            *blue_Y = info.colorspace.end_points_XYZ.blue_Y;
++
++        let info = read_info_core(info_ptr);
++        if (info.colorspace.flags & PNG_COLORSPACE_HAVE_ENDPOINTS) == 0 {
++            return 0;
+         }
+-        if !blue_Z.is_null() {
+-            *blue_Z = info.colorspace.end_points_XYZ.blue_Z;
++
++        unsafe {
++            if !red_X.is_null() {
++                *red_X = info.colorspace.end_points_XYZ.red_X;
++            }
++            if !red_Y.is_null() {
++                *red_Y = info.colorspace.end_points_XYZ.red_Y;
++            }
++            if !red_Z.is_null() {
++                *red_Z = info.colorspace.end_points_XYZ.red_Z;
++            }
++            if !green_X.is_null() {
++                *green_X = info.colorspace.end_points_XYZ.green_X;
++            }
++            if !green_Y.is_null() {
++                *green_Y = info.colorspace.end_points_XYZ.green_Y;
++            }
++            if !green_Z.is_null() {
++                *green_Z = info.colorspace.end_points_XYZ.green_Z;
++            }
++            if !blue_X.is_null() {
++                *blue_X = info.colorspace.end_points_XYZ.blue_X;
++            }
++            if !blue_Y.is_null() {
++                *blue_Y = info.colorspace.end_points_XYZ.blue_Y;
++            }
++            if !blue_Z.is_null() {
++                *blue_Z = info.colorspace.end_points_XYZ.blue_Z;
++            }
+         }
+-    }
+-    PNG_INFO_cHRM
++        PNG_INFO_CHRM
++    })
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -578,17 +559,17 @@ pub unsafe extern "C" fn png_get_cHRM_XY
+     blue_Y: *mut f64,
+     blue_Z: *mut f64,
+ ) -> png_uint_32 {
+-    let mut fixed_red_X = 0;
+-    let mut fixed_red_Y = 0;
+-    let mut fixed_red_Z = 0;
+-    let mut fixed_green_X = 0;
+-    let mut fixed_green_Y = 0;
+-    let mut fixed_green_Z = 0;
+-    let mut fixed_blue_X = 0;
+-    let mut fixed_blue_Y = 0;
+-    let mut fixed_blue_Z = 0;
+-    let result = unsafe {
+-        png_get_cHRM_XYZ_fixed(
++    crate::abi_guard!(info_ptr.cast_mut(), {
++        let mut fixed_red_X = 0;
++        let mut fixed_red_Y = 0;
++        let mut fixed_red_Z = 0;
++        let mut fixed_green_X = 0;
++        let mut fixed_green_Y = 0;
++        let mut fixed_green_Z = 0;
++        let mut fixed_blue_X = 0;
++        let mut fixed_blue_Y = 0;
++        let mut fixed_blue_Z = 0;
++        let result = png_get_cHRM_XYZ_fixed(
+             png_ptr,
+             info_ptr,
+             &mut fixed_red_X,
+@@ -600,41 +581,41 @@ pub unsafe extern "C" fn png_get_cHRM_XY
+             &mut fixed_blue_X,
+             &mut fixed_blue_Y,
+             &mut fixed_blue_Z,
+-        )
+-    };
+-    if result == 0 {
+-        return 0;
+-    }
+-
+-    unsafe {
+-        if !red_X.is_null() {
+-            *red_X = fixed_to_float(fixed_red_X);
+-        }
+-        if !red_Y.is_null() {
+-            *red_Y = fixed_to_float(fixed_red_Y);
+-        }
+-        if !red_Z.is_null() {
+-            *red_Z = fixed_to_float(fixed_red_Z);
+-        }
+-        if !green_X.is_null() {
+-            *green_X = fixed_to_float(fixed_green_X);
+-        }
+-        if !green_Y.is_null() {
+-            *green_Y = fixed_to_float(fixed_green_Y);
+-        }
+-        if !green_Z.is_null() {
+-            *green_Z = fixed_to_float(fixed_green_Z);
+-        }
+-        if !blue_X.is_null() {
+-            *blue_X = fixed_to_float(fixed_blue_X);
+-        }
+-        if !blue_Y.is_null() {
+-            *blue_Y = fixed_to_float(fixed_blue_Y);
++        );
++        if result == 0 {
++            return 0;
+         }
+-        if !blue_Z.is_null() {
+-            *blue_Z = fixed_to_float(fixed_blue_Z);
++
++        unsafe {
++            if !red_X.is_null() {
++                *red_X = fixed_to_float(fixed_red_X);
++            }
++            if !red_Y.is_null() {
++                *red_Y = fixed_to_float(fixed_red_Y);
++            }
++            if !red_Z.is_null() {
++                *red_Z = fixed_to_float(fixed_red_Z);
++            }
++            if !green_X.is_null() {
++                *green_X = fixed_to_float(fixed_green_X);
++            }
++            if !green_Y.is_null() {
++                *green_Y = fixed_to_float(fixed_green_Y);
++            }
++            if !green_Z.is_null() {
++                *green_Z = fixed_to_float(fixed_green_Z);
++            }
++            if !blue_X.is_null() {
++                *blue_X = fixed_to_float(fixed_blue_X);
++            }
++            if !blue_Y.is_null() {
++                *blue_Y = fixed_to_float(fixed_blue_Y);
++            }
++            if !blue_Z.is_null() {
++                *blue_Z = fixed_to_float(fixed_blue_Z);
++            }
+         }
+-    }
+ 
+-    PNG_INFO_cHRM
++        PNG_INFO_CHRM
++    })
+ }
+--- libpng1.6-1.6.43.orig/src/interlace.rs
++++ libpng1.6-1.6.43/src/interlace.rs
+@@ -4,11 +4,7 @@ use core::ffi::c_int;
+ 
+ const PNG_INTERLACE: png_uint_32 = 0x0002;
+ 
+-pub(crate) fn mask_packed_row_padding_for_width(
+-    row: &mut [u8],
+-    width: usize,
+-    pixel_depth: usize,
+-) {
++pub(crate) fn mask_packed_row_padding_for_width(row: &mut [u8], width: usize, pixel_depth: usize) {
+     if width == 0 || pixel_depth >= 8 || row.is_empty() {
+         return;
+     }
+@@ -29,18 +25,18 @@ pub(crate) fn mask_packed_row_padding_fo
+ }
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_interlace_handling(png_ptr: png_structrp) -> c_int {
+-    if png_ptr.is_null() {
+-        return 1;
+-    }
++    crate::abi_guard!(png_ptr, {
++        if png_ptr.is_null() {
++            return 1;
++        }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
+-    if core.interlaced != 0 {
+-        core.transformations |= PNG_INTERLACE;
+-        unsafe {
++        let mut core = read_core(png_ptr);
++        if core.interlaced != 0 {
++            core.transformations |= PNG_INTERLACE;
+             write_core(png_ptr, &core);
++            7
++        } else {
++            1
+         }
+-        7
+-    } else {
+-        1
+-    }
++    })
+ }
+--- libpng1.6-1.6.43.orig/src/lib.rs
++++ libpng1.6-1.6.43/src/lib.rs
+@@ -3,6 +3,27 @@
+ #![allow(clippy::missing_safety_doc)]
+ #![allow(unsafe_op_in_unsafe_fn)]
+ 
++#[macro_export]
++macro_rules! abi_guard {
++    ($png_ptr:expr, $body:expr) => {{
++        let _ = $png_ptr;
++        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $body)) {
++            Ok(value) => value,
++            Err(_) => std::process::abort(),
++        }
++    }};
++}
++
++#[macro_export]
++macro_rules! abi_guard_no_png {
++    ($body:expr) => {{
++        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $body)) {
++            Ok(value) => value,
++            Err(_) => std::process::abort(),
++        }
++    }};
++}
++
+ pub mod abi_exports;
+ mod chunks;
+ mod colorspace;
+--- libpng1.6-1.6.43.orig/src/read.rs
++++ libpng1.6-1.6.43/src/read.rs
+@@ -1,5 +1,4 @@
+ use crate::read_util::KeepSymbol;
+-use crate::read_transform::clear_read_state;
+ use crate::types::*;
+ use core::ptr;
+ 
+@@ -29,10 +28,12 @@ pub unsafe extern "C" fn png_destroy_rea
+     } else {
+         unsafe { *png_ptr_ptr }
+     };
+-    clear_read_state(png_ptr);
+-    unsafe {
+-        upstream_png_destroy_read_struct(png_ptr_ptr, info_ptr_ptr, end_info_ptr_ptr);
+-    }
++
++    crate::abi_guard!(png_ptr, {
++        unsafe {
++            upstream_png_destroy_read_struct(png_ptr_ptr, info_ptr_ptr, end_info_ptr_ptr);
++        }
++    });
+ }
+ 
+ #[used]
+--- libpng1.6-1.6.43.orig/src/read_transform.rs
++++ libpng1.6-1.6.43/src/read_transform.rs
+@@ -2,8 +2,6 @@ use crate::chunks::{call_app_error, read
+ use crate::interlace::mask_packed_row_padding_for_width;
+ use crate::types::*;
+ use core::ffi::c_int;
+-use std::collections::HashMap;
+-use std::sync::{Mutex, OnceLock};
+ 
+ const PNG_HAVE_IHDR: png_uint_32 = 0x01;
+ const PNG_INVERT_MONO: png_uint_32 = 0x0020;
+@@ -16,20 +14,14 @@ const PNG_SWAP_ALPHA: png_uint_32 = 0x20
+ const PNG_INVERT_ALPHA: png_uint_32 = 0x80000;
+ const PNG_EXPAND_16: png_uint_32 = 0x0200;
+ const PNG_16_TO_8: png_uint_32 = 0x0400;
+-const PNG_EXPAND_tRNS: png_uint_32 = 0x2000000;
++const PNG_EXPAND_TRNS: png_uint_32 = 0x2000000;
+ const PNG_SCALE_16_TO_8: png_uint_32 = 0x4000000;
+ const PNG_BGR: png_uint_32 = 0x0001;
+ 
+ const PNG_FLAG_ROW_INIT: png_uint_32 = 0x0040;
+ const PNG_FLAG_DETECT_UNINITIALIZED: png_uint_32 = 0x4000;
+ 
+-const PASS_START_COL: [usize; 7] = [0, 4, 0, 2, 0, 1, 0];
+-const PASS_COL_OFFSET: [usize; 7] = [8, 8, 4, 4, 2, 2, 1];
+-const PASS_START_ROW: [usize; 7] = [0, 0, 4, 0, 2, 0, 1];
+-const PASS_ROW_OFFSET: [usize; 7] = [8, 8, 8, 4, 4, 2, 2];
+-
+ unsafe extern "C" {
+-    fn png_safe_call_read_image(png_ptr: png_structrp, image: png_bytepp) -> c_int;
+     fn png_safe_call_set_quantize(
+         png_ptr: png_structrp,
+         palette: png_colorp,
+@@ -41,48 +33,12 @@ unsafe extern "C" {
+     fn upstream_png_read_row(png_ptr: png_structrp, row: png_bytep, display_row: png_bytep);
+ }
+ 
+-#[derive(Clone, Copy, Debug)]
+-struct RowSlot {
+-    row_index: usize,
+-    pass_width: usize,
+-    start_col: usize,
+-    col_step: usize,
+-    present: bool,
+-}
+-
+-#[derive(Debug)]
+-struct BufferedReadState {
+-    rows: Vec<u8>,
+-    rowbytes: usize,
+-    width: usize,
+-    pixel_depth: usize,
+-    source_interlaced: bool,
+-    handled_interlace: bool,
+-    slots: Vec<RowSlot>,
+-    next_slot: usize,
+-}
+-
+-fn buffered_reads() -> &'static Mutex<HashMap<usize, BufferedReadState>> {
+-    static BUFFERED_READS: OnceLock<Mutex<HashMap<usize, BufferedReadState>>> = OnceLock::new();
+-    BUFFERED_READS.get_or_init(|| Mutex::new(HashMap::new()))
+-}
+-
+-pub(crate) fn clear_read_state(png_ptr: png_const_structrp) {
+-    if png_ptr.is_null() {
+-        return;
+-    }
+-
+-    if let Ok(mut states) = buffered_reads().lock() {
+-        states.remove(&(png_ptr as usize));
+-    }
+-}
+-
+ fn rtran_ok(png_ptr: png_structrp, need_ihdr: bool) -> bool {
+     if png_ptr.is_null() {
+         return false;
+     }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
++    let mut core = read_core(png_ptr);
+     if (core.flags & PNG_FLAG_ROW_INIT) != 0 {
+         unsafe {
+             let _ = call_app_error(
+@@ -95,34 +51,16 @@ fn rtran_ok(png_ptr: png_structrp, need_
+ 
+     if need_ihdr && (core.mode & PNG_HAVE_IHDR) == 0 {
+         unsafe {
+-            let _ = call_app_error(
+-                png_ptr,
+-                b"invalid before the PNG header has been read\0",
+-            );
++            let _ = call_app_error(png_ptr, b"invalid before the PNG header has been read\0");
+         }
+         return false;
+     }
+ 
+     core.flags |= PNG_FLAG_DETECT_UNINITIALIZED;
+-    unsafe {
+-        write_core(png_ptr, &core);
+-    }
++    write_core(png_ptr, &core);
+     true
+ }
+ 
+-fn pass_cols(width: usize, pass: usize) -> usize {
+-    let start = PASS_START_COL[pass];
+-    if width <= start {
+-        0
+-    } else {
+-        (width - start).div_ceil(PASS_COL_OFFSET[pass])
+-    }
+-}
+-
+-fn row_in_pass(row: usize, pass: usize) -> bool {
+-    row >= PASS_START_ROW[pass] && (row - PASS_START_ROW[pass]).is_multiple_of(PASS_ROW_OFFSET[pass])
+-}
+-
+ fn rowbytes_for_width(width: usize, pixel_depth: usize) -> usize {
+     (width * pixel_depth).div_ceil(8)
+ }
+@@ -145,153 +83,63 @@ fn infer_pixel_depth(core: png_safe_read
+         .unwrap_or(0)
+ }
+ 
+-fn read_packed_pixel(row: &[u8], x: usize, pixel_depth: usize) -> u8 {
+-    let bit_offset = x * pixel_depth;
+-    let byte_index = bit_offset / 8;
+-    let shift = 8 - pixel_depth - (bit_offset % 8);
+-    let mask = ((1u16 << pixel_depth) - 1) as u8;
+-    (row[byte_index] >> shift) & mask
+-}
+-
+-fn write_packed_pixel(row: &mut [u8], x: usize, pixel_depth: usize, value: u8) {
+-    let bit_offset = x * pixel_depth;
+-    let byte_index = bit_offset / 8;
+-    let shift = 8 - pixel_depth - (bit_offset % 8);
+-    let mask = (((1u16 << pixel_depth) - 1) as u8) << shift;
+-    row[byte_index] = (row[byte_index] & !mask) | ((value << shift) & mask);
+-}
+-
+-fn copy_dense_pass_row(
+-    state: &BufferedReadState,
+-    slot: RowSlot,
+-    dst: png_bytep,
+-) {
+-    if dst.is_null() || !slot.present || state.pixel_depth == 0 || slot.pass_width == 0 {
+-        return;
+-    }
+-
+-    let src_start = slot.row_index * state.rowbytes;
+-    let src_end = src_start + state.rowbytes;
+-    let src_row = &state.rows[src_start..src_end];
+-    let dst_rowbytes = rowbytes_for_width(slot.pass_width, state.pixel_depth);
+-    if dst_rowbytes == 0 {
+-        return;
+-    }
+-    let dst_row = unsafe { std::slice::from_raw_parts_mut(dst, dst_rowbytes) };
+-
+-    if state.pixel_depth >= 8 {
+-        let pixel_bytes = state.pixel_depth / 8;
+-        for x in 0..slot.pass_width {
+-            let src_x = slot.start_col + x * slot.col_step;
+-            let src_offset = src_x * pixel_bytes;
+-            let dst_offset = x * pixel_bytes;
+-            dst_row[dst_offset..dst_offset + pixel_bytes]
+-                .copy_from_slice(&src_row[src_offset..src_offset + pixel_bytes]);
+-        }
+-    } else {
+-        dst_row.fill(0);
+-        for x in 0..slot.pass_width {
+-            let src_x = slot.start_col + x * slot.col_step;
+-            let value = read_packed_pixel(src_row, src_x, state.pixel_depth);
+-            write_packed_pixel(dst_row, x, state.pixel_depth, value);
+-        }
+-        mask_packed_row_padding_for_width(dst_row, slot.pass_width, state.pixel_depth);
+-    }
+-}
+-
+-fn combine_interlaced_row(
+-    state: &BufferedReadState,
+-    slot: RowSlot,
+-    dst: png_bytep,
+-    display: bool,
+-) {
+-    if dst.is_null() || !slot.present || state.pixel_depth == 0 || state.width == 0 {
+-        return;
+-    }
+-
+-    let src_start = slot.row_index * state.rowbytes;
+-    let src_end = src_start + state.rowbytes;
+-    let src_row = &state.rows[src_start..src_end];
+-    let dst_row = unsafe { std::slice::from_raw_parts_mut(dst, state.rowbytes) };
+-
+-    if state.pixel_depth >= 8 {
+-        let pixel_bytes = state.pixel_depth / 8;
+-        for x in 0..slot.pass_width {
+-            let src_x = slot.start_col + x * slot.col_step;
+-            let src_offset = src_x * pixel_bytes;
+-            let fill_end = if display {
+-                usize::min(src_x + slot.col_step, state.width)
+-            } else {
+-                src_x + 1
+-            };
+-            for out_x in src_x..fill_end {
+-                let dst_offset = out_x * pixel_bytes;
+-                dst_row[dst_offset..dst_offset + pixel_bytes]
+-                    .copy_from_slice(&src_row[src_offset..src_offset + pixel_bytes]);
+-            }
+-        }
+-    } else {
+-        for x in 0..slot.pass_width {
+-            let src_x = slot.start_col + x * slot.col_step;
+-            let value = read_packed_pixel(src_row, src_x, state.pixel_depth);
+-            let fill_end = if display {
+-                usize::min(src_x + slot.col_step, state.width)
+-            } else {
+-                src_x + 1
+-            };
+-            for out_x in src_x..fill_end {
+-                write_packed_pixel(dst_row, out_x, state.pixel_depth, value);
+-            }
+-        }
+-        mask_packed_row_padding_for_width(dst_row, state.width, state.pixel_depth);
+-    }
+-}
+-
+ fn update_transform(png_ptr: png_structrp, transform_mask: png_uint_32) {
+     if !rtran_ok(png_ptr, false) {
+         return;
+     }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
++    let mut core = read_core(png_ptr);
+     core.transformations |= transform_mask;
+-    unsafe {
+-        write_core(png_ptr, &core);
+-    }
++    write_core(png_ptr, &core);
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_expand(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_EXPAND | PNG_EXPAND_tRNS);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_EXPAND | PNG_EXPAND_TRNS);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_expand_16(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_EXPAND_16 | PNG_EXPAND | PNG_EXPAND_tRNS);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_EXPAND_16 | PNG_EXPAND | PNG_EXPAND_TRNS);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_palette_to_rgb(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_EXPAND | PNG_EXPAND_tRNS);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_EXPAND | PNG_EXPAND_TRNS);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_tRNS_to_alpha(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_EXPAND | PNG_EXPAND_tRNS);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_EXPAND | PNG_EXPAND_TRNS);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_gray_to_rgb(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_EXPAND | PNG_GRAY_TO_RGB);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_EXPAND | PNG_GRAY_TO_RGB);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_scale_16(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_SCALE_16_TO_8);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_SCALE_16_TO_8);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_strip_16(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_16_TO_8);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_16_TO_8);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -303,66 +151,71 @@ pub unsafe extern "C" fn png_set_quantiz
+     histogram: png_const_uint_16p,
+     full_quantize: c_int,
+ ) {
+-    if !rtran_ok(png_ptr, false) {
+-        return;
+-    }
++    crate::abi_guard!(png_ptr, {
++        if !rtran_ok(png_ptr, false) {
++            return;
++        }
+ 
+-    if unsafe {
+-        png_safe_call_set_quantize(
+-            png_ptr,
+-            palette,
+-            num_palette,
+-            maximum_colors,
+-            histogram,
+-            full_quantize,
+-        )
+-    } == 0
+-    {
+-        return;
+-    }
++        if unsafe {
++            png_safe_call_set_quantize(
++                png_ptr,
++                palette,
++                num_palette,
++                maximum_colors,
++                histogram,
++                full_quantize,
++            )
++        } == 0
++        {
++            return;
++        }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
+-    core.transformations |= PNG_QUANTIZE;
+-    unsafe {
++        let mut core = read_core(png_ptr);
++        core.transformations |= PNG_QUANTIZE;
+         write_core(png_ptr, &core);
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+-pub unsafe extern "C" fn png_set_shift(
+-    png_ptr: png_structrp,
+-    true_bits: png_const_color_8p,
+-) {
+-    if true_bits.is_null() || !rtran_ok(png_ptr, false) {
+-        return;
+-    }
++pub unsafe extern "C" fn png_set_shift(png_ptr: png_structrp, true_bits: png_const_color_8p) {
++    crate::abi_guard!(png_ptr, {
++        if true_bits.is_null() || !rtran_ok(png_ptr, false) {
++            return;
++        }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
+-    core.transformations |= PNG_SHIFT;
+-    core.shift = unsafe { *true_bits };
+-    unsafe {
++        let mut core = read_core(png_ptr);
++        core.transformations |= PNG_SHIFT;
++        core.shift = unsafe { *true_bits };
+         write_core(png_ptr, &core);
+-    }
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_swap_alpha(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_SWAP_ALPHA);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_SWAP_ALPHA);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_invert_alpha(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_INVERT_ALPHA);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_INVERT_ALPHA);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_invert_mono(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_INVERT_MONO);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_INVERT_MONO);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_set_bgr(png_ptr: png_structrp) {
+-    update_transform(png_ptr, PNG_BGR);
++    crate::abi_guard!(png_ptr, {
++        update_transform(png_ptr, PNG_BGR);
++    });
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -371,178 +224,75 @@ pub unsafe extern "C" fn png_read_row(
+     row: png_bytep,
+     display_row: png_bytep,
+ ) {
+-    if png_ptr.is_null() {
+-        return;
+-    }
+-
+-    if row.is_null() && display_row.is_null() {
+-        unsafe {
+-            upstream_png_read_row(png_ptr, row, display_row);
++    crate::abi_guard!(png_ptr, {
++        if png_ptr.is_null() {
++            return;
+         }
+-        return;
+-    }
+ 
+-    let core = unsafe { read_core(png_ptr) };
+-    let handled_interlace = core.interlaced != 0 && (core.transformations & PNG_INTERLACE) != 0;
+-
+-    if handled_interlace {
+-        unsafe {
+-            upstream_png_read_row(png_ptr, row, display_row);
++        if row.is_null() && display_row.is_null() {
++            unsafe {
++                upstream_png_read_row(png_ptr, row, display_row);
++            }
++            return;
+         }
+ 
+-        let rowbytes = if core.rowbytes != 0 {
+-            core.rowbytes
+-        } else {
+-            core.info_rowbytes
+-        };
+-        let width = usize::try_from(core.width).unwrap_or(0);
+-        let pixel_depth = infer_pixel_depth(core, width, rowbytes);
+-
+-        if width != 0 && pixel_depth != 0 && pixel_depth < 8 {
+-            if !row.is_null() && rowbytes != 0 {
+-                let row_slice = unsafe { std::slice::from_raw_parts_mut(row, rowbytes) };
+-                mask_packed_row_padding_for_width(row_slice, width, pixel_depth);
+-            }
++        let core = read_core(png_ptr);
++        let handled_interlace = core.interlaced != 0 && (core.transformations & PNG_INTERLACE) != 0;
+ 
+-            if !display_row.is_null() && rowbytes != 0 {
+-                let display_slice =
+-                    unsafe { std::slice::from_raw_parts_mut(display_row, rowbytes) };
+-                mask_packed_row_padding_for_width(display_slice, width, pixel_depth);
++        if handled_interlace {
++            unsafe {
++                upstream_png_read_row(png_ptr, row, display_row);
+             }
+-        }
+ 
+-        return;
+-    }
++            let rowbytes = if core.rowbytes != 0 {
++                core.rowbytes
++            } else {
++                core.info_rowbytes
++            };
++            let width = usize::try_from(core.width).unwrap_or(0);
++            let pixel_depth = infer_pixel_depth(core, width, rowbytes);
+ 
+-    let key = png_ptr as usize;
++            if width != 0 && pixel_depth != 0 && pixel_depth < 8 {
++                if !row.is_null() && rowbytes != 0 {
++                    let row_slice = unsafe { std::slice::from_raw_parts_mut(row, rowbytes) };
++                    mask_packed_row_padding_for_width(row_slice, width, pixel_depth);
++                }
+ 
+-    let need_init = buffered_reads()
+-        .lock()
+-        .map(|states| !states.contains_key(&key))
+-        .unwrap_or(false);
+-
+-    if need_init {
+-        let core = unsafe { read_core(png_ptr) };
+-        let width = match usize::try_from(core.width) {
+-            Ok(value) if value > 0 => value,
+-            _ => return,
+-        };
+-        let height = match usize::try_from(core.height) {
+-            Ok(value) if value > 0 => value,
+-            _ => return,
+-        };
+-        let source_interlaced = core.interlaced != 0;
+-        let handled_interlace =
+-            source_interlaced && (core.transformations & PNG_INTERLACE) != 0;
+-        let rowbytes = if core.info_rowbytes != 0 {
+-            core.info_rowbytes
+-        } else {
+-            core.rowbytes
+-        };
+-        let total_bytes = match rowbytes.checked_mul(height) {
+-            Some(value) if value > 0 => value,
+-            _ => return,
+-        };
+-
+-        let mut rows = vec![0u8; total_bytes];
+-        let mut row_ptrs = Vec::<png_bytep>::with_capacity(height);
+-        for index in 0..height {
+-            row_ptrs.push(unsafe { rows.as_mut_ptr().add(index * rowbytes) });
+-        }
++                if !display_row.is_null() && rowbytes != 0 {
++                    let display_slice =
++                        unsafe { std::slice::from_raw_parts_mut(display_row, rowbytes) };
++                    mask_packed_row_padding_for_width(display_slice, width, pixel_depth);
++                }
++            }
+ 
+-        if unsafe { png_safe_call_read_image(png_ptr, row_ptrs.as_mut_ptr()) } == 0 {
+             return;
+         }
+ 
+-        let updated_core = unsafe { read_core(png_ptr) };
+-        let pixel_depth = infer_pixel_depth(updated_core, width, rowbytes);
+-        if pixel_depth == 0 {
+-            return;
++        unsafe {
++            upstream_png_read_row(png_ptr, row, display_row);
+         }
+ 
+-        let passes = if source_interlaced { 7usize } else { 1usize };
+-        let mut full_slots = Vec::new();
+-        let mut present_slots = Vec::new();
+-
+-        for pass in 0..passes {
+-            let pass_width = if source_interlaced {
+-                pass_cols(width, pass)
+-            } else {
+-                width
+-            };
+-            let start_col = if source_interlaced {
+-                PASS_START_COL[pass]
++        if core.interlaced == 0 {
++            let rowbytes = if core.rowbytes != 0 {
++                core.rowbytes
+             } else {
+-                0
+-            };
+-            let col_step = if source_interlaced {
+-                PASS_COL_OFFSET[pass]
+-            } else {
+-                1
++                core.info_rowbytes
+             };
++            let width = usize::try_from(core.width).unwrap_or(0);
++            let pixel_depth = infer_pixel_depth(core, width, rowbytes);
+ 
+-            for row_index in 0..height {
+-                let present = if source_interlaced {
+-                    pass_width > 0 && row_in_pass(row_index, pass)
+-                } else {
+-                    true
+-                };
+-                let slot = RowSlot {
+-                    row_index,
+-                    pass_width,
+-                    start_col,
+-                    col_step,
+-                    present,
+-                };
+-                full_slots.push(slot);
+-                if present {
+-                    present_slots.push(slot);
++            if width != 0 && pixel_depth != 0 && pixel_depth < 8 {
++                if !row.is_null() && rowbytes != 0 {
++                    let row_slice = unsafe { std::slice::from_raw_parts_mut(row, rowbytes) };
++                    mask_packed_row_padding_for_width(row_slice, width, pixel_depth);
+                 }
+-            }
+-        }
+ 
+-        let state = BufferedReadState {
+-            rows,
+-            rowbytes,
+-            width,
+-            pixel_depth,
+-            source_interlaced,
+-            handled_interlace,
+-            slots: if source_interlaced && !handled_interlace {
+-                present_slots
+-            } else {
+-                full_slots
+-            },
+-            next_slot: 0,
+-        };
+-
+-        if let Ok(mut states) = buffered_reads().lock() {
+-            states.entry(key).or_insert(state);
+-        } else {
+-            return;
+-        }
+-    }
+-
+-    if let Ok(mut states) = buffered_reads().lock() {
+-        let Some(state) = states.get_mut(&key) else {
+-            return;
+-        };
+-
+-        if state.next_slot >= state.slots.len() {
+-            return;
+-        }
+-
+-        let slot = state.slots[state.next_slot];
+-        if slot.present {
+-            if state.source_interlaced && state.handled_interlace {
+-                combine_interlaced_row(state, slot, row, false);
+-                combine_interlaced_row(state, slot, display_row, true);
+-            } else {
+-                copy_dense_pass_row(state, slot, row);
+-                copy_dense_pass_row(state, slot, display_row);
++                if !display_row.is_null() && rowbytes != 0 {
++                    let display_slice =
++                        unsafe { std::slice::from_raw_parts_mut(display_row, rowbytes) };
++                    mask_packed_row_padding_for_width(display_slice, width, pixel_depth);
++                }
+             }
+         }
+-
+-        state.next_slot += 1;
+-    }
++    });
+ }
+--- libpng1.6-1.6.43.orig/src/simplified.rs
++++ libpng1.6-1.6.43/src/simplified.rs
+@@ -361,8 +361,8 @@ unsafe fn create_control(image: png_imag
+ }
+ 
+ unsafe fn fill_header(image: png_imagep, control: &SimplifiedReadControl) {
+-    let core = unsafe { read_core(control.png_ptr) };
+-    let info = unsafe { read_info_core(control.info_ptr) };
++    let core = read_core(control.png_ptr);
++    let info = read_info_core(control.info_ptr);
+ 
+     (*image).width = core.width;
+     (*image).height = core.height;
+@@ -740,8 +740,8 @@ unsafe fn finish_read_impl(
+         return false;
+     };
+ 
+-    let source = unsafe { read_core(control.png_ptr) };
+-    let source_info = unsafe { read_info_core(control.info_ptr) };
++    let source = read_core(control.png_ptr);
++    let source_info = read_info_core(control.info_ptr);
+     let source_has_alpha =
+         (source.color_type & PNG_COLOR_MASK_ALPHA) != 0 || source_info.num_trans > 0;
+ 
+@@ -765,8 +765,8 @@ unsafe fn finish_read_impl(
+         return false;
+     }
+ 
+-    let updated = unsafe { read_core(control.png_ptr) };
+-    let updated_info = unsafe { read_info_core(control.info_ptr) };
++    let updated = read_core(control.png_ptr);
++    let updated_info = read_info_core(control.info_ptr);
+     let height = match usize::try_from(updated.height) {
+         Ok(value) => value,
+         Err(_) => {
+@@ -947,50 +947,47 @@ pub unsafe extern "C" fn png_image_begin
+     image: png_imagep,
+     file_name: png_const_charp,
+ ) -> c_int {
+-    if image.is_null() {
+-        return 0;
+-    }
+-    if unsafe { (*image).version } != PNG_IMAGE_VERSION {
+-        return unsafe {
+-            image_error_bytes(
++    crate::abi_guard_no_png!({
++        if image.is_null() {
++            return 0;
++        }
++        if (*image).version != PNG_IMAGE_VERSION {
++            return image_error_bytes(
+                 image,
+                 b"png_image_begin_read_from_file: incorrect PNG_IMAGE_VERSION\0",
+-            )
+-        };
+-    }
+-    if file_name.is_null() {
+-        return unsafe {
+-            image_error_bytes(image, b"png_image_begin_read_from_file: invalid argument\0")
+-        };
+-    }
+-    if unsafe { !(*image).opaque.is_null() } {
+-        return unsafe { image_error_bytes(image, b"png_image_read: opaque pointer not NULL\0") };
+-    }
++            );
++        }
++        if file_name.is_null() {
++            return image_error_bytes(
++                image,
++                b"png_image_begin_read_from_file: invalid argument\0",
++            );
++        }
++        if !(*image).opaque.is_null() {
++            return image_error_bytes(image, b"png_image_read: opaque pointer not NULL\0");
++        }
+ 
+-    let file = unsafe { libc::fopen(file_name.cast(), b"rb\0".as_ptr().cast()) };
+-    if file.is_null() {
+-        let errno = unsafe { *libc::__errno_location() };
+-        return unsafe { image_error_ptr(image, libc::strerror(errno)) };
+-    }
++        let file = libc::fopen(file_name.cast(), b"rb\0".as_ptr().cast());
++        if file.is_null() {
++            let errno = *libc::__errno_location();
++            return image_error_ptr(image, libc::strerror(errno));
++        }
+ 
+-    unsafe {
+         reset_image(image);
+-    }
+ 
+-    let mut control = match unsafe { create_control(image) } {
+-        Ok(control) => control,
+-        Err(_) => {
+-            let _ = unsafe { libc::fclose(file) };
+-            return unsafe { image_error_bytes(image, b"png_image_read: out of memory\0") };
+-        }
+-    };
++        let mut control = match create_control(image) {
++            Ok(control) => control,
++            Err(_) => {
++                let _ = libc::fclose(file);
++                return image_error_bytes(image, b"png_image_read: out of memory\0");
++            }
++        };
+ 
+-    control.file = file;
+-    control.owned_file = true;
+-    unsafe {
++        control.file = file;
++        control.owned_file = true;
+         png_init_io(control.png_ptr, file);
+         begin_read_with_control(image, control)
+-    }
++    })
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -998,40 +995,37 @@ pub unsafe extern "C" fn png_image_begin
+     image: png_imagep,
+     file: *mut FILE,
+ ) -> c_int {
+-    if image.is_null() {
+-        return 0;
+-    }
+-    if unsafe { (*image).version } != PNG_IMAGE_VERSION {
+-        return unsafe {
+-            image_error_bytes(
++    crate::abi_guard_no_png!({
++        if image.is_null() {
++            return 0;
++        }
++        if (*image).version != PNG_IMAGE_VERSION {
++            return image_error_bytes(
+                 image,
+                 b"png_image_begin_read_from_stdio: incorrect PNG_IMAGE_VERSION\0",
+-            )
+-        };
+-    }
+-    if file.is_null() {
+-        return unsafe {
+-            image_error_bytes(image, b"png_image_begin_read_from_stdio: invalid argument\0")
+-        };
+-    }
+-    if unsafe { !(*image).opaque.is_null() } {
+-        return unsafe { image_error_bytes(image, b"png_image_read: opaque pointer not NULL\0") };
+-    }
++            );
++        }
++        if file.is_null() {
++            return image_error_bytes(
++                image,
++                b"png_image_begin_read_from_stdio: invalid argument\0",
++            );
++        }
++        if !(*image).opaque.is_null() {
++            return image_error_bytes(image, b"png_image_read: opaque pointer not NULL\0");
++        }
+ 
+-    unsafe {
+         reset_image(image);
+-    }
+ 
+-    let mut control = match unsafe { create_control(image) } {
+-        Ok(control) => control,
+-        Err(_) => return unsafe { image_error_bytes(image, b"png_image_read: out of memory\0") },
+-    };
++        let mut control = match create_control(image) {
++            Ok(control) => control,
++            Err(_) => return image_error_bytes(image, b"png_image_read: out of memory\0"),
++        };
+ 
+-    control.file = file;
+-    unsafe {
++        control.file = file;
+         png_init_io(control.png_ptr, file);
+         begin_read_with_control(image, control)
+-    }
++    })
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -1040,45 +1034,46 @@ pub unsafe extern "C" fn png_image_begin
+     memory: png_const_voidp,
+     size: usize,
+ ) -> c_int {
+-    if image.is_null() {
+-        return 0;
+-    }
+-    if unsafe { (*image).version } != PNG_IMAGE_VERSION {
+-        return unsafe {
+-            image_error_bytes(
++    crate::abi_guard_no_png!({
++        if image.is_null() {
++            return 0;
++        }
++        if (*image).version != PNG_IMAGE_VERSION {
++            return image_error_bytes(
+                 image,
+                 b"png_image_begin_read_from_memory: incorrect PNG_IMAGE_VERSION\0",
+-            )
+-        };
+-    }
+-    if memory.is_null() || size == 0 {
+-        return unsafe {
+-            image_error_bytes(image, b"png_image_begin_read_from_memory: invalid argument\0")
+-        };
+-    }
+-    if unsafe { !(*image).opaque.is_null() } {
+-        return unsafe { image_error_bytes(image, b"png_image_read: opaque pointer not NULL\0") };
+-    }
++            );
++        }
++        if memory.is_null() || size == 0 {
++            return image_error_bytes(
++                image,
++                b"png_image_begin_read_from_memory: invalid argument\0",
++            );
++        }
++        if !(*image).opaque.is_null() {
++            return image_error_bytes(image, b"png_image_read: opaque pointer not NULL\0");
++        }
+ 
+-    unsafe {
+         reset_image(image);
+-    }
+ 
+-    let mut control = match unsafe { create_control(image) } {
+-        Ok(control) => control,
+-        Err(_) => return unsafe { image_error_bytes(image, b"png_image_read: out of memory\0") },
+-    };
++        let mut control = match create_control(image) {
++            Ok(control) => control,
++            Err(_) => return image_error_bytes(image, b"png_image_read: out of memory\0"),
++        };
+ 
+-    control.memory = Some(MemoryReader {
+-        memory: memory.cast(),
+-        size,
+-        offset: 0,
+-    });
+-    let reader = control.memory.as_mut().unwrap() as *mut MemoryReader;
+-    unsafe {
++        control.memory = Some(MemoryReader {
++            memory: memory.cast(),
++            size,
++            offset: 0,
++        });
++        let reader = control
++            .memory
++            .as_mut()
++            .expect("memory reader must exist before png_set_read_fn")
++            as *mut MemoryReader;
+         png_set_read_fn(control.png_ptr, reader.cast(), Some(simplified_memory_read));
+         begin_read_with_control(image, control)
+-    }
++    })
+ }
+ 
+ #[unsafe(no_mangle)]
+@@ -1089,65 +1084,62 @@ pub unsafe extern "C" fn png_image_finis
+     mut row_stride: png_int_32,
+     colormap: png_voidp,
+ ) -> c_int {
+-    if image.is_null() {
+-        return 0;
+-    }
+-    if unsafe { (*image).version } != PNG_IMAGE_VERSION {
+-        return unsafe {
+-            image_error_bytes(
++    crate::abi_guard_no_png!({
++        if image.is_null() {
++            return 0;
++        }
++        if (*image).version != PNG_IMAGE_VERSION {
++            return image_error_bytes(
+                 image,
+                 b"png_image_finish_read: damaged PNG_IMAGE_VERSION\0",
+-            )
+-        };
+-    }
++            );
++        }
+ 
+-    let format = unsafe { (*image).format };
+-    let Some(spec) = FormatSpec::parse(format) else {
+-        return unsafe { image_error_bytes(image, b"png_image_finish_read: invalid argument\0") };
+-    };
+-    let Some(png_row_stride) = spec.pixel_row_stride(unsafe { (*image).width }) else {
+-        return unsafe {
+-            image_error_bytes(image, b"png_image_finish_read: row_stride too large\0")
++        let format = (*image).format;
++        let Some(spec) = FormatSpec::parse(format) else {
++            return image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
++        };
++        let Some(png_row_stride) = spec.pixel_row_stride((*image).width) else {
++            return image_error_bytes(image, b"png_image_finish_read: row_stride too large\0");
+         };
+-    };
+ 
+-    if row_stride == 0 {
+-        row_stride = png_row_stride as png_int_32;
+-    }
++        if row_stride == 0 {
++            row_stride = png_row_stride as png_int_32;
++        }
+ 
+-    let check = absolute_row_stride(row_stride);
+-    if unsafe { (*image).opaque.is_null() } || buffer.is_null() || check < png_row_stride {
+-        return unsafe { image_error_bytes(image, b"png_image_finish_read: invalid argument\0") };
+-    }
++        let check = absolute_row_stride(row_stride);
++        if (*image).opaque.is_null() || buffer.is_null() || check < png_row_stride {
++            return image_error_bytes(image, b"png_image_finish_read: invalid argument\0");
++        }
+ 
+-    if spec.colormap() && (unsafe { (*image).colormap_entries } == 0 || colormap.is_null()) {
+-        return unsafe {
+-            image_error_bytes(image, b"png_image_finish_read[color-map]: no color-map\0")
+-        };
+-    }
++        if spec.colormap() && ((*image).colormap_entries == 0 || colormap.is_null()) {
++            return image_error_bytes(
++                image,
++                b"png_image_finish_read[color-map]: no color-map\0",
++            );
++        }
+ 
+-    let Some(component_check) = usize::try_from(check)
+-        .ok()
+-        .and_then(|stride| spec.row_bytes(stride))
+-    else {
+-        return unsafe { image_error_bytes(image, b"png_image_finish_read: image too large\0") };
+-    };
++        let Some(component_check) = usize::try_from(check)
++            .ok()
++            .and_then(|stride| spec.row_bytes(stride))
++        else {
++            return image_error_bytes(image, b"png_image_finish_read: image too large\0");
++        };
+ 
+-    if unsafe { (*image).height } > 0xffff_ffffu32 / (component_check.max(1) as png_uint_32) {
+-        return unsafe { image_error_bytes(image, b"png_image_finish_read: image too large\0") };
+-    }
++        if (*image).height > 0xffff_ffffu32 / (component_check.max(1) as png_uint_32) {
++            return image_error_bytes(image, b"png_image_finish_read: image too large\0");
++        }
+ 
+-    let control = unsafe { &mut *(*image).opaque.cast::<SimplifiedReadControl>() };
+-    let result = unsafe { finish_read_impl(image, control, background, buffer, colormap, row_stride) };
+-    unsafe {
++        let control = &mut *(*image).opaque.cast::<SimplifiedReadControl>();
++        let result = finish_read_impl(image, control, background, buffer, colormap, row_stride);
+         image_free_internal(image);
+-    }
+-    if result { 1 } else { 0 }
++        if result { 1 } else { 0 }
++    })
+ }
+ 
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_image_free(image: png_imagep) {
+-    unsafe {
++    crate::abi_guard_no_png!({
+         image_free_internal(image);
+-    }
++    });
+ }
+--- /dev/null
++++ libpng1.6-1.6.43/tests/cve-regressions/coverage.json
+@@ -0,0 +1,117 @@
++{
++  "derived_from": [
++    "relevant_cves.json",
++    "all_cves.json"
++  ],
++  "selected_cve_coverage": {
++    "CVE-2004-0599": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/parser_regressions.c",
++        "note": "Rejects hostile chunk payloads under explicit cache and malloc limits."
++      },
++      {
++        "kind": "invariant",
++        "path": "safe/src/read_transform.rs",
++        "note": "Uses checked rowbytes*height arithmetic before buffering read_image rows."
++      },
++      {
++        "kind": "invariant",
++        "path": "safe/src/simplified.rs",
++        "note": "Uses checked width/stride/component math for simplified read buffer sizing."
++      }
++    ],
++    "CVE-2007-2445": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/parser_regressions.c",
++        "note": "Corrupts a tRNS CRC and proves transparency state is discarded rather than retained."
++      }
++    ],
++    "CVE-2007-5268": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/simplified_regressions.c",
++        "note": "Exercises palette expansion, background application, and alpha semantics through transformed reads."
++      }
++    ],
++    "CVE-2009-2042": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/parser_regressions.c",
++        "note": "Verifies trailing bits are cleared on 1-bit Adam7 rows."
++      },
++      {
++        "kind": "invariant",
++        "path": "safe/src/interlace.rs",
++        "note": "Masks packed-row padding bits after interlaced row handling."
++      }
++    ],
++    "CVE-2010-0205": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/parser_regressions.c",
++        "note": "Rejects oversized compressed ancillary chunks and enforced chunk malloc limits."
++      }
++    ],
++    "CVE-2011-3328": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/parser_regressions.c",
++        "note": "Exercises invalid and overflowed cHRM endpoint handling."
++      },
++      {
++        "kind": "invariant",
++        "path": "safe/src/colorspace.rs",
++        "note": "Validates endpoint sums and whitepoint math before storing colorspace state."
++      }
++    ],
++    "CVE-2014-0333": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/progressive_regressions.c",
++        "note": "Feeds a zero-length first IDAT through the progressive decoder and requires forward progress."
++      }
++    ],
++    "CVE-2017-12652": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/parser_regressions.c",
++        "note": "Rejects huge ancillary chunks before decode state or allocation limits are exceeded."
++      }
++    ],
++    "CVE-2018-13785": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/parser_regressions.c",
++        "note": "Covers hostile chunk-length handling while checked geometry math prevents row-factor overflow."
++      },
++      {
++        "kind": "invariant",
++        "path": "safe/src/read_transform.rs",
++        "note": "Uses checked multiplications for read-image row buffering."
++      }
++    ],
++    "CVE-2004-0598": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/parser_regressions.c",
++        "note": "Rejects malformed iCCP metadata at read-info time."
++      }
++    ],
++    "CVE-2013-6954": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/read/parser_regressions.c",
++        "note": "Ensures invalid palette indexes never expose absent palette state."
++      }
++    ],
++    "CVE-2016-10087": [
++      {
++        "kind": "test",
++        "path": "safe/tests/cve-regressions/write/cve_2016_10087_text_remove_readd.c",
++        "note": "Covers text chunk remove-and-readd state restoration on the write path."
++      }
++    ]
++  }
++}
+--- libpng1.6-1.6.43.orig/tests/cve-regressions/read/parser_regressions.c
++++ libpng1.6-1.6.43/tests/cve-regressions/read/parser_regressions.c
+@@ -91,6 +91,50 @@ static void read_memory(png_structp png_
+     source->offset += length;
+ }
+ 
++static unsigned char *read_entire_file(const char *path, size_t *size_out) {
++    FILE *fp = fopen(path, "rb");
++    assert(fp != NULL);
++    assert(fseek(fp, 0, SEEK_END) == 0);
++    long size = ftell(fp);
++    assert(size >= 0);
++    assert(fseek(fp, 0, SEEK_SET) == 0);
++
++    unsigned char *data = (unsigned char *)malloc((size_t)size);
++    assert(data != NULL);
++    assert(fread(data, 1, (size_t)size, fp) == (size_t)size);
++    fclose(fp);
++    *size_out = (size_t)size;
++    return data;
++}
++
++static png_uint_32 read_be32(const unsigned char *buf) {
++    return ((png_uint_32)buf[0] << 24) |
++        ((png_uint_32)buf[1] << 16) |
++        ((png_uint_32)buf[2] << 8) |
++        (png_uint_32)buf[3];
++}
++
++static size_t find_chunk_crc_offset(
++    const unsigned char *data, size_t size, const char chunk_type[4]) {
++    size_t offset = 8;
++
++    while (offset + 12 <= size) {
++        png_uint_32 length = read_be32(data + offset);
++        size_t data_offset = offset + 8;
++        size_t crc_offset = data_offset + (size_t)length;
++
++        assert(crc_offset + 4 <= size);
++        if (memcmp(data + offset + 4, chunk_type, 4) == 0) {
++            return crc_offset;
++        }
++
++        offset = crc_offset + 4;
++    }
++
++    return 0;
++}
++
++/* CVE-2009-2042: packed 1-bit interlaced rows must clear trailing padding bits. */
+ static void check_interlace_padding_bits(void) {
+     memory_source source;
+     memset(&source, 0, sizeof source);
+@@ -134,6 +178,7 @@ static void check_interlace_padding_bits
+     png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+ }
+ 
++/* CVE-2013-6954: invalid palette indexes must not expose missing/empty PLTE state. */
+ static void check_invalid_palette_index(const char *path, int allowed, int expect_enabled) {
+     file_source source;
+     memset(&source, 0, sizeof source);
+@@ -171,6 +216,7 @@ static void check_invalid_palette_index(
+     fclose(fp);
+ }
+ 
++/* CVE-2004-0598: malformed iCCP metadata must fail cleanly without stale parser state. */
+ static void check_bad_iccp_rejected(const char *path) {
+     file_source source;
+     memset(&source, 0, sizeof source);
+@@ -196,6 +242,47 @@ static void check_bad_iccp_rejected(cons
+     fclose(fp);
+ }
+ 
++/* CVE-2007-2445: a bad tRNS CRC must discard transparency metadata instead of keeping it live. */
++static void check_bad_trns_crc_discards_transparency(const char *path) {
++    size_t size = 0;
++    unsigned char *data = read_entire_file(path, &size);
++    size_t crc_offset = find_chunk_crc_offset(data, size, "tRNS");
++
++    assert(crc_offset != 0);
++    data[crc_offset] ^= 0x01;
++
++    memory_source source;
++    memset(&source, 0, sizeof source);
++    source.data = data;
++    source.size = size;
++
++    png_structp png_ptr =
++        png_create_read_struct(
++            PNG_LIBPNG_VER_STRING, &source, memory_error_cb, memory_warning_cb);
++    assert(png_ptr != NULL);
++    png_infop info_ptr = png_create_info_struct(png_ptr);
++    assert(info_ptr != NULL);
++
++    if (setjmp(source.env) != 0) {
++        assert(!"bad tRNS CRC should warn/discard instead of failing");
++    }
++
++    png_set_crc_action(png_ptr, PNG_CRC_DEFAULT, PNG_CRC_WARN_DISCARD);
++    png_set_read_fn(png_ptr, &source, read_memory);
++    png_read_info(png_ptr, info_ptr);
++
++    png_bytep trans_alpha = NULL;
++    int num_trans = 7;
++    png_color_16p trans_color = NULL;
++    assert((png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS) & PNG_INFO_tRNS) == 0);
++    assert(png_get_tRNS(png_ptr, info_ptr, &trans_alpha, &num_trans, &trans_color) == 0);
++    assert(source.warnings > 0);
++
++    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++    free(data);
++}
++
++/* CVE-2011-3328: invalid cHRM endpoint math must warn and leave colorspace unset. */
+ static void check_invalid_chrm_api(void) {
+     file_source source;
+     memset(&source, 0, sizeof source);
+@@ -232,6 +319,9 @@ static void check_invalid_chrm_api(void)
+     png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+ }
+ 
++/* CVE-2010-0205 / CVE-2017-12652 / CVE-2018-13785:
++ * oversized ancillary chunks must be rejected before allocation or row math overflows.
++ */
+ static void expect_file_rejection(const char *path) {
+     file_source source;
+     memset(&source, 0, sizeof source);
+@@ -257,6 +347,9 @@ static void expect_file_rejection(const
+     fclose(fp);
+ }
+ 
++/* CVE-2004-0599 and decompression-bomb limit handling:
++ * hostile in-memory chunk payloads must trip cache/malloc limits without overrun or wraparound.
++ */
+ static void expect_memory_rejection(
+     const unsigned char *data,
+     size_t size,
+@@ -293,15 +386,16 @@ static void expect_memory_rejection(
+ }
+ 
+ int main(int argc, char **argv) {
+-    assert(argc >= 4);
++    assert(argc >= 5);
+ 
+     check_interlace_padding_bits();
+     check_invalid_palette_index(argv[1], 1, 1);
+     check_invalid_palette_index(argv[1], -1, 0);
+     check_bad_iccp_rejected(argv[2]);
++    check_bad_trns_crc_discards_transparency(argv[3]);
+     check_invalid_chrm_api();
+ 
+-    for (int i = 3; i < argc; ++i) {
++    for (int i = 4; i < argc; ++i) {
+         expect_file_rejection(argv[i]);
+     }
+ 
+--- /dev/null
++++ libpng1.6-1.6.43/tests/cve-regressions/read/progressive_regressions.c
+@@ -0,0 +1,119 @@
++#include <assert.h>
++#include <setjmp.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include <png.h>
++
++typedef struct {
++    jmp_buf env;
++    int info_called;
++    int end_called;
++    png_uint_32 width;
++    png_uint_32 height;
++    size_t rowbytes;
++    png_bytep image;
++    png_uint_32 rows_seen;
++} progressive_ctx;
++
++/* CVE-2014-0333: a zero-length first IDAT must advance progressive decode state
++ * instead of spinning forever before the real compressed payload arrives.
++ */
++static const unsigned char zero_length_first_idat_png[] = {
++    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
++    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
++    0x08, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x7e, 0x9b, 0x55, 0x00, 0x00, 0x00,
++    0x00, 0x49, 0x44, 0x41, 0x54, 0x35, 0xaf, 0x06, 0x1e, 0x00, 0x00, 0x00,
++    0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60, 0x00, 0x00, 0x00,
++    0x02, 0x00, 0x01, 0x48, 0xaf, 0xa4, 0x71, 0x00, 0x00, 0x00, 0x00, 0x49,
++    0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
++};
++
++static void error_cb(png_structp png_ptr, png_const_charp message) {
++    if (message != NULL) {
++        fprintf(stderr, "progressive regression error: %s\n", message);
++    }
++    progressive_ctx *ctx = (progressive_ctx *)png_get_error_ptr(png_ptr);
++    assert(ctx != NULL);
++    longjmp(ctx->env, 1);
++}
++
++static void warning_cb(png_structp png_ptr, png_const_charp message) {
++    (void)png_ptr;
++    (void)message;
++}
++
++static void info_cb(png_structp png_ptr, png_infop info_ptr) {
++    progressive_ctx *ctx = (progressive_ctx *)png_get_progressive_ptr(png_ptr);
++    assert(ctx != NULL);
++    assert(info_ptr != NULL);
++
++    ctx->info_called = 1;
++    png_start_read_image(png_ptr);
++    ctx->width = png_get_image_width(png_ptr, info_ptr);
++    ctx->height = png_get_image_height(png_ptr, info_ptr);
++    ctx->rowbytes = png_get_rowbytes(png_ptr, info_ptr);
++    assert(ctx->width == 1);
++    assert(ctx->height == 1);
++    assert(ctx->rowbytes > 0);
++    ctx->image = (png_bytep)calloc(ctx->height, ctx->rowbytes);
++    assert(ctx->image != NULL);
++}
++
++static void row_cb(png_structp png_ptr, png_bytep new_row, png_uint_32 row_num, int pass) {
++    (void)pass;
++    progressive_ctx *ctx = (progressive_ctx *)png_get_progressive_ptr(png_ptr);
++    assert(ctx != NULL);
++    assert(ctx->image != NULL);
++    assert(row_num < ctx->height);
++
++    png_bytep dst = ctx->image + row_num * ctx->rowbytes;
++    png_progressive_combine_row(png_ptr, dst, new_row);
++    ++ctx->rows_seen;
++}
++
++static void end_cb(png_structp png_ptr, png_infop info_ptr) {
++    (void)png_ptr;
++    (void)info_ptr;
++    progressive_ctx *ctx = (progressive_ctx *)png_get_progressive_ptr(png_ptr);
++    assert(ctx != NULL);
++    ctx->end_called = 1;
++}
++
++int main(void) {
++    progressive_ctx ctx;
++    memset(&ctx, 0, sizeof ctx);
++
++    png_structp png_ptr =
++        png_create_read_struct(PNG_LIBPNG_VER_STRING, &ctx, error_cb, warning_cb);
++    assert(png_ptr != NULL);
++    png_infop info_ptr = png_create_info_struct(png_ptr);
++    assert(info_ptr != NULL);
++
++    if (setjmp(ctx.env) != 0) {
++        free(ctx.image);
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        assert(!"zero-length first IDAT regression unexpectedly failed");
++    }
++
++    png_set_progressive_read_fn(png_ptr, &ctx, info_cb, row_cb, end_cb);
++    for (size_t offset = 0; offset < sizeof zero_length_first_idat_png; ) {
++        size_t chunk = sizeof zero_length_first_idat_png - offset;
++        if (chunk > 13) {
++            chunk = 13;
++        }
++        png_process_data(
++            png_ptr, info_ptr, (png_bytep)(zero_length_first_idat_png + offset), chunk);
++        offset += chunk;
++    }
++
++    assert(ctx.info_called == 1);
++    assert(ctx.end_called == 1);
++    assert(ctx.rows_seen > 0);
++
++    free(ctx.image);
++    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++    return 0;
++}
+--- libpng1.6-1.6.43.orig/tests/cve-regressions/read/simplified_regressions.c
++++ libpng1.6-1.6.43/tests/cve-regressions/read/simplified_regressions.c
+@@ -31,6 +31,9 @@ static png_bytep simplified_read_with_st
+     return buffer;
+ }
+ 
++/* CVE-2004-0599 hardening: simplified read stride math must stay correct for
++ * padded and bottom-up layouts instead of wrapping or misaddressing rows.
++ */
+ static void check_stride_variants(const char *path) {
+     png_uint_32 width = 0;
+     png_uint_32 height = 0;
+@@ -97,6 +100,9 @@ static png_bytep simplified_read_rgba(co
+     return buffer;
+ }
+ 
++/* CVE-2007-5268: palette and transparency expansion must preserve the right
++ * background/alpha semantics across the transformed read path.
++ */
+ static void check_palette_background_consistency(const char *path) {
+     png_color background;
+     memset(&background, 0, sizeof background);
+--- libpng1.6-1.6.43.orig/tools/check-package-artifacts.sh
++++ libpng1.6-1.6.43/tools/check-package-artifacts.sh
+@@ -29,6 +29,27 @@ require_artifact() {
+   printf '%s\n' "$artifact"
+ }
+ 
++require_source_orig_tar() {
++  local package_name="$1"
++  local artifact
++
++  artifact="$(
++    find "$repo_root" -maxdepth 1 -type f \
++      -name "${package_name}_*.tar.xz" \
++      ! -name "${package_name}_*.debian.tar.xz" \
++      -printf '%T@ %p\n' \
++      | sort -nr \
++      | head -n1 \
++      | cut -d' ' -f2-
++  )"
++  if [[ -z "$artifact" ]]; then
++    printf 'missing built source tar artifact: %s_*.tar.xz\n' "$package_name" >&2
++    exit 1
++  fi
++
++  printf '%s\n' "$artifact"
++}
++
+ require_path() {
+   local root="$1"
+   local rel="$2"
+@@ -52,10 +73,100 @@ require_symlink_target() {
+   fi
+ }
+ 
++require_changes_entry() {
++  local changes_file="$1"
++  local artifact="$2"
++  local basename_artifact
++
++  basename_artifact="$(basename "$artifact")"
++  if ! grep -Fq " $basename_artifact" "$changes_file"; then
++    printf 'changes file %s does not reference %s\n' "$changes_file" "$basename_artifact" >&2
++    exit 1
++  fi
++}
++
++validate_source_package_matches_tree() {
++  local source_root="$1"
++
++  python3 - <<'PY' "$repo_root" "$source_root"
++import pathlib
++import subprocess
++import sys
++
++repo_root = pathlib.Path(sys.argv[1])
++source_root = pathlib.Path(sys.argv[2])
++
++tracked = subprocess.check_output(
++    [
++        "git",
++        "-C",
++        str(repo_root),
++        "ls-files",
++        "--",
++        "safe/Cargo.toml",
++        "safe/build.rs",
++        "safe/cshim",
++        "safe/include",
++        "safe/pkg",
++        "safe/src",
++        "safe/debian",
++    ],
++    text=True,
++).splitlines()
++
++tracked_rel = [path[len("safe/") :] for path in tracked]
++source_files = set()
++for rel in ["Cargo.toml", "build.rs", "cshim", "include", "pkg", "src", "debian"]:
++    base = source_root / rel
++    if base.is_file() or base.is_symlink():
++        source_files.add(rel)
++        continue
++    if not base.exists():
++        continue
++    for path in sorted(base.rglob("*")):
++        if path.is_file() or path.is_symlink():
++            source_files.add(str(path.relative_to(source_root)))
++
++tracked_set = set(tracked_rel)
++missing = sorted(tracked_set - source_files)
++extra = sorted(source_files - tracked_set)
++if missing:
++    raise SystemExit(
++        "source package is missing tracked package-affecting paths: "
++        + ", ".join(missing)
++    )
++if extra:
++    raise SystemExit(
++        "source package contains unexpected package-affecting paths: "
++        + ", ".join(extra)
++    )
++
++for rel in tracked_rel:
++    repo_path = repo_root / "safe" / rel
++    source_path = source_root / rel
++
++    if repo_path.is_symlink() != source_path.is_symlink():
++        raise SystemExit(f"path type mismatch for {rel}")
++
++    if repo_path.is_symlink():
++        if repo_path.readlink() != source_path.readlink():
++            raise SystemExit(f"symlink target mismatch for {rel}")
++        continue
++
++    if repo_path.read_bytes() != source_path.read_bytes():
++        raise SystemExit(f"source package content mismatch for {rel}")
++PY
++}
++
+ runtime_deb="$(require_artifact libpng16-16t64 deb)"
+ dev_deb="$(require_artifact libpng-dev deb)"
+ tools_deb="$(require_artifact libpng-tools deb)"
+ udeb_artifact="$(require_artifact libpng16-16-udeb udeb)"
++changes_artifact="$(require_artifact libpng1.6 changes)"
++buildinfo_artifact="$(require_artifact libpng1.6 buildinfo)"
++source_dsc="$(require_artifact libpng1.6 dsc)"
++source_debian_tar="$(require_artifact libpng1.6 debian.tar.xz)"
++source_orig_tar="$(require_source_orig_tar libpng1.6)"
+ 
+ for pair in \
+   "libpng16-16t64:$runtime_deb" \
+@@ -82,6 +193,34 @@ for artifact in "$dev_deb" "$tools_deb"
+   fi
+ done
+ 
++for source_artifact in \
++  "$runtime_deb" \
++  "$dev_deb" \
++  "$tools_deb" \
++  "$udeb_artifact" \
++  "$buildinfo_artifact" \
++  "$source_dsc" \
++  "$source_debian_tar"
++do
++  require_changes_entry "$changes_artifact" "$source_artifact"
++done
++
++if ! grep -Fq "Source: libpng1.6" "$buildinfo_artifact"; then
++  printf 'unexpected source stanza in %s\n' "$buildinfo_artifact" >&2
++  exit 1
++fi
++if ! grep -Fq "Version: $runtime_version" "$buildinfo_artifact"; then
++  printf 'buildinfo version mismatch in %s\n' "$buildinfo_artifact" >&2
++  exit 1
++fi
++for artifact in "$runtime_deb" "$dev_deb" "$tools_deb" "$udeb_artifact" "$source_dsc"; do
++  basename_artifact="$(basename "$artifact")"
++  if ! grep -Fq " $basename_artifact" "$buildinfo_artifact"; then
++    printf 'buildinfo file %s does not reference %s\n' "$buildinfo_artifact" "$basename_artifact" >&2
++    exit 1
++  fi
++done
++
+ extract_root="$(mktemp -d)"
+ trap 'rm -rf "$extract_root"' EXIT
+ 
+@@ -89,11 +228,20 @@ runtime_root="$extract_root/runtime"
+ dev_root="$extract_root/dev"
+ tools_root="$extract_root/tools"
+ udeb_root="$extract_root/udeb"
++source_root="$extract_root/source"
+ 
+ dpkg-deb -x "$runtime_deb" "$runtime_root"
+ dpkg-deb -x "$dev_deb" "$dev_root"
+ dpkg-deb -x "$tools_deb" "$tools_root"
+ dpkg-deb -x "$udeb_artifact" "$udeb_root"
++dpkg-source -x "$source_dsc" "$source_root" >/dev/null 2>&1
++
++if [[ ! -f "$source_orig_tar" || ! -f "$source_debian_tar" ]]; then
++  printf 'source package artifacts are incomplete for %s\n' "$runtime_version" >&2
++  exit 1
++fi
++
++validate_source_package_matches_tree "$source_root"
+ 
+ multiarch_dir="$(find "$runtime_root/usr/lib" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -n1)"
+ if [[ -z "$multiarch_dir" ]]; then
+@@ -191,4 +339,5 @@ if [[ "$(readlink "$udeb_lib_dir/libpng1
+ fi
+ 
+ printf 'package artifacts passed for %s\n' "$runtime_version"
++printf 'source package artifacts match the current safe packaging tree\n'
+ printf 'libpng-dev examples preserved under /usr/share/doc/libpng-dev/examples/\n'
+--- libpng1.6-1.6.43.orig/tools/run-cve-regressions.sh
++++ libpng1.6-1.6.43/tools/run-cve-regressions.sh
+@@ -82,6 +82,7 @@ validate_requested_cases() {
+     read)
+       allowed_cases=(
+         "parser-regressions"
++        "progressive-regressions"
+         "simplified-regressions"
+       )
+       ;;
+@@ -95,6 +96,7 @@ validate_requested_cases() {
+     all)
+       allowed_cases=(
+         "parser-regressions"
++        "progressive-regressions"
+         "simplified-regressions"
+         "cve-2016-10087-text-remove-readd"
+         "simplified-write-large-stride"
+@@ -131,10 +133,63 @@ safe_dir="$(cd -- "$script_dir/.." && pw
+ repo_root="$(cd -- "$safe_dir/.." && pwd)"
+ tests_dir="$safe_dir/tests/cve-regressions/read"
+ write_tests_dir="$safe_dir/tests/cve-regressions/write"
++coverage_manifest="$safe_dir/tests/cve-regressions/coverage.json"
+ profile="${PROFILE:-release}"
+ target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
+ stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
+ 
++python3 - <<'PY' "$repo_root/relevant_cves.json" "$repo_root/all_cves.json" "$coverage_manifest"
++import json
++import pathlib
++import sys
++
++relevant_path = pathlib.Path(sys.argv[1])
++all_path = pathlib.Path(sys.argv[2])
++coverage_path = pathlib.Path(sys.argv[3])
++repo_root = relevant_path.parent
++
++relevant = json.loads(relevant_path.read_text())
++all_cves = json.loads(all_path.read_text())
++coverage = json.loads(coverage_path.read_text())
++
++selected = [
++    entry["cve_id"]
++    for section in ("high_priority", "secondary")
++    for entry in relevant.get(section, [])
++]
++selected_set = set(selected)
++all_ids = {entry["cve_id"] for entry in all_cves.get("cves", [])}
++missing_from_corpus = sorted(selected_set - all_ids)
++if missing_from_corpus:
++    raise SystemExit(
++        "selected CVEs missing from all_cves.json: " + ", ".join(missing_from_corpus)
++    )
++
++coverage_map = coverage.get("selected_cve_coverage", {})
++missing_from_coverage = sorted(selected_set - set(coverage_map))
++if missing_from_coverage:
++    raise SystemExit(
++        "selected CVEs missing from coverage manifest: "
++        + ", ".join(missing_from_coverage)
++    )
++
++for cve_id in selected:
++    entries = coverage_map[cve_id]
++    if not entries:
++        raise SystemExit(f"coverage manifest has no entries for {cve_id}")
++    for entry in entries:
++        rel_path = entry.get("path")
++        if not rel_path:
++            raise SystemExit(f"coverage entry for {cve_id} is missing a path")
++        if not (repo_root / rel_path).exists():
++            raise SystemExit(f"coverage path for {cve_id} does not exist: {rel_path}")
++
++print(
++    f"validated explicit coverage for {len(selected)} selected CVEs "
++    f"using {coverage_path.relative_to(repo_root)}"
++)
++PY
++
+ build_args=(build --manifest-path "$safe_dir/Cargo.toml")
+ if [[ "$profile" == "release" ]]; then
+   build_args+=(--release)
+@@ -181,6 +236,7 @@ run_read_regressions() {
+     "$build_dir/parser_regressions" \
+       "$repo_root/original/contrib/testpngs/badpal/regression-palette-8.png" \
+       "$repo_root/original/contrib/testpngs/crashers/bad_iCCP.png" \
++      "$repo_root/original/contrib/testpngs/palette-1-sRGB-tRNS.png" \
+       "$repo_root/original/contrib/testpngs/crashers/huge_gAMA_chunk.png" \
+       "$repo_root/original/contrib/testpngs/crashers/huge_cHRM_chunk.png" \
+       "$repo_root/original/contrib/testpngs/crashers/huge_tEXt_chunk.png" \
+@@ -200,6 +256,15 @@ run_read_regressions() {
+     ran=1
+   fi
+ 
++  if case_requested "progressive-regressions"; then
++    compile_regression \
++      "$tests_dir/progressive_regressions.c" \
++      "$build_dir/progressive_regressions"
++
++    timeout 10s "$build_dir/progressive_regressions"
++    ran=1
++  fi
++
+   if case_requested "simplified-regressions"; then
+     compile_regression \
+       "$tests_dir/simplified_regressions.c" \
+--- libpng1.6-1.6.43.orig/abi/install-layout.txt
++++ libpng1.6-1.6.43/abi/install-layout.txt
+@@ -1,17 +1,23 @@
+ usr/bin/libpng-config
+ usr/bin/libpng16-config
++usr/bin/png-fix-itxt
++usr/bin/pngfix
+ usr/include/libpng16/png.h
+ usr/include/libpng16/pngconf.h
+ usr/include/libpng16/pnglibconf.h
+-usr/include/libpng
+ usr/include/png.h
+ usr/include/pngconf.h
+ usr/include/pnglibconf.h
+ usr/lib/x86_64-linux-gnu/libpng.a
++usr/lib/x86_64-linux-gnu/libpng.la
+ usr/lib/x86_64-linux-gnu/libpng.so
+ usr/lib/x86_64-linux-gnu/libpng16.a
++usr/lib/x86_64-linux-gnu/libpng16.la
+ usr/lib/x86_64-linux-gnu/libpng16.so
+ usr/lib/x86_64-linux-gnu/libpng16.so.16
+ usr/lib/x86_64-linux-gnu/libpng16.so.16.43.0
+ usr/lib/x86_64-linux-gnu/pkgconfig/libpng.pc
+ usr/lib/x86_64-linux-gnu/pkgconfig/libpng16.pc
++usr/share/man/man3/libpng.3
++usr/share/man/man3/libpngpf.3
++usr/share/man/man5/png.5
+--- libpng1.6-1.6.43.orig/include/pnglibconf.h
++++ libpng1.6-1.6.43/include/pnglibconf.h
+@@ -27,7 +27,7 @@
+ #define PNG_COLORSPACE_SUPPORTED
+ #define PNG_CONSOLE_IO_SUPPORTED
+ #define PNG_CONVERT_tIME_SUPPORTED
+-#define PNG_DISABLE_ADLER32_CHECK_SUPPORTED
++/*#undef PNG_DISABLE_ADLER32_CHECK_SUPPORTED*/
+ #define PNG_EASY_ACCESS_SUPPORTED
+ /*#undef PNG_ERROR_NUMBERS_SUPPORTED*/
+ #define PNG_ERROR_TEXT_SUPPORTED

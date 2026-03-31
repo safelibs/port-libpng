@@ -7,7 +7,7 @@ use core::ffi::c_int;
 
 const PNG_HAVE_IHDR: png_uint_32 = 0x01;
 const PNG_FLAG_ROW_INIT: png_uint_32 = 0x0040;
-const PNG_FLAG_ASSUME_sRGB: png_uint_32 = 0x1000;
+const PNG_FLAG_ASSUME_SRGB: png_uint_32 = 0x1000;
 const PNG_FLAG_OPTIMIZE_ALPHA: png_uint_32 = 0x2000;
 const PNG_FLAG_DETECT_UNINITIALIZED: png_uint_32 = 0x4000;
 
@@ -27,17 +27,17 @@ const PNG_BACKGROUND_GAMMA_FILE: png_byte = 2;
 
 const PNG_COLORSPACE_HAVE_GAMMA: png_uint_16 = 0x0001;
 const PNG_COLORSPACE_HAVE_ENDPOINTS: png_uint_16 = 0x0002;
-const PNG_COLORSPACE_FROM_cHRM: png_uint_16 = 0x0010;
+const PNG_COLORSPACE_FROM_CHRM: png_uint_16 = 0x0010;
 const PNG_COLORSPACE_INVALID: png_uint_16 = 0x8000;
-const PNG_INFO_cHRM: png_uint_32 = 0x0004;
+const PNG_INFO_CHRM: png_uint_32 = 0x0004;
 
 const PNG_FP_1: png_fixed_point = 100_000;
-const PNG_DEFAULT_sRGB: png_fixed_point = -1;
+const PNG_DEFAULT_SRGB: png_fixed_point = -1;
 const PNG_GAMMA_MAC_18: png_fixed_point = -2;
-const PNG_GAMMA_sRGB: png_fixed_point = 220_000;
+const PNG_GAMMA_SRGB: png_fixed_point = 220_000;
 const PNG_GAMMA_MAC_OLD: png_fixed_point = 151_724;
 const PNG_GAMMA_MAC_INVERSE: png_fixed_point = 65_909;
-const PNG_GAMMA_sRGB_INVERSE: png_fixed_point = 45_455;
+const PNG_GAMMA_SRGB_INVERSE: png_fixed_point = 45_455;
 
 const PNG_ERROR_ACTION_NONE: c_int = 1;
 const PNG_ERROR_ACTION_WARN: c_int = 2;
@@ -53,7 +53,7 @@ fn rtran_ok(png_ptr: png_structrp, need_ihdr: bool) -> bool {
         return false;
     }
 
-    let mut core = unsafe { read_core(png_ptr) };
+    let mut core = read_core(png_ptr);
     if (core.flags & PNG_FLAG_ROW_INIT) != 0 {
         unsafe {
             let _ = call_app_error(
@@ -66,18 +66,13 @@ fn rtran_ok(png_ptr: png_structrp, need_ihdr: bool) -> bool {
 
     if need_ihdr && (core.mode & PNG_HAVE_IHDR) == 0 {
         unsafe {
-            let _ = call_app_error(
-                png_ptr,
-                b"invalid before the PNG header has been read\0",
-            );
+            let _ = call_app_error(png_ptr, b"invalid before the PNG header has been read\0");
         }
         return false;
     }
 
     core.flags |= PNG_FLAG_DETECT_UNINITIALIZED;
-    unsafe {
-        write_core(png_ptr, &core);
-    }
+    write_core(png_ptr, &core);
     true
 }
 
@@ -91,16 +86,14 @@ fn translate_gamma_flags(
     output_gamma: png_fixed_point,
     is_screen: bool,
 ) -> png_fixed_point {
-    if output_gamma == PNG_DEFAULT_sRGB || output_gamma == (PNG_FP_1 / PNG_DEFAULT_sRGB) {
-        core.flags |= PNG_FLAG_ASSUME_sRGB;
+    if output_gamma == PNG_DEFAULT_SRGB || output_gamma == (PNG_FP_1 / PNG_DEFAULT_SRGB) {
+        core.flags |= PNG_FLAG_ASSUME_SRGB;
         if is_screen {
-            PNG_GAMMA_sRGB
+            PNG_GAMMA_SRGB
         } else {
-            PNG_GAMMA_sRGB_INVERSE
+            PNG_GAMMA_SRGB_INVERSE
         }
-    } else if output_gamma == PNG_GAMMA_MAC_18
-        || output_gamma == (PNG_FP_1 / PNG_GAMMA_MAC_18)
-    {
+    } else if output_gamma == PNG_GAMMA_MAC_18 || output_gamma == (PNG_FP_1 / PNG_GAMMA_MAC_18) {
         if is_screen {
             PNG_GAMMA_MAC_OLD
         } else {
@@ -174,12 +167,10 @@ fn set_endpoint_values(
             Ok((x, y))
         };
 
-    let (redx, redy) =
-        xy_from_xyz(i64::from(values[0]), i64::from(values[1]), sums[0].unwrap())?;
+    let (redx, redy) = xy_from_xyz(i64::from(values[0]), i64::from(values[1]), sums[0].unwrap())?;
     let (greenx, greeny) =
         xy_from_xyz(i64::from(values[3]), i64::from(values[4]), sums[1].unwrap())?;
-    let (bluex, bluey) =
-        xy_from_xyz(i64::from(values[6]), i64::from(values[7]), sums[2].unwrap())?;
+    let (bluex, bluey) = xy_from_xyz(i64::from(values[6]), i64::from(values[7]), sums[2].unwrap())?;
     let (whitex, whitey) = xy_from_xyz(white_x, white_y, white_sum)?;
 
     info.colorspace.end_points_XYZ = png_XYZ {
@@ -204,8 +195,8 @@ fn set_endpoint_values(
         whitey,
     };
     info.colorspace.flags &= !PNG_COLORSPACE_INVALID;
-    info.colorspace.flags |= PNG_COLORSPACE_HAVE_ENDPOINTS | PNG_COLORSPACE_FROM_cHRM;
-    info.valid |= PNG_INFO_cHRM;
+    info.colorspace.flags |= PNG_COLORSPACE_HAVE_ENDPOINTS | PNG_COLORSPACE_FROM_CHRM;
+    info.valid |= PNG_INFO_CHRM;
     Ok(())
 }
 
@@ -216,52 +207,45 @@ pub unsafe extern "C" fn png_set_rgb_to_gray_fixed(
     red: png_fixed_point,
     green: png_fixed_point,
 ) {
-    if !rtran_ok(png_ptr, true) {
-        return;
-    }
-
-    let mut core = unsafe { read_core(png_ptr) };
-    core.transformations &= !PNG_RGB_TO_GRAY;
-    match error_action {
-        PNG_ERROR_ACTION_NONE => core.transformations |= PNG_RGB_TO_GRAY,
-        PNG_ERROR_ACTION_WARN => core.transformations |= PNG_RGB_TO_GRAY_WARN,
-        PNG_ERROR_ACTION_ERROR => core.transformations |= PNG_RGB_TO_GRAY_ERR,
-        _ => {
-            unsafe {
-                let _ = call_error(png_ptr, b"invalid error action to rgb_to_gray\0");
-            }
+    crate::abi_guard!(png_ptr, {
+        if !rtran_ok(png_ptr, true) {
             return;
         }
-    }
 
-    if core.color_type == PNG_COLOR_TYPE_PALETTE {
-        core.transformations |= PNG_EXPAND;
-    }
-
-    if red >= 0 && green >= 0 && i64::from(red) + i64::from(green) <= i64::from(PNG_FP_1) {
-        core.rgb_to_gray_red_coeff = (((u64::try_from(red).unwrap_or(0)) * 32768) / 100000)
-            as png_uint_16;
-        core.rgb_to_gray_green_coeff =
-            (((u64::try_from(green).unwrap_or(0)) * 32768) / 100000) as png_uint_16;
-        core.rgb_to_gray_coefficients_set = 1;
-    } else {
-        if red >= 0 && green >= 0 {
-            unsafe {
-                let _ = call_warning(
-                    png_ptr,
-                    b"ignoring out of range rgb_to_gray coefficients\0",
-                );
+        let mut core = read_core(png_ptr);
+        core.transformations &= !PNG_RGB_TO_GRAY;
+        match error_action {
+            PNG_ERROR_ACTION_NONE => core.transformations |= PNG_RGB_TO_GRAY,
+            PNG_ERROR_ACTION_WARN => core.transformations |= PNG_RGB_TO_GRAY_WARN,
+            PNG_ERROR_ACTION_ERROR => core.transformations |= PNG_RGB_TO_GRAY_ERR,
+            _ => {
+                let _ = call_error(png_ptr, b"invalid error action to rgb_to_gray\0");
+                return;
             }
         }
-        if core.rgb_to_gray_red_coeff == 0 && core.rgb_to_gray_green_coeff == 0 {
-            core.rgb_to_gray_red_coeff = 6968;
-            core.rgb_to_gray_green_coeff = 23434;
-        }
-    }
 
-    unsafe {
+        if core.color_type == PNG_COLOR_TYPE_PALETTE {
+            core.transformations |= PNG_EXPAND;
+        }
+
+        if red >= 0 && green >= 0 && i64::from(red) + i64::from(green) <= i64::from(PNG_FP_1) {
+            core.rgb_to_gray_red_coeff =
+                (((u64::try_from(red).unwrap_or(0)) * 32768) / 100000) as png_uint_16;
+            core.rgb_to_gray_green_coeff =
+                (((u64::try_from(green).unwrap_or(0)) * 32768) / 100000) as png_uint_16;
+            core.rgb_to_gray_coefficients_set = 1;
+        } else {
+            if red >= 0 && green >= 0 {
+                let _ = call_warning(png_ptr, b"ignoring out of range rgb_to_gray coefficients\0");
+            }
+            if core.rgb_to_gray_red_coeff == 0 && core.rgb_to_gray_green_coeff == 0 {
+                core.rgb_to_gray_red_coeff = 6968;
+                core.rgb_to_gray_green_coeff = 23434;
+            }
+        }
+
         write_core(png_ptr, &core);
-    }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -271,11 +255,11 @@ pub unsafe extern "C" fn png_set_rgb_to_gray(
     red: f64,
     green: f64,
 ) {
-    let red = float_to_fixed(red).unwrap_or(-1);
-    let green = float_to_fixed(green).unwrap_or(-1);
-    unsafe {
+    crate::abi_guard!(png_ptr, {
+        let red = float_to_fixed(red).unwrap_or(-1);
+        let green = float_to_fixed(green).unwrap_or(-1);
         png_set_rgb_to_gray_fixed(png_ptr, error_action, red, green);
-    }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -286,35 +270,33 @@ pub unsafe extern "C" fn png_set_background_fixed(
     need_expand: c_int,
     background_gamma: png_fixed_point,
 ) {
-    if background_color.is_null() || !rtran_ok(png_ptr, false) {
-        return;
-    }
+    crate::abi_guard!(png_ptr, {
+        if background_color.is_null() || !rtran_ok(png_ptr, false) {
+            return;
+        }
 
-    if background_gamma_code == PNG_BACKGROUND_GAMMA_UNKNOWN {
-        unsafe {
+        if background_gamma_code == PNG_BACKGROUND_GAMMA_UNKNOWN {
             let _ = call_warning(
                 png_ptr,
                 b"Application must supply a known background gamma\0",
             );
+            return;
         }
-        return;
-    }
 
-    let mut core = unsafe { read_core(png_ptr) };
-    core.transformations |= PNG_COMPOSE | PNG_STRIP_ALPHA;
-    core.transformations &= !PNG_ENCODE_ALPHA;
-    core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
-    core.background = unsafe { *background_color };
-    core.background_gamma = background_gamma;
-    core.background_gamma_type = background_gamma_code as png_byte;
-    if need_expand != 0 {
-        core.transformations |= PNG_BACKGROUND_EXPAND;
-    } else {
-        core.transformations &= !PNG_BACKGROUND_EXPAND;
-    }
-    unsafe {
+        let mut core = read_core(png_ptr);
+        core.transformations |= PNG_COMPOSE | PNG_STRIP_ALPHA;
+        core.transformations &= !PNG_ENCODE_ALPHA;
+        core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
+        core.background = *background_color;
+        core.background_gamma = background_gamma;
+        core.background_gamma_type = background_gamma_code as png_byte;
+        if need_expand != 0 {
+            core.transformations |= PNG_BACKGROUND_EXPAND;
+        } else {
+            core.transformations &= !PNG_BACKGROUND_EXPAND;
+        }
         write_core(png_ptr, &core);
-    }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -325,8 +307,8 @@ pub unsafe extern "C" fn png_set_background(
     need_expand: c_int,
     background_gamma: f64,
 ) {
-    let gamma = float_to_fixed(background_gamma).unwrap_or(0);
-    unsafe {
+    crate::abi_guard!(png_ptr, {
+        let gamma = float_to_fixed(background_gamma).unwrap_or(0);
         png_set_background_fixed(
             png_ptr,
             background_color,
@@ -334,7 +316,7 @@ pub unsafe extern "C" fn png_set_background(
             need_expand,
             gamma,
         );
-    }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -343,89 +325,79 @@ pub unsafe extern "C" fn png_set_alpha_mode_fixed(
     mode: c_int,
     output_gamma: png_fixed_point,
 ) {
-    if !rtran_ok(png_ptr, false) {
-        return;
-    }
-
-    let mut core = unsafe { read_core(png_ptr) };
-    let mut output_gamma = translate_gamma_flags(&mut core, output_gamma, true);
-    if !(1000..=10000000).contains(&output_gamma) {
-        unsafe {
-            let _ = call_error(png_ptr, b"output gamma out of expected range\0");
-        }
-        return;
-    }
-
-    let file_gamma = reciprocal(output_gamma);
-    let mut compose = false;
-
-    match mode {
-        PNG_ALPHA_PNG => {
-            core.transformations &= !PNG_ENCODE_ALPHA;
-            core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
-        }
-        PNG_ALPHA_ASSOCIATED => {
-            compose = true;
-            core.transformations &= !PNG_ENCODE_ALPHA;
-            core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
-            output_gamma = PNG_FP_1;
-        }
-        PNG_ALPHA_OPTIMIZED => {
-            compose = true;
-            core.transformations &= !PNG_ENCODE_ALPHA;
-            core.flags |= PNG_FLAG_OPTIMIZE_ALPHA;
-        }
-        PNG_ALPHA_BROKEN => {
-            compose = true;
-            core.transformations |= PNG_ENCODE_ALPHA;
-            core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
-        }
-        _ => {
-            unsafe {
-                let _ = call_error(png_ptr, b"invalid alpha mode\0");
-            }
+    crate::abi_guard!(png_ptr, {
+        if !rtran_ok(png_ptr, false) {
             return;
         }
-    }
 
-    if (core.colorspace.flags & PNG_COLORSPACE_HAVE_GAMMA) == 0 {
-        core.colorspace.gamma = file_gamma;
-        core.colorspace.flags |= PNG_COLORSPACE_HAVE_GAMMA;
-    }
-    core.screen_gamma = output_gamma;
+        let mut core = read_core(png_ptr);
+        let mut output_gamma = translate_gamma_flags(&mut core, output_gamma, true);
+        if !(1000..=10000000).contains(&output_gamma) {
+            let _ = call_error(png_ptr, b"output gamma out of expected range\0");
+            return;
+        }
 
-    if compose {
-        if (core.transformations & PNG_COMPOSE) != 0 {
-            unsafe {
+        let file_gamma = reciprocal(output_gamma);
+        let mut compose = false;
+
+        match mode {
+            PNG_ALPHA_PNG => {
+                core.transformations &= !PNG_ENCODE_ALPHA;
+                core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
+            }
+            PNG_ALPHA_ASSOCIATED => {
+                compose = true;
+                core.transformations &= !PNG_ENCODE_ALPHA;
+                core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
+                output_gamma = PNG_FP_1;
+            }
+            PNG_ALPHA_OPTIMIZED => {
+                compose = true;
+                core.transformations &= !PNG_ENCODE_ALPHA;
+                core.flags |= PNG_FLAG_OPTIMIZE_ALPHA;
+            }
+            PNG_ALPHA_BROKEN => {
+                compose = true;
+                core.transformations |= PNG_ENCODE_ALPHA;
+                core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
+            }
+            _ => {
+                let _ = call_error(png_ptr, b"invalid alpha mode\0");
+                return;
+            }
+        }
+
+        if (core.colorspace.flags & PNG_COLORSPACE_HAVE_GAMMA) == 0 {
+            core.colorspace.gamma = file_gamma;
+            core.colorspace.flags |= PNG_COLORSPACE_HAVE_GAMMA;
+        }
+        core.screen_gamma = output_gamma;
+
+        if compose {
+            if (core.transformations & PNG_COMPOSE) != 0 {
                 let _ = call_error(
                     png_ptr,
                     b"conflicting calls to set alpha mode and background\0",
                 );
+                return;
             }
-            return;
+            core.background = png_color_16::default();
+            core.background_gamma = core.colorspace.gamma;
+            core.background_gamma_type = PNG_BACKGROUND_GAMMA_FILE;
+            core.transformations &= !PNG_BACKGROUND_EXPAND;
+            core.transformations |= PNG_COMPOSE;
         }
-        core.background = png_color_16::default();
-        core.background_gamma = core.colorspace.gamma;
-        core.background_gamma_type = PNG_BACKGROUND_GAMMA_FILE;
-        core.transformations &= !PNG_BACKGROUND_EXPAND;
-        core.transformations |= PNG_COMPOSE;
-    }
-    unsafe {
         write_core(png_ptr, &core);
-    }
+    });
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_set_alpha_mode(
-    png_ptr: png_structrp,
-    mode: c_int,
-    output_gamma: f64,
-) {
-    if let Some(output_gamma) = float_to_fixed(output_gamma) {
-        unsafe {
+pub unsafe extern "C" fn png_set_alpha_mode(png_ptr: png_structrp, mode: c_int, output_gamma: f64) {
+    crate::abi_guard!(png_ptr, {
+        if let Some(output_gamma) = float_to_fixed(output_gamma) {
             png_set_alpha_mode_fixed(png_ptr, mode, output_gamma);
         }
-    }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -442,30 +414,30 @@ pub unsafe extern "C" fn png_set_cHRM_XYZ_fixed(
     blue_Y: png_fixed_point,
     blue_Z: png_fixed_point,
 ) {
-    if png_ptr.is_null() || info_ptr.is_null() {
-        return;
-    }
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        if png_ptr.is_null() || info_ptr.is_null() {
+            return;
+        }
 
-    let mut info = unsafe { read_info_core(info_ptr) };
-    if set_endpoint_values(
-        &mut info,
-        [red_X, red_Y, red_Z, green_X, green_Y, green_Z, blue_X, blue_Y, blue_Z],
-    )
-    .is_err()
-    {
-        info.colorspace.flags |= PNG_COLORSPACE_INVALID;
-        info.colorspace.flags &= !PNG_COLORSPACE_HAVE_ENDPOINTS;
-        info.valid &= !PNG_INFO_cHRM;
-        unsafe {
+        let mut info = read_info_core(info_ptr);
+        if set_endpoint_values(
+            &mut info,
+            [
+                red_X, red_Y, red_Z, green_X, green_Y, green_Z, blue_X, blue_Y, blue_Z,
+            ],
+        )
+        .is_err()
+        {
+            info.colorspace.flags |= PNG_COLORSPACE_INVALID;
+            info.colorspace.flags &= !PNG_COLORSPACE_HAVE_ENDPOINTS;
+            info.valid &= !PNG_INFO_CHRM;
             write_info_core(info_ptr, &info);
             let _ = call_benign_error(png_ptr.cast_mut(), b"invalid end points\0");
+            return;
         }
-        return;
-    }
 
-    unsafe {
         write_info_core(info_ptr, &info);
-    }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -482,31 +454,38 @@ pub unsafe extern "C" fn png_set_cHRM_XYZ(
     blue_Y: f64,
     blue_Z: f64,
 ) {
-    let values = [
-        float_to_fixed(red_X),
-        float_to_fixed(red_Y),
-        float_to_fixed(red_Z),
-        float_to_fixed(green_X),
-        float_to_fixed(green_Y),
-        float_to_fixed(green_Z),
-        float_to_fixed(blue_X),
-        float_to_fixed(blue_Y),
-        float_to_fixed(blue_Z),
-    ];
-    if let [Some(red_X), Some(red_Y), Some(red_Z), Some(green_X), Some(green_Y), Some(green_Z), Some(blue_X), Some(blue_Y), Some(blue_Z)] =
-        values
-    {
-        unsafe {
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        let values = [
+            float_to_fixed(red_X),
+            float_to_fixed(red_Y),
+            float_to_fixed(red_Z),
+            float_to_fixed(green_X),
+            float_to_fixed(green_Y),
+            float_to_fixed(green_Z),
+            float_to_fixed(blue_X),
+            float_to_fixed(blue_Y),
+            float_to_fixed(blue_Z),
+        ];
+        if let [
+            Some(red_X),
+            Some(red_Y),
+            Some(red_Z),
+            Some(green_X),
+            Some(green_Y),
+            Some(green_Z),
+            Some(blue_X),
+            Some(blue_Y),
+            Some(blue_Z),
+        ] = values
+        {
             png_set_cHRM_XYZ_fixed(
-                png_ptr, info_ptr, red_X, red_Y, red_Z, green_X, green_Y, green_Z, blue_X,
-                blue_Y, blue_Z,
+                png_ptr, info_ptr, red_X, red_Y, red_Z, green_X, green_Y, green_Z, blue_X, blue_Y,
+                blue_Z,
             );
-        }
-    } else {
-        unsafe {
+        } else {
             let _ = call_benign_error(png_ptr.cast_mut(), b"invalid end points\0");
         }
-    }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -523,45 +502,47 @@ pub unsafe extern "C" fn png_get_cHRM_XYZ_fixed(
     blue_Y: *mut png_fixed_point,
     blue_Z: *mut png_fixed_point,
 ) -> png_uint_32 {
-    if info_ptr.is_null() {
-        return 0;
-    }
+    crate::abi_guard!(info_ptr.cast_mut(), {
+        if info_ptr.is_null() {
+            return 0;
+        }
 
-    let info = unsafe { read_info_core(info_ptr) };
-    if (info.colorspace.flags & PNG_COLORSPACE_HAVE_ENDPOINTS) == 0 {
-        return 0;
-    }
+        let info = read_info_core(info_ptr);
+        if (info.colorspace.flags & PNG_COLORSPACE_HAVE_ENDPOINTS) == 0 {
+            return 0;
+        }
 
-    unsafe {
-        if !red_X.is_null() {
-            *red_X = info.colorspace.end_points_XYZ.red_X;
+        unsafe {
+            if !red_X.is_null() {
+                *red_X = info.colorspace.end_points_XYZ.red_X;
+            }
+            if !red_Y.is_null() {
+                *red_Y = info.colorspace.end_points_XYZ.red_Y;
+            }
+            if !red_Z.is_null() {
+                *red_Z = info.colorspace.end_points_XYZ.red_Z;
+            }
+            if !green_X.is_null() {
+                *green_X = info.colorspace.end_points_XYZ.green_X;
+            }
+            if !green_Y.is_null() {
+                *green_Y = info.colorspace.end_points_XYZ.green_Y;
+            }
+            if !green_Z.is_null() {
+                *green_Z = info.colorspace.end_points_XYZ.green_Z;
+            }
+            if !blue_X.is_null() {
+                *blue_X = info.colorspace.end_points_XYZ.blue_X;
+            }
+            if !blue_Y.is_null() {
+                *blue_Y = info.colorspace.end_points_XYZ.blue_Y;
+            }
+            if !blue_Z.is_null() {
+                *blue_Z = info.colorspace.end_points_XYZ.blue_Z;
+            }
         }
-        if !red_Y.is_null() {
-            *red_Y = info.colorspace.end_points_XYZ.red_Y;
-        }
-        if !red_Z.is_null() {
-            *red_Z = info.colorspace.end_points_XYZ.red_Z;
-        }
-        if !green_X.is_null() {
-            *green_X = info.colorspace.end_points_XYZ.green_X;
-        }
-        if !green_Y.is_null() {
-            *green_Y = info.colorspace.end_points_XYZ.green_Y;
-        }
-        if !green_Z.is_null() {
-            *green_Z = info.colorspace.end_points_XYZ.green_Z;
-        }
-        if !blue_X.is_null() {
-            *blue_X = info.colorspace.end_points_XYZ.blue_X;
-        }
-        if !blue_Y.is_null() {
-            *blue_Y = info.colorspace.end_points_XYZ.blue_Y;
-        }
-        if !blue_Z.is_null() {
-            *blue_Z = info.colorspace.end_points_XYZ.blue_Z;
-        }
-    }
-    PNG_INFO_cHRM
+        PNG_INFO_CHRM
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -578,17 +559,17 @@ pub unsafe extern "C" fn png_get_cHRM_XYZ(
     blue_Y: *mut f64,
     blue_Z: *mut f64,
 ) -> png_uint_32 {
-    let mut fixed_red_X = 0;
-    let mut fixed_red_Y = 0;
-    let mut fixed_red_Z = 0;
-    let mut fixed_green_X = 0;
-    let mut fixed_green_Y = 0;
-    let mut fixed_green_Z = 0;
-    let mut fixed_blue_X = 0;
-    let mut fixed_blue_Y = 0;
-    let mut fixed_blue_Z = 0;
-    let result = unsafe {
-        png_get_cHRM_XYZ_fixed(
+    crate::abi_guard!(info_ptr.cast_mut(), {
+        let mut fixed_red_X = 0;
+        let mut fixed_red_Y = 0;
+        let mut fixed_red_Z = 0;
+        let mut fixed_green_X = 0;
+        let mut fixed_green_Y = 0;
+        let mut fixed_green_Z = 0;
+        let mut fixed_blue_X = 0;
+        let mut fixed_blue_Y = 0;
+        let mut fixed_blue_Z = 0;
+        let result = png_get_cHRM_XYZ_fixed(
             png_ptr,
             info_ptr,
             &mut fixed_red_X,
@@ -600,41 +581,41 @@ pub unsafe extern "C" fn png_get_cHRM_XYZ(
             &mut fixed_blue_X,
             &mut fixed_blue_Y,
             &mut fixed_blue_Z,
-        )
-    };
-    if result == 0 {
-        return 0;
-    }
+        );
+        if result == 0 {
+            return 0;
+        }
 
-    unsafe {
-        if !red_X.is_null() {
-            *red_X = fixed_to_float(fixed_red_X);
+        unsafe {
+            if !red_X.is_null() {
+                *red_X = fixed_to_float(fixed_red_X);
+            }
+            if !red_Y.is_null() {
+                *red_Y = fixed_to_float(fixed_red_Y);
+            }
+            if !red_Z.is_null() {
+                *red_Z = fixed_to_float(fixed_red_Z);
+            }
+            if !green_X.is_null() {
+                *green_X = fixed_to_float(fixed_green_X);
+            }
+            if !green_Y.is_null() {
+                *green_Y = fixed_to_float(fixed_green_Y);
+            }
+            if !green_Z.is_null() {
+                *green_Z = fixed_to_float(fixed_green_Z);
+            }
+            if !blue_X.is_null() {
+                *blue_X = fixed_to_float(fixed_blue_X);
+            }
+            if !blue_Y.is_null() {
+                *blue_Y = fixed_to_float(fixed_blue_Y);
+            }
+            if !blue_Z.is_null() {
+                *blue_Z = fixed_to_float(fixed_blue_Z);
+            }
         }
-        if !red_Y.is_null() {
-            *red_Y = fixed_to_float(fixed_red_Y);
-        }
-        if !red_Z.is_null() {
-            *red_Z = fixed_to_float(fixed_red_Z);
-        }
-        if !green_X.is_null() {
-            *green_X = fixed_to_float(fixed_green_X);
-        }
-        if !green_Y.is_null() {
-            *green_Y = fixed_to_float(fixed_green_Y);
-        }
-        if !green_Z.is_null() {
-            *green_Z = fixed_to_float(fixed_green_Z);
-        }
-        if !blue_X.is_null() {
-            *blue_X = fixed_to_float(fixed_blue_X);
-        }
-        if !blue_Y.is_null() {
-            *blue_Y = fixed_to_float(fixed_blue_Y);
-        }
-        if !blue_Z.is_null() {
-            *blue_Z = fixed_to_float(fixed_blue_Z);
-        }
-    }
 
-    PNG_INFO_cHRM
+        PNG_INFO_CHRM
+    })
 }

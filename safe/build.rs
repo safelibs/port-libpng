@@ -30,7 +30,10 @@ const UPSTREAM_SOURCES: &[&str] = &[
 ];
 
 const UPSTREAM_RENAMES: &[(&str, &str)] = &[
-    ("png_destroy_read_struct", "upstream_png_destroy_read_struct"),
+    (
+        "png_destroy_read_struct",
+        "upstream_png_destroy_read_struct",
+    ),
     ("png_read_row", "upstream_png_read_row"),
     ("png_set_expand", "upstream_png_set_expand"),
     ("png_set_expand_16", "upstream_png_set_expand_16"),
@@ -151,6 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .std("c99")
         .include(&include_dir)
         .include(manifest_dir.join("../original"))
+        .define("PNG_DISABLE_ADLER32_CHECK_SUPPORTED", "1")
         .define("PNG_INTEL_SSE_OPT", "0")
         .define("PNG_ARM_NEON_OPT", "0")
         .define("PNG_MIPS_MMI_OPT", "0")

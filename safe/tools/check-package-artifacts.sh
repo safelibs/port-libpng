@@ -29,6 +29,27 @@ require_artifact() {
   printf '%s\n' "$artifact"
 }
 
+require_source_orig_tar() {
+  local package_name="$1"
+  local artifact
+
+  artifact="$(
+    find "$repo_root" -maxdepth 1 -type f \
+      -name "${package_name}_*.tar.xz" \
+      ! -name "${package_name}_*.debian.tar.xz" \
+      -printf '%T@ %p\n' \
+      | sort -nr \
+      | head -n1 \
+      | cut -d' ' -f2-
+  )"
+  if [[ -z "$artifact" ]]; then
+    printf 'missing built source tar artifact: %s_*.tar.xz\n' "$package_name" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$artifact"
+}
+
 require_path() {
   local root="$1"
   local rel="$2"
@@ -52,10 +73,100 @@ require_symlink_target() {
   fi
 }
 
+require_changes_entry() {
+  local changes_file="$1"
+  local artifact="$2"
+  local basename_artifact
+
+  basename_artifact="$(basename "$artifact")"
+  if ! grep -Fq " $basename_artifact" "$changes_file"; then
+    printf 'changes file %s does not reference %s\n' "$changes_file" "$basename_artifact" >&2
+    exit 1
+  fi
+}
+
+validate_source_package_matches_tree() {
+  local source_root="$1"
+
+  python3 - <<'PY' "$repo_root" "$source_root"
+import pathlib
+import subprocess
+import sys
+
+repo_root = pathlib.Path(sys.argv[1])
+source_root = pathlib.Path(sys.argv[2])
+
+tracked = subprocess.check_output(
+    [
+        "git",
+        "-C",
+        str(repo_root),
+        "ls-files",
+        "--",
+        "safe/Cargo.toml",
+        "safe/build.rs",
+        "safe/cshim",
+        "safe/include",
+        "safe/pkg",
+        "safe/src",
+        "safe/debian",
+    ],
+    text=True,
+).splitlines()
+
+tracked_rel = [path[len("safe/") :] for path in tracked]
+source_files = set()
+for rel in ["Cargo.toml", "build.rs", "cshim", "include", "pkg", "src", "debian"]:
+    base = source_root / rel
+    if base.is_file() or base.is_symlink():
+        source_files.add(rel)
+        continue
+    if not base.exists():
+        continue
+    for path in sorted(base.rglob("*")):
+        if path.is_file() or path.is_symlink():
+            source_files.add(str(path.relative_to(source_root)))
+
+tracked_set = set(tracked_rel)
+missing = sorted(tracked_set - source_files)
+extra = sorted(source_files - tracked_set)
+if missing:
+    raise SystemExit(
+        "source package is missing tracked package-affecting paths: "
+        + ", ".join(missing)
+    )
+if extra:
+    raise SystemExit(
+        "source package contains unexpected package-affecting paths: "
+        + ", ".join(extra)
+    )
+
+for rel in tracked_rel:
+    repo_path = repo_root / "safe" / rel
+    source_path = source_root / rel
+
+    if repo_path.is_symlink() != source_path.is_symlink():
+        raise SystemExit(f"path type mismatch for {rel}")
+
+    if repo_path.is_symlink():
+        if repo_path.readlink() != source_path.readlink():
+            raise SystemExit(f"symlink target mismatch for {rel}")
+        continue
+
+    if repo_path.read_bytes() != source_path.read_bytes():
+        raise SystemExit(f"source package content mismatch for {rel}")
+PY
+}
+
 runtime_deb="$(require_artifact libpng16-16t64 deb)"
 dev_deb="$(require_artifact libpng-dev deb)"
 tools_deb="$(require_artifact libpng-tools deb)"
 udeb_artifact="$(require_artifact libpng16-16-udeb udeb)"
+changes_artifact="$(require_artifact libpng1.6 changes)"
+buildinfo_artifact="$(require_artifact libpng1.6 buildinfo)"
+source_dsc="$(require_artifact libpng1.6 dsc)"
+source_debian_tar="$(require_artifact libpng1.6 debian.tar.xz)"
+source_orig_tar="$(require_source_orig_tar libpng1.6)"
 
 for pair in \
   "libpng16-16t64:$runtime_deb" \
@@ -82,6 +193,34 @@ for artifact in "$dev_deb" "$tools_deb" "$udeb_artifact"; do
   fi
 done
 
+for source_artifact in \
+  "$runtime_deb" \
+  "$dev_deb" \
+  "$tools_deb" \
+  "$udeb_artifact" \
+  "$buildinfo_artifact" \
+  "$source_dsc" \
+  "$source_debian_tar"
+do
+  require_changes_entry "$changes_artifact" "$source_artifact"
+done
+
+if ! grep -Fq "Source: libpng1.6" "$buildinfo_artifact"; then
+  printf 'unexpected source stanza in %s\n' "$buildinfo_artifact" >&2
+  exit 1
+fi
+if ! grep -Fq "Version: $runtime_version" "$buildinfo_artifact"; then
+  printf 'buildinfo version mismatch in %s\n' "$buildinfo_artifact" >&2
+  exit 1
+fi
+for artifact in "$runtime_deb" "$dev_deb" "$tools_deb" "$udeb_artifact" "$source_dsc"; do
+  basename_artifact="$(basename "$artifact")"
+  if ! grep -Fq " $basename_artifact" "$buildinfo_artifact"; then
+    printf 'buildinfo file %s does not reference %s\n' "$buildinfo_artifact" "$basename_artifact" >&2
+    exit 1
+  fi
+done
+
 extract_root="$(mktemp -d)"
 trap 'rm -rf "$extract_root"' EXIT
 
@@ -89,11 +228,20 @@ runtime_root="$extract_root/runtime"
 dev_root="$extract_root/dev"
 tools_root="$extract_root/tools"
 udeb_root="$extract_root/udeb"
+source_root="$extract_root/source"
 
 dpkg-deb -x "$runtime_deb" "$runtime_root"
 dpkg-deb -x "$dev_deb" "$dev_root"
 dpkg-deb -x "$tools_deb" "$tools_root"
 dpkg-deb -x "$udeb_artifact" "$udeb_root"
+dpkg-source -x "$source_dsc" "$source_root" >/dev/null 2>&1
+
+if [[ ! -f "$source_orig_tar" || ! -f "$source_debian_tar" ]]; then
+  printf 'source package artifacts are incomplete for %s\n' "$runtime_version" >&2
+  exit 1
+fi
+
+validate_source_package_matches_tree "$source_root"
 
 multiarch_dir="$(find "$runtime_root/usr/lib" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -n1)"
 if [[ -z "$multiarch_dir" ]]; then
@@ -191,4 +339,5 @@ if [[ "$(readlink "$udeb_lib_dir/libpng16.so.16")" != "libpng16.so.16.43.0" ]]; 
 fi
 
 printf 'package artifacts passed for %s\n' "$runtime_version"
+printf 'source package artifacts match the current safe packaging tree\n'
 printf 'libpng-dev examples preserved under /usr/share/doc/libpng-dev/examples/\n'
