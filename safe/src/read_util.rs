@@ -156,9 +156,9 @@ pub(crate) fn validate_chunk_name(name: [png_byte; 4]) -> bool {
 
 pub(crate) fn known_chunk_names() -> &'static [[png_byte; 4]] {
     static KNOWN_CHUNKS: [[png_byte; 4]; 22] = [
-        *b"IHDR", *b"PLTE", *b"IDAT", *b"IEND", *b"bKGD", *b"cHRM", *b"eXIf", *b"gAMA",
-        *b"hIST", *b"iCCP", *b"iTXt", *b"oFFs", *b"pCAL", *b"pHYs", *b"sBIT", *b"sCAL",
-        *b"sPLT", *b"sRGB", *b"tEXt", *b"tIME", *b"tRNS", *b"zTXt",
+        *b"IHDR", *b"PLTE", *b"IDAT", *b"IEND", *b"bKGD", *b"cHRM", *b"eXIf", *b"gAMA", *b"hIST",
+        *b"iCCP", *b"iTXt", *b"oFFs", *b"pCAL", *b"pHYs", *b"sBIT", *b"sCAL", *b"sPLT", *b"sRGB",
+        *b"tEXt", *b"tIME", *b"tRNS", *b"zTXt",
     ];
 
     &KNOWN_CHUNKS
@@ -170,9 +170,8 @@ pub(crate) fn is_known_chunk_name(name: [png_byte; 4]) -> bool {
 
 pub(crate) fn known_chunks_to_ignore() -> &'static [[png_byte; 4]] {
     static KNOWN_CHUNKS: [[png_byte; 4]; 18] = [
-        *b"bKGD", *b"cHRM", *b"eXIf", *b"gAMA", *b"hIST", *b"iCCP", *b"iTXt", *b"oFFs",
-        *b"pCAL", *b"pHYs", *b"sBIT", *b"sCAL", *b"sPLT", *b"sTER", *b"sRGB", *b"tEXt",
-        *b"tIME", *b"zTXt",
+        *b"bKGD", *b"cHRM", *b"eXIf", *b"gAMA", *b"hIST", *b"iCCP", *b"iTXt", *b"oFFs", *b"pCAL",
+        *b"pHYs", *b"sBIT", *b"sCAL", *b"sPLT", *b"sTER", *b"sRGB", *b"tEXt", *b"tIME", *b"zTXt",
     ];
 
     &KNOWN_CHUNKS
@@ -203,7 +202,10 @@ pub(crate) fn png_crc32(name: [png_byte; 4], data: &[u8]) -> u32 {
     !crc32_update(crc, data)
 }
 
-pub(crate) fn update_phase_from_row_state(png_ptr: png_structrp, core: &png_safe_read_core) -> ReadPhase {
+pub(crate) fn update_phase_from_row_state(
+    png_ptr: png_structrp,
+    core: &png_safe_read_core,
+) -> ReadPhase {
     if (core.flags & PNG_FLAG_ROW_INIT) != 0 {
         ReadPhase::ImageRows
     } else if (core.mode & PNG_HAVE_IEND) != 0 {

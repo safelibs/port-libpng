@@ -33,5 +33,5 @@ fi
 "$build_dir/timepng" "$pngtopng_output" >/dev/null
 smoke_png_fix_itxt "$build_dir"
 
-printf 'libpng consumer smokes passed for pngcp, pngfix, timepng, and pngtopng\n'
+printf 'libpng consumer smokes passed for pngcp, pngfix, timepng, and pngtopng (simplified write)\n'
 printf 'standalone packaged-tool smoke passed separately for png-fix-itxt\n'

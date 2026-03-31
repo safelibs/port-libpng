@@ -1,46 +1,237 @@
-//! Force-link the upstream write-side utility and chunk configuration entry points.
-
-use crate::read_util::KeepSymbol;
+use crate::types::*;
+use crate::zlib;
 
 unsafe extern "C" {
-    fn png_write_sig();
-    fn png_write_chunk();
-    fn png_write_chunk_start();
-    fn png_write_chunk_data();
-    fn png_write_chunk_end();
-    fn png_save_uint_16();
-    fn png_save_uint_32();
-    fn png_set_compression_buffer_size();
-    fn png_set_compression_level();
-    fn png_set_compression_mem_level();
-    fn png_set_compression_method();
-    fn png_set_compression_strategy();
-    fn png_set_compression_window_bits();
-    fn png_set_text_compression_level();
-    fn png_set_text_compression_mem_level();
-    fn png_set_text_compression_method();
-    fn png_set_text_compression_strategy();
-    fn png_set_text_compression_window_bits();
+    fn upstream_png_get_compression_buffer_size(png_ptr: png_const_structrp) -> usize;
+    fn upstream_png_write_sig(png_ptr: png_structrp);
+    fn upstream_png_write_chunk(
+        png_ptr: png_structrp,
+        chunk_name: png_const_bytep,
+        data: png_const_bytep,
+        length: usize,
+    );
+    fn upstream_png_write_chunk_start(
+        png_ptr: png_structrp,
+        chunk_name: png_const_bytep,
+        length: png_uint_32,
+    );
+    fn upstream_png_write_chunk_data(png_ptr: png_structrp, data: png_const_bytep, length: usize);
+    fn upstream_png_write_chunk_end(png_ptr: png_structrp);
+    fn upstream_png_set_compression_buffer_size(png_ptr: png_structrp, size: usize);
+    fn upstream_png_set_compression_level(png_ptr: png_structrp, level: core::ffi::c_int);
+    fn upstream_png_set_compression_mem_level(png_ptr: png_structrp, mem_level: core::ffi::c_int);
+    fn upstream_png_set_compression_method(png_ptr: png_structrp, method: core::ffi::c_int);
+    fn upstream_png_set_compression_strategy(png_ptr: png_structrp, strategy: core::ffi::c_int);
+    fn upstream_png_set_compression_window_bits(
+        png_ptr: png_structrp,
+        window_bits: core::ffi::c_int,
+    );
+    fn upstream_png_set_text_compression_level(png_ptr: png_structrp, level: core::ffi::c_int);
+    fn upstream_png_set_text_compression_mem_level(
+        png_ptr: png_structrp,
+        mem_level: core::ffi::c_int,
+    );
+    fn upstream_png_set_text_compression_method(png_ptr: png_structrp, method: core::ffi::c_int);
+    fn upstream_png_set_text_compression_strategy(
+        png_ptr: png_structrp,
+        strategy: core::ffi::c_int,
+    );
+    fn upstream_png_set_text_compression_window_bits(
+        png_ptr: png_structrp,
+        window_bits: core::ffi::c_int,
+    );
 }
 
-#[used]
-static FORCE_LINK_WRITE_UTIL: [KeepSymbol; 18] = [
-    KeepSymbol::new(png_write_sig as *mut ()),
-    KeepSymbol::new(png_write_chunk as *mut ()),
-    KeepSymbol::new(png_write_chunk_start as *mut ()),
-    KeepSymbol::new(png_write_chunk_data as *mut ()),
-    KeepSymbol::new(png_write_chunk_end as *mut ()),
-    KeepSymbol::new(png_save_uint_16 as *mut ()),
-    KeepSymbol::new(png_save_uint_32 as *mut ()),
-    KeepSymbol::new(png_set_compression_buffer_size as *mut ()),
-    KeepSymbol::new(png_set_compression_level as *mut ()),
-    KeepSymbol::new(png_set_compression_mem_level as *mut ()),
-    KeepSymbol::new(png_set_compression_method as *mut ()),
-    KeepSymbol::new(png_set_compression_strategy as *mut ()),
-    KeepSymbol::new(png_set_compression_window_bits as *mut ()),
-    KeepSymbol::new(png_set_text_compression_level as *mut ()),
-    KeepSymbol::new(png_set_text_compression_mem_level as *mut ()),
-    KeepSymbol::new(png_set_text_compression_method as *mut ()),
-    KeepSymbol::new(png_set_text_compression_strategy as *mut ()),
-    KeepSymbol::new(png_set_text_compression_window_bits as *mut ()),
-];
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_get_compression_buffer_size(png_ptr: png_const_structrp) -> usize {
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        zlib::write_zlib_settings(png_ptr)
+            .map(|settings| settings.buffer_size)
+            .unwrap_or_else(|| unsafe { upstream_png_get_compression_buffer_size(png_ptr) })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_write_sig(png_ptr: png_structrp) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_write_sig(png_ptr);
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_write_chunk(
+    png_ptr: png_structrp,
+    chunk_name: png_const_bytep,
+    data: png_const_bytep,
+    length: usize,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_write_chunk(png_ptr, chunk_name, data, length);
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_write_chunk_start(
+    png_ptr: png_structrp,
+    chunk_name: png_const_bytep,
+    length: png_uint_32,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_write_chunk_start(png_ptr, chunk_name, length);
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_write_chunk_data(
+    png_ptr: png_structrp,
+    data: png_const_bytep,
+    length: usize,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_write_chunk_data(png_ptr, data, length);
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_write_chunk_end(png_ptr: png_structrp) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_write_chunk_end(png_ptr);
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_compression_buffer_size(png_ptr: png_structrp, size: usize) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_compression_buffer_size(png_ptr, size);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.buffer_size = size;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_compression_level(png_ptr: png_structrp, level: core::ffi::c_int) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_compression_level(png_ptr, level);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.level = level;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_compression_mem_level(
+    png_ptr: png_structrp,
+    mem_level: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_compression_mem_level(png_ptr, mem_level);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.mem_level = mem_level;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_compression_method(
+    png_ptr: png_structrp,
+    method: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_compression_method(png_ptr, method);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.method = method;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_compression_strategy(
+    png_ptr: png_structrp,
+    strategy: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_compression_strategy(png_ptr, strategy);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.strategy = strategy;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_compression_window_bits(
+    png_ptr: png_structrp,
+    window_bits: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_compression_window_bits(png_ptr, window_bits);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.window_bits = window_bits;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_text_compression_level(
+    png_ptr: png_structrp,
+    level: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_text_compression_level(png_ptr, level);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.text_level = level;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_text_compression_mem_level(
+    png_ptr: png_structrp,
+    mem_level: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_text_compression_mem_level(png_ptr, mem_level);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.text_mem_level = mem_level;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_text_compression_method(
+    png_ptr: png_structrp,
+    method: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_text_compression_method(png_ptr, method);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.text_method = method;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_text_compression_strategy(
+    png_ptr: png_structrp,
+    strategy: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_text_compression_strategy(png_ptr, strategy);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.text_strategy = strategy;
+        });
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn png_set_text_compression_window_bits(
+    png_ptr: png_structrp,
+    window_bits: core::ffi::c_int,
+) {
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_set_text_compression_window_bits(png_ptr, window_bits);
+        zlib::update_write_zlib_settings(png_ptr, |settings| {
+            settings.text_window_bits = window_bits;
+        });
+    });
+}

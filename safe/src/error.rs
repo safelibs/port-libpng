@@ -11,10 +11,7 @@ unsafe extern "C" {
     fn upstream_png_benign_error(png_ptr: png_const_structrp, error_message: png_const_charp);
     fn upstream_png_chunk_warning(png_ptr: png_const_structrp, warning_message: png_const_charp);
     fn upstream_png_chunk_error(png_ptr: png_const_structrp, error_message: png_const_charp) -> !;
-    fn upstream_png_chunk_benign_error(
-        png_ptr: png_const_structrp,
-        error_message: png_const_charp,
-    );
+    fn upstream_png_chunk_benign_error(png_ptr: png_const_structrp, error_message: png_const_charp);
     fn upstream_png_set_error_fn(
         png_ptr: png_structrp,
         error_ptr: png_voidp,

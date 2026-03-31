@@ -1,3 +1,4 @@
+use crate::common::WriteZlibSettings;
 use crate::read_util::checked_decompressed_len;
 use crate::state;
 use crate::types::*;
@@ -73,6 +74,19 @@ fn inflate_limit(png_ptr: png_const_structrp) -> png_alloc_size_t {
         .unwrap_or(0)
 }
 
+pub(crate) fn write_zlib_settings(png_ptr: png_const_structrp) -> Option<WriteZlibSettings> {
+    state::get_png(png_ptr.cast_mut()).map(|png_state| png_state.write_zlib)
+}
+
+pub(crate) fn update_write_zlib_settings(
+    png_ptr: png_structrp,
+    update: impl FnOnce(&mut WriteZlibSettings),
+) {
+    state::update_png(png_ptr, |png_state| {
+        update(&mut png_state.write_zlib);
+    });
+}
+
 fn push_output_with_limit(
     output: &mut Vec<u8>,
     bytes: &[u8],
@@ -122,7 +136,16 @@ pub(crate) fn inflate_ancillary_zlib(
         stream.next_out = chunk.as_mut_ptr();
         stream.avail_out = c_uint::try_from(chunk.len()).unwrap_or(c_uint::MAX);
 
-        let ret = unsafe { inflate(&mut stream, if stream.avail_in == 0 { Z_FINISH } else { Z_NO_FLUSH }) };
+        let ret = unsafe {
+            inflate(
+                &mut stream,
+                if stream.avail_in == 0 {
+                    Z_FINISH
+                } else {
+                    Z_NO_FLUSH
+                },
+            )
+        };
         let produced = chunk.len() - usize::try_from(stream.avail_out).unwrap_or(0);
         if produced != 0 {
             if let Err(message) = push_output_with_limit(&mut output, &chunk[..produced], limit) {

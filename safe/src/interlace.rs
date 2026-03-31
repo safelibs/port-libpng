@@ -24,11 +24,7 @@ fn mask_packed_row_padding(row: png_bytep, rowbytes: usize, width: usize, pixel_
     }
 }
 
-pub(crate) fn sanitize_row_padding(
-    png_ptr: png_structrp,
-    row: png_bytep,
-    display_row: png_bytep,
-) {
+pub(crate) fn sanitize_row_padding(png_ptr: png_structrp, row: png_bytep, display_row: png_bytep) {
     let core = read_core(png_ptr);
     let handled_interlace =
         core.interlaced != 0 && (core.transformations & PNG_INTERLACE_TRANSFORM) != 0;

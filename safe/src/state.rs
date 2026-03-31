@@ -1,6 +1,6 @@
 use crate::common::{
-    PNG_USER_CHUNK_CACHE_MAX, PNG_USER_CHUNK_MALLOC_MAX, PNG_USER_HEIGHT_MAX,
-    PNG_USER_WIDTH_MAX,
+    PNG_USER_CHUNK_CACHE_MAX, PNG_USER_CHUNK_MALLOC_MAX, PNG_USER_HEIGHT_MAX, PNG_USER_WIDTH_MAX,
+    WriteZlibSettings,
 };
 use crate::read_util::{
     PNG_HANDLE_CHUNK_AS_DEFAULT, ProgressiveReadState, ReadPhase, UnknownChunkSetting,
@@ -26,6 +26,7 @@ pub(crate) struct PngStructState {
     pub output_flush_fn: png_flush_ptr,
     pub read_row_fn: png_read_status_ptr,
     pub write_row_fn: png_write_status_ptr,
+    pub flush_rows: c_int,
     pub progressive_ptr: png_voidp,
     pub progressive_info_fn: png_progressive_info_ptr,
     pub progressive_row_fn: png_progressive_row_ptr,
@@ -46,6 +47,7 @@ pub(crate) struct PngStructState {
     pub palette_max: c_int,
     pub options: png_uint_32,
     pub sig_bytes: c_int,
+    pub write_zlib: WriteZlibSettings,
     pub longjmp_fn: png_longjmp_ptr,
     pub jmp_buf_ptr: *mut JmpBuf,
     pub jmp_buf_size: usize,
@@ -80,6 +82,7 @@ impl PngStructState {
             output_flush_fn: None,
             read_row_fn: None,
             write_row_fn: None,
+            flush_rows: 0,
             progressive_ptr: ptr::null_mut(),
             progressive_info_fn: None,
             progressive_row_fn: None,
@@ -100,6 +103,7 @@ impl PngStructState {
             palette_max: 0,
             options: 0,
             sig_bytes: 0,
+            write_zlib: WriteZlibSettings::default(),
             longjmp_fn: None,
             jmp_buf_ptr: ptr::null_mut(),
             jmp_buf_size: 0,

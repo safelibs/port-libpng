@@ -7,17 +7,16 @@ use crate::chunks::{
 use crate::common::{PNG_FLAG_ROW_INIT, PNG_HAVE_PNG_SIGNATURE};
 use crate::interlace;
 use crate::read_util::{
-    checked_rowbytes_for_width, chunk_name_u32, is_known_chunk_name, png_crc32,
-    update_phase_from_row_state, validate_chunk_name, ReadPhase,
-    PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_HANDLE_CHUNK_IF_SAFE, PNG_IDAT, PNG_IEND, PNG_IHDR,
-    PNG_PLTE, PNG_SIGNATURE,
+    PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_HANDLE_CHUNK_IF_SAFE, PNG_IDAT, PNG_IEND, PNG_IHDR, PNG_PLTE,
+    PNG_SIGNATURE, ReadPhase, checked_rowbytes_for_width, chunk_name_u32, is_known_chunk_name,
+    png_crc32, update_phase_from_row_state, validate_chunk_name,
 };
 use crate::state;
 use crate::types::*;
 use crate::zlib;
 use core::ffi::{c_int, c_void};
 use core::ptr;
-use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
 const PNG_INTERLACE_TRANSFORM: png_uint_32 = 0x0002;
 const PNG_HAVE_IHDR: png_uint_32 = 0x01;
@@ -415,7 +414,14 @@ unsafe fn read_chunk_data_or_discard(
     unsafe { read_exact_or_rethrow(png_ptr, info_ptr, snapshot, &mut crc) };
 
     let use_data = unsafe {
-        apply_crc_policy_or_rethrow(png_ptr, info_ptr, snapshot, chunk_name, &data, read_be_u32(&crc))
+        apply_crc_policy_or_rethrow(
+            png_ptr,
+            info_ptr,
+            snapshot,
+            chunk_name,
+            &data,
+            read_be_u32(&crc),
+        )
     };
     use_data.then_some(data)
 }
@@ -715,16 +721,8 @@ unsafe fn parse_chrm_chunk(
 
     if unsafe {
         png_safe_set_cHRM_fixed(
-            png_ptr,
-            info_ptr,
-            values[0],
-            values[1],
-            values[2],
-            values[3],
-            values[4],
-            values[5],
-            values[6],
-            values[7],
+            png_ptr, info_ptr, values[0], values[1], values[2], values[3], values[4], values[5],
+            values[6], values[7],
         )
     } == 0
     {
@@ -825,21 +823,27 @@ unsafe fn parse_bkgd_chunk(
     match core.color_type {
         3 => {
             if data.len() != 1 {
-                unsafe { ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid bKGD\0") };
+                unsafe {
+                    ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid bKGD\0")
+                };
                 return;
             }
             background.index = data[0];
         }
         0 | 4 => {
             if data.len() != 2 {
-                unsafe { ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid bKGD\0") };
+                unsafe {
+                    ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid bKGD\0")
+                };
                 return;
             }
             background.gray = read_be_u16(data);
         }
         2 | 6 => {
             if data.len() != 6 {
-                unsafe { ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid bKGD\0") };
+                unsafe {
+                    ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid bKGD\0")
+                };
                 return;
             }
             background.red = read_be_u16(&data[0..2]);
@@ -884,23 +888,31 @@ unsafe fn parse_trns_chunk(
         }
         0 => {
             if data.len() != 2 {
-                unsafe { ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid tRNS\0") };
+                unsafe {
+                    ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid tRNS\0")
+                };
                 return;
             }
             trans_color.gray = read_be_u16(data);
-            if unsafe { png_safe_set_tRNS(png_ptr, info_ptr, ptr::null_mut(), 0, &mut trans_color) } == 0 {
+            if unsafe { png_safe_set_tRNS(png_ptr, info_ptr, ptr::null_mut(), 0, &mut trans_color) }
+                == 0
+            {
                 unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
             }
         }
         2 => {
             if data.len() != 6 {
-                unsafe { ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid tRNS\0") };
+                unsafe {
+                    ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid tRNS\0")
+                };
                 return;
             }
             trans_color.red = read_be_u16(&data[0..2]);
             trans_color.green = read_be_u16(&data[2..4]);
             trans_color.blue = read_be_u16(&data[4..6]);
-            if unsafe { png_safe_set_tRNS(png_ptr, info_ptr, ptr::null_mut(), 0, &mut trans_color) } == 0 {
+            if unsafe { png_safe_set_tRNS(png_ptr, info_ptr, ptr::null_mut(), 0, &mut trans_color) }
+                == 0
+            {
                 unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
             }
         }
@@ -1039,12 +1051,7 @@ unsafe fn parse_ztxt_chunk(
         return;
     }
 
-    let inflated = match zlib::inflate_ancillary_zlib(
-        png_ptr,
-        &rest[1..],
-        Some(data.len()),
-        true,
-    ) {
+    let inflated = match zlib::inflate_ancillary_zlib(png_ptr, &rest[1..], Some(data.len()), true) {
         Ok(bytes) => bytes,
         Err(message) => {
             unsafe { ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, message) };
@@ -1193,7 +1200,9 @@ unsafe fn parse_hist_chunk(
     data: &[u8],
 ) {
     let info = read_info_core(info_ptr);
-    let expected = usize::from(info.num_palette).checked_mul(2).unwrap_or(usize::MAX);
+    let expected = usize::from(info.num_palette)
+        .checked_mul(2)
+        .unwrap_or(usize::MAX);
     if expected == 0 || data.len() != expected {
         unsafe { ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid hIST\0") };
         return;
@@ -1354,9 +1363,7 @@ unsafe fn parse_pcal_chunk(
     let mut params_storage: Vec<Vec<u8>> = Vec::new();
     for _ in 0..nparams.max(0) {
         let Some((param, tail)) = split_first_nul(params_blob) else {
-            unsafe {
-                ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid data\0")
-            };
+            unsafe { ancillary_benign_or_rethrow(png_ptr, info_ptr, snapshot, b"invalid data\0") };
             return;
         };
         params_storage.push(nul_terminated(param));
@@ -1423,7 +1430,16 @@ unsafe fn parse_scal_chunk(
 
     let width = nul_terminated(width);
     let height = nul_terminated(height);
-    if unsafe { png_safe_set_sCAL_s(png_ptr, info_ptr, unit, width.as_ptr().cast(), height.as_ptr().cast()) } == 0 {
+    if unsafe {
+        png_safe_set_sCAL_s(
+            png_ptr,
+            info_ptr,
+            unit,
+            width.as_ptr().cast(),
+            height.as_ptr().cast(),
+        )
+    } == 0
+    {
         unsafe { rollback_and_rethrow(png_ptr, info_ptr, snapshot) };
     }
 }
@@ -1468,10 +1484,7 @@ unsafe fn parse_known_chunk(
     }
 }
 
-unsafe fn read_info_loop(
-    png_ptr: png_structrp,
-    info_ptr: png_inforp,
-) {
+unsafe fn read_info_loop(png_ptr: png_structrp, info_ptr: png_inforp) {
     loop {
         let snapshot = unsafe { snapshot_parse_state(png_ptr, info_ptr) };
         let (length, name) = unsafe { read_chunk_header_or_rethrow(png_ptr, info_ptr, &snapshot) };
@@ -1483,21 +1496,11 @@ unsafe fn read_info_loop(
         if chunk_name == PNG_IDAT {
             if (core.mode & PNG_HAVE_IHDR) == 0 {
                 unsafe {
-                    error_and_rethrow(
-                        png_ptr,
-                        info_ptr,
-                        &snapshot,
-                        b"Missing IHDR before IDAT\0",
-                    )
+                    error_and_rethrow(png_ptr, info_ptr, &snapshot, b"Missing IHDR before IDAT\0")
                 };
             } else if core.color_type == 3 && (core.mode & PNG_HAVE_PLTE) == 0 {
                 unsafe {
-                    error_and_rethrow(
-                        png_ptr,
-                        info_ptr,
-                        &snapshot,
-                        b"Missing PLTE before IDAT\0",
-                    )
+                    error_and_rethrow(png_ptr, info_ptr, &snapshot, b"Missing PLTE before IDAT\0")
                 };
             }
             core.mode |= PNG_HAVE_IDAT;
@@ -1518,7 +1521,15 @@ unsafe fn read_info_loop(
                 unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, &snapshot, name, length) }
             {
                 unsafe {
-                    handle_unknown_chunk(png_ptr, info_ptr, &snapshot, name, data, keep, known_chunk)
+                    handle_unknown_chunk(
+                        png_ptr,
+                        info_ptr,
+                        &snapshot,
+                        name,
+                        data,
+                        keep,
+                        known_chunk,
+                    )
                 };
             }
 
@@ -1576,10 +1587,7 @@ unsafe fn read_info_loop(
     }
 }
 
-unsafe fn read_end_loop(
-    png_ptr: png_structrp,
-    info_ptr: png_inforp,
-) {
+unsafe fn read_end_loop(png_ptr: png_structrp, info_ptr: png_inforp) {
     if keep_for_chunk(png_ptr, *b"IDAT") == PNG_HANDLE_CHUNK_AS_DEFAULT {
         let snapshot = unsafe { snapshot_parse_state(png_ptr, info_ptr) };
         if unsafe { png_safe_complete_idat(png_ptr) } == 0 {
@@ -1599,7 +1607,8 @@ unsafe fn read_end_loop(
     let core = read_core(png_ptr);
     let info = read_info_core(info_ptr);
     if core.color_type == 3 && core.num_palette_max >= i32::from(info.num_palette) {
-        let _ = unsafe { call_benign_error(png_ptr, b"Read palette index exceeding num_palette\0") };
+        let _ =
+            unsafe { call_benign_error(png_ptr, b"Read palette index exceeding num_palette\0") };
     }
     state::update_png(png_ptr, |png_state| {
         if png_state.check_for_invalid_index > 0 {
@@ -1641,7 +1650,15 @@ unsafe fn read_end_loop(
                 unsafe { read_chunk_data_or_discard(png_ptr, info_ptr, &snapshot, name, length) }
             {
                 unsafe {
-                    handle_unknown_chunk(png_ptr, info_ptr, &snapshot, name, data, keep, known_chunk)
+                    handle_unknown_chunk(
+                        png_ptr,
+                        info_ptr,
+                        &snapshot,
+                        name,
+                        data,
+                        keep,
+                        known_chunk,
+                    )
                 };
             }
         } else if let Some(data) =
@@ -1753,11 +1770,7 @@ pub unsafe extern "C" fn png_safe_rust_start_read_image(png_ptr: png_structrp) -
     catch_read_status(|| unsafe { start_read_image_impl(png_ptr) })
 }
 
-pub(crate) unsafe fn read_row_impl(
-    png_ptr: png_structrp,
-    row: png_bytep,
-    display_row: png_bytep,
-) {
+pub(crate) unsafe fn read_row_impl(png_ptr: png_structrp, row: png_bytep, display_row: png_bytep) {
     unsafe {
         if png_safe_call_read_row(png_ptr, row, display_row) == 0 {
             raise_read_longjmp();

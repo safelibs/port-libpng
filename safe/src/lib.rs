@@ -5,8 +5,8 @@
 
 pub mod abi_exports;
 mod chunks;
-mod common;
 mod colorspace;
+mod common;
 mod error;
 mod get;
 mod interlace;
@@ -20,6 +20,7 @@ mod set;
 mod simplified;
 mod state;
 mod types;
+// Phase 5 activates Rust-owned write-side ABI wrappers over renamed upstream helpers.
 mod write;
 mod write_transform;
 mod write_util;

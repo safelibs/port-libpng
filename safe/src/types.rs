@@ -11,6 +11,8 @@ pub type png_bytep = *mut png_byte;
 pub type png_const_bytep = *const png_byte;
 pub type png_bytepp = *mut png_bytep;
 pub type png_charpp = *mut png_charp;
+pub type png_doublep = *mut c_double;
+pub type png_const_doublep = *const c_double;
 pub type png_uint_16p = *mut png_uint_16;
 pub type png_const_uint_16p = *const png_uint_16;
 
@@ -19,6 +21,8 @@ pub type png_uint_16 = u16;
 pub type png_uint_32 = u32;
 pub type png_int_32 = i32;
 pub type png_fixed_point = png_int_32;
+pub type png_fixed_point_p = *mut png_fixed_point;
+pub type png_const_fixed_point_p = *const png_fixed_point;
 pub type png_size_t = usize;
 pub type png_alloc_size_t = usize;
 
@@ -147,6 +151,8 @@ pub struct png_sPLT_t {
 }
 
 pub type png_sPLT_tp = *mut png_sPLT_t;
+pub type png_const_sPLT_tp = *const png_sPLT_t;
+pub type png_sPLT_tpp = *mut png_sPLT_tp;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -161,6 +167,7 @@ pub struct png_text {
 }
 
 pub type png_textp = *mut png_text;
+pub type png_const_textp = *const png_text;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -197,6 +204,7 @@ impl Default for png_unknown_chunk {
 }
 
 pub type png_unknown_chunkp = *mut png_unknown_chunk;
+pub type png_const_unknown_chunkp = *const png_unknown_chunk;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -234,7 +242,6 @@ pub type png_time_t = time_t;
 pub type png_uchar = c_uchar;
 pub type png_uint = c_uint;
 pub type png_controlp = *mut c_void;
-pub type png_doublep = *mut c_double;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]

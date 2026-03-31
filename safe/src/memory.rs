@@ -1,4 +1,6 @@
-use crate::common::{PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_MUL, PNG_FREE_ROWS, PNG_USER_WILL_FREE_DATA};
+use crate::common::{
+    PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_MUL, PNG_FREE_ROWS, PNG_USER_WILL_FREE_DATA,
+};
 use crate::state::{self, PngStructState};
 use crate::types::*;
 use core::ffi::c_int;
@@ -132,7 +134,9 @@ pub unsafe extern "C" fn png_calloc(
     png_ptr: png_const_structrp,
     size: png_alloc_size_t,
 ) -> png_voidp {
-    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_calloc(png_ptr, size) })
+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
+        upstream_png_calloc(png_ptr, size)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -140,7 +144,9 @@ pub unsafe extern "C" fn png_malloc(
     png_ptr: png_const_structrp,
     size: png_alloc_size_t,
 ) -> png_voidp {
-    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_malloc(png_ptr, size) })
+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
+        upstream_png_malloc(png_ptr, size)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -158,7 +164,9 @@ pub unsafe extern "C" fn png_malloc_warn(
     png_ptr: png_const_structrp,
     size: png_alloc_size_t,
 ) -> png_voidp {
-    crate::abi_guard!(png_ptr.cast_mut(), unsafe { upstream_png_malloc_warn(png_ptr, size) })
+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
+        upstream_png_malloc_warn(png_ptr, size)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -308,13 +316,7 @@ pub unsafe extern "C" fn png_create_write_struct_2(
             },
             |png_ptr| {
                 register_write_state(
-                    png_ptr,
-                    error_ptr,
-                    error_fn,
-                    warn_fn,
-                    mem_ptr,
-                    malloc_fn,
-                    free_fn,
+                    png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
                 );
             },
         )

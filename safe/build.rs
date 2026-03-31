@@ -30,12 +30,18 @@ const UPSTREAM_SOURCES: &[&str] = &[
 
 const UPSTREAM_RENAMES: &[(&str, &str)] = &[
     ("png_sig_cmp", "upstream_png_sig_cmp"),
-    ("png_access_version_number", "upstream_png_access_version_number"),
+    (
+        "png_access_version_number",
+        "upstream_png_access_version_number",
+    ),
     ("png_get_libpng_ver", "upstream_png_get_libpng_ver"),
     ("png_get_header_ver", "upstream_png_get_header_ver"),
     ("png_get_header_version", "upstream_png_get_header_version"),
     ("png_get_copyright", "upstream_png_get_copyright"),
-    ("png_build_grayscale_palette", "upstream_png_build_grayscale_palette"),
+    (
+        "png_build_grayscale_palette",
+        "upstream_png_build_grayscale_palette",
+    ),
     ("png_save_uint_32", "upstream_png_save_uint_32"),
     ("png_save_uint_16", "upstream_png_save_uint_16"),
     ("png_save_int_32", "upstream_png_save_int_32"),
@@ -43,20 +49,62 @@ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
         "png_convert_to_rfc1123_buffer",
         "upstream_png_convert_to_rfc1123_buffer",
     ),
-    ("png_convert_from_struct_tm", "upstream_png_convert_from_struct_tm"),
-    ("png_convert_from_time_t", "upstream_png_convert_from_time_t"),
+    (
+        "png_convert_from_struct_tm",
+        "upstream_png_convert_from_struct_tm",
+    ),
+    (
+        "png_convert_from_time_t",
+        "upstream_png_convert_from_time_t",
+    ),
     ("png_set_sig_bytes", "upstream_png_set_sig_bytes"),
+    (
+        "png_get_compression_buffer_size",
+        "upstream_png_get_compression_buffer_size",
+    ),
+    (
+        "png_set_compression_buffer_size",
+        "upstream_png_set_compression_buffer_size",
+    ),
     ("png_create_read_struct", "upstream_png_create_read_struct"),
-    ("png_create_write_struct", "upstream_png_create_write_struct"),
+    (
+        "png_create_write_struct",
+        "upstream_png_create_write_struct",
+    ),
     ("png_set_longjmp_fn", "upstream_png_set_longjmp_fn"),
     ("png_longjmp", "upstream_png_longjmp"),
-    ("png_create_read_struct_2", "upstream_png_create_read_struct_2"),
-    ("png_create_write_struct_2", "upstream_png_create_write_struct_2"),
+    (
+        "png_create_read_struct_2",
+        "upstream_png_create_read_struct_2",
+    ),
+    (
+        "png_create_write_struct_2",
+        "upstream_png_create_write_struct_2",
+    ),
     ("png_create_info_struct", "upstream_png_create_info_struct"),
     ("png_info_init_3", "upstream_png_info_init_3"),
-    ("png_destroy_info_struct", "upstream_png_destroy_info_struct"),
-    ("png_destroy_read_struct", "upstream_png_destroy_read_struct"),
-    ("png_destroy_write_struct", "upstream_png_destroy_write_struct"),
+    ("png_write_sig", "upstream_png_write_sig"),
+    ("png_write_chunk", "upstream_png_write_chunk"),
+    ("png_write_chunk_start", "upstream_png_write_chunk_start"),
+    ("png_write_chunk_data", "upstream_png_write_chunk_data"),
+    ("png_write_chunk_end", "upstream_png_write_chunk_end"),
+    (
+        "png_write_info_before_PLTE",
+        "upstream_png_write_info_before_PLTE",
+    ),
+    ("png_write_info", "upstream_png_write_info"),
+    (
+        "png_destroy_info_struct",
+        "upstream_png_destroy_info_struct",
+    ),
+    (
+        "png_destroy_read_struct",
+        "upstream_png_destroy_read_struct",
+    ),
+    (
+        "png_destroy_write_struct",
+        "upstream_png_destroy_write_struct",
+    ),
     ("png_init_io", "upstream_png_init_io"),
     ("png_set_error_fn", "upstream_png_set_error_fn"),
     ("png_get_error_ptr", "upstream_png_get_error_ptr"),
@@ -64,7 +112,10 @@ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
     ("png_set_read_fn", "upstream_png_set_read_fn"),
     ("png_get_io_ptr", "upstream_png_get_io_ptr"),
     ("png_set_read_status_fn", "upstream_png_set_read_status_fn"),
-    ("png_set_write_status_fn", "upstream_png_set_write_status_fn"),
+    (
+        "png_set_write_status_fn",
+        "upstream_png_set_write_status_fn",
+    ),
     ("png_set_mem_fn", "upstream_png_set_mem_fn"),
     ("png_get_mem_ptr", "upstream_png_get_mem_ptr"),
     (
@@ -92,7 +143,10 @@ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
         "png_set_progressive_read_fn",
         "upstream_png_set_progressive_read_fn",
     ),
-    ("png_get_progressive_ptr", "upstream_png_get_progressive_ptr"),
+    (
+        "png_get_progressive_ptr",
+        "upstream_png_get_progressive_ptr",
+    ),
     ("png_calloc", "upstream_png_calloc"),
     ("png_malloc", "upstream_png_malloc"),
     ("png_malloc_warn", "upstream_png_malloc_warn"),
@@ -118,15 +172,33 @@ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
     ("png_get_color_type", "upstream_png_get_color_type"),
     ("png_get_filter_type", "upstream_png_get_filter_type"),
     ("png_get_interlace_type", "upstream_png_get_interlace_type"),
-    ("png_get_compression_type", "upstream_png_get_compression_type"),
+    (
+        "png_get_compression_type",
+        "upstream_png_get_compression_type",
+    ),
     ("png_set_benign_errors", "upstream_png_set_benign_errors"),
     ("png_get_user_width_max", "upstream_png_get_user_width_max"),
-    ("png_get_user_height_max", "upstream_png_get_user_height_max"),
+    (
+        "png_get_user_height_max",
+        "upstream_png_get_user_height_max",
+    ),
     ("png_set_user_limits", "upstream_png_set_user_limits"),
-    ("png_get_chunk_cache_max", "upstream_png_get_chunk_cache_max"),
-    ("png_set_chunk_cache_max", "upstream_png_set_chunk_cache_max"),
-    ("png_get_chunk_malloc_max", "upstream_png_get_chunk_malloc_max"),
-    ("png_set_chunk_malloc_max", "upstream_png_set_chunk_malloc_max"),
+    (
+        "png_get_chunk_cache_max",
+        "upstream_png_get_chunk_cache_max",
+    ),
+    (
+        "png_set_chunk_cache_max",
+        "upstream_png_set_chunk_cache_max",
+    ),
+    (
+        "png_get_chunk_malloc_max",
+        "upstream_png_get_chunk_malloc_max",
+    ),
+    (
+        "png_set_chunk_malloc_max",
+        "upstream_png_set_chunk_malloc_max",
+    ),
     ("png_get_io_state", "upstream_png_get_io_state"),
     ("png_get_io_chunk_type", "upstream_png_get_io_chunk_type"),
     ("png_read_info", "upstream_png_read_info"),
@@ -138,7 +210,17 @@ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
     ("png_process_data", "upstream_png_process_data"),
     ("png_process_data_pause", "upstream_png_process_data_pause"),
     ("png_process_data_skip", "upstream_png_process_data_skip"),
-    ("png_set_keep_unknown_chunks", "upstream_png_set_keep_unknown_chunks"),
+    ("png_write_row", "upstream_png_write_row"),
+    ("png_write_rows", "upstream_png_write_rows"),
+    ("png_write_image", "upstream_png_write_image"),
+    ("png_write_end", "upstream_png_write_end"),
+    ("png_write_png", "upstream_png_write_png"),
+    ("png_set_flush", "upstream_png_set_flush"),
+    ("png_write_flush", "upstream_png_write_flush"),
+    (
+        "png_set_keep_unknown_chunks",
+        "upstream_png_set_keep_unknown_chunks",
+    ),
     (
         "png_set_check_for_invalid_index",
         "upstream_png_set_check_for_invalid_index",
@@ -155,10 +237,64 @@ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
     ("png_set_strip_16", "upstream_png_set_strip_16"),
     ("png_set_quantize", "upstream_png_set_quantize"),
     ("png_set_shift", "upstream_png_set_shift"),
+    ("png_set_swap", "upstream_png_set_swap"),
     ("png_set_swap_alpha", "upstream_png_set_swap_alpha"),
     ("png_set_invert_alpha", "upstream_png_set_invert_alpha"),
     ("png_set_invert_mono", "upstream_png_set_invert_mono"),
     ("png_set_bgr", "upstream_png_set_bgr"),
+    ("png_set_filler", "upstream_png_set_filler"),
+    ("png_set_add_alpha", "upstream_png_set_add_alpha"),
+    ("png_set_packing", "upstream_png_set_packing"),
+    ("png_set_packswap", "upstream_png_set_packswap"),
+    ("png_set_filter", "upstream_png_set_filter"),
+    (
+        "png_set_filter_heuristics",
+        "upstream_png_set_filter_heuristics",
+    ),
+    (
+        "png_set_filter_heuristics_fixed",
+        "upstream_png_set_filter_heuristics_fixed",
+    ),
+    (
+        "png_set_compression_level",
+        "upstream_png_set_compression_level",
+    ),
+    (
+        "png_set_compression_mem_level",
+        "upstream_png_set_compression_mem_level",
+    ),
+    (
+        "png_set_compression_method",
+        "upstream_png_set_compression_method",
+    ),
+    (
+        "png_set_compression_strategy",
+        "upstream_png_set_compression_strategy",
+    ),
+    (
+        "png_set_compression_window_bits",
+        "upstream_png_set_compression_window_bits",
+    ),
+    (
+        "png_set_text_compression_level",
+        "upstream_png_set_text_compression_level",
+    ),
+    (
+        "png_set_text_compression_mem_level",
+        "upstream_png_set_text_compression_mem_level",
+    ),
+    (
+        "png_set_text_compression_method",
+        "upstream_png_set_text_compression_method",
+    ),
+    (
+        "png_set_text_compression_strategy",
+        "upstream_png_set_text_compression_strategy",
+    ),
+    (
+        "png_set_text_compression_window_bits",
+        "upstream_png_set_text_compression_window_bits",
+    ),
     (
         "png_set_interlace_handling",
         "upstream_png_set_interlace_handling",
@@ -178,16 +314,81 @@ const UPSTREAM_RENAMES: &[(&str, &str)] = &[
         "png_set_alpha_mode_fixed",
         "upstream_png_set_alpha_mode_fixed",
     ),
+    ("png_get_bKGD", "upstream_png_get_bKGD"),
+    ("png_set_bKGD", "upstream_png_set_bKGD"),
+    ("png_get_cHRM", "upstream_png_get_cHRM"),
+    ("png_get_cHRM_fixed", "upstream_png_get_cHRM_fixed"),
+    ("png_set_cHRM", "upstream_png_set_cHRM"),
+    ("png_set_cHRM_fixed", "upstream_png_set_cHRM_fixed"),
     ("png_set_cHRM_XYZ", "upstream_png_set_cHRM_XYZ"),
     ("png_set_cHRM_XYZ_fixed", "upstream_png_set_cHRM_XYZ_fixed"),
+    ("png_get_gAMA", "upstream_png_get_gAMA"),
+    ("png_get_gAMA_fixed", "upstream_png_get_gAMA_fixed"),
+    ("png_set_gAMA", "upstream_png_set_gAMA"),
+    ("png_set_gAMA_fixed", "upstream_png_set_gAMA_fixed"),
+    ("png_get_hIST", "upstream_png_get_hIST"),
+    ("png_set_hIST", "upstream_png_set_hIST"),
+    ("png_get_IHDR", "upstream_png_get_IHDR"),
+    ("png_set_IHDR", "upstream_png_set_IHDR"),
+    ("png_get_oFFs", "upstream_png_get_oFFs"),
+    ("png_set_oFFs", "upstream_png_set_oFFs"),
+    ("png_get_pCAL", "upstream_png_get_pCAL"),
+    ("png_set_pCAL", "upstream_png_set_pCAL"),
+    ("png_get_pHYs", "upstream_png_get_pHYs"),
+    ("png_set_pHYs", "upstream_png_set_pHYs"),
+    ("png_get_PLTE", "upstream_png_get_PLTE"),
+    ("png_set_PLTE", "upstream_png_set_PLTE"),
+    ("png_get_sBIT", "upstream_png_get_sBIT"),
+    ("png_set_sBIT", "upstream_png_set_sBIT"),
+    ("png_get_sRGB", "upstream_png_get_sRGB"),
+    ("png_set_sRGB", "upstream_png_set_sRGB"),
+    (
+        "png_set_sRGB_gAMA_and_cHRM",
+        "upstream_png_set_sRGB_gAMA_and_cHRM",
+    ),
+    ("png_get_iCCP", "upstream_png_get_iCCP"),
+    ("png_set_iCCP", "upstream_png_set_iCCP"),
+    ("png_get_sPLT", "upstream_png_get_sPLT"),
+    ("png_set_sPLT", "upstream_png_set_sPLT"),
+    ("png_get_text", "upstream_png_get_text"),
+    ("png_set_text", "upstream_png_set_text"),
+    ("png_get_tIME", "upstream_png_get_tIME"),
+    ("png_set_tIME", "upstream_png_set_tIME"),
+    ("png_get_tRNS", "upstream_png_get_tRNS"),
+    ("png_set_tRNS", "upstream_png_set_tRNS"),
+    ("png_get_sCAL", "upstream_png_get_sCAL"),
+    ("png_get_sCAL_fixed", "upstream_png_get_sCAL_fixed"),
+    ("png_get_sCAL_s", "upstream_png_get_sCAL_s"),
+    ("png_set_sCAL", "upstream_png_set_sCAL"),
+    ("png_set_sCAL_fixed", "upstream_png_set_sCAL_fixed"),
+    ("png_set_sCAL_s", "upstream_png_set_sCAL_s"),
+    ("png_get_eXIf", "upstream_png_get_eXIf"),
+    ("png_set_eXIf", "upstream_png_set_eXIf"),
+    ("png_get_eXIf_1", "upstream_png_get_eXIf_1"),
+    ("png_set_eXIf_1", "upstream_png_set_eXIf_1"),
     ("png_get_cHRM_XYZ", "upstream_png_get_cHRM_XYZ"),
     ("png_get_cHRM_XYZ_fixed", "upstream_png_get_cHRM_XYZ_fixed"),
+    (
+        "png_image_write_to_file",
+        "upstream_png_image_write_to_file",
+    ),
+    (
+        "png_image_write_to_stdio",
+        "upstream_png_image_write_to_stdio",
+    ),
+    (
+        "png_image_write_to_memory",
+        "upstream_png_image_write_to_memory",
+    ),
     ("png_image_free", "upstream_png_image_free"),
 ];
 
 const PNGREAD_DEFINITION_RENAMES: &[(&str, &str)] = &[
     ("png_create_read_struct", "upstream_png_create_read_struct"),
-    ("png_create_read_struct_2", "upstream_png_create_read_struct_2"),
+    (
+        "png_create_read_struct_2",
+        "upstream_png_create_read_struct_2",
+    ),
     ("png_read_info", "upstream_png_read_info"),
     ("png_read_update_info", "upstream_png_read_update_info"),
     ("png_start_read_image", "upstream_png_start_read_image"),
@@ -195,7 +396,10 @@ const PNGREAD_DEFINITION_RENAMES: &[(&str, &str)] = &[
     ("png_read_rows", "upstream_png_read_rows"),
     ("png_read_image", "upstream_png_read_image"),
     ("png_read_end", "upstream_png_read_end"),
-    ("png_destroy_read_struct", "upstream_png_destroy_read_struct"),
+    (
+        "png_destroy_read_struct",
+        "upstream_png_destroy_read_struct",
+    ),
     ("png_set_read_status_fn", "upstream_png_set_read_status_fn"),
     (
         "png_image_begin_read_from_file",
@@ -537,10 +741,7 @@ fn rename_pngread_definition(
         return Ok(());
     }
 
-    Err(format!(
-        "failed to rewrite pngread.c definition for symbol {symbol}"
-    )
-    .into())
+    Err(format!("failed to rewrite pngread.c definition for symbol {symbol}").into())
 }
 
 fn replace_unique(
@@ -554,10 +755,9 @@ fn replace_unique(
     }
 
     if matches != 1 {
-        return Err(format!(
-            "expected exactly one occurrence of {needle:?}, found {matches}"
-        )
-        .into());
+        return Err(
+            format!("expected exactly one occurrence of {needle:?}, found {matches}").into(),
+        );
     }
 
     *source = source.replacen(needle, replacement, 1);

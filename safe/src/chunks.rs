@@ -1,8 +1,7 @@
 use crate::read_util::{
     PNG_HANDLE_CHUNK_ALWAYS, PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_HANDLE_CHUNK_IF_SAFE,
-    PNG_HANDLE_CHUNK_NEVER, ReadPhase, UnknownChunkSetting, ancillary_chunk,
-    checked_chunk_length, checked_idat_limit, copy_chunk_name, is_known_chunk_name,
-    known_chunks_to_ignore, safe_to_copy,
+    PNG_HANDLE_CHUNK_NEVER, ReadPhase, UnknownChunkSetting, ancillary_chunk, checked_chunk_length,
+    checked_idat_limit, copy_chunk_name, is_known_chunk_name, known_chunks_to_ignore, safe_to_copy,
 };
 use crate::state;
 use crate::types::*;
@@ -202,8 +201,8 @@ pub(crate) fn validate_parser_chunk(
     }
 
     if chunk_name == crate::read_util::PNG_IDAT {
-        let idat_limit = checked_idat_limit(&read_core(png_ptr))
-            .ok_or(b"chunk length overflow\0".as_slice())?;
+        let idat_limit =
+            checked_idat_limit(&read_core(png_ptr)).ok_or(b"chunk length overflow\0".as_slice())?;
         limit = limit.max(idat_limit);
     }
 

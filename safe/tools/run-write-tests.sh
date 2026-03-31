@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -eq 0 ]]; then
-  printf 'usage: %s <upstream-wrapper> [<upstream-wrapper> ...]\n' "${0##*/}" >&2
-  exit 1
-fi
-
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 safe_dir="$(cd -- "$script_dir/.." && pwd)"
 repo_root="$(cd -- "$safe_dir/.." && pwd)"
 profile="${PROFILE:-release}"
 target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
 stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
+
+mapfile -t available_wrappers < <(
+  find "$repo_root/original/tests" -maxdepth 1 -type f -name 'pngstest-*' -printf '%f\n' | sort
+)
+
+if [[ $# -eq 0 ]]; then
+  printf 'usage: %s <pngstest-wrapper> [<pngstest-wrapper> ...]\n' "${0##*/}" >&2
+  printf 'available wrappers:' >&2
+  for wrapper in "${available_wrappers[@]}"; do
+    printf ' %s' "$wrapper" >&2
+  done
+  printf '\n' >&2
+  exit 1
+fi
 
 build_args=(build --manifest-path "$safe_dir/Cargo.toml")
 if [[ "$profile" == "release" ]]; then
@@ -54,6 +63,16 @@ compile_program pngstest "$repo_root/original/contrib/libtests/pngstest.c"
 
 pushd "$build_dir" >/dev/null
 for wrapper_name in "$@"; do
+  if [[ "$wrapper_name" == "pngstest" ]]; then
+    printf 'original/tests/pngstest is a helper script, not a standalone verifier\n' >&2
+    exit 1
+  fi
+
+  if [[ ! "$wrapper_name" =~ ^pngstest- ]]; then
+    printf 'unsupported write wrapper: %s\n' "$wrapper_name" >&2
+    exit 1
+  fi
+
   wrapper="$repo_root/original/tests/$wrapper_name"
   if [[ ! -f "$wrapper" ]]; then
     printf 'missing upstream wrapper: %s\n' "$wrapper" >&2
@@ -64,4 +83,4 @@ for wrapper_name in "$@"; do
 done
 popd >/dev/null
 
-printf 'upstream write-phase wrappers passed against the staged safe libpng build\n'
+printf 'upstream pngstest wrapper matrix passed against the staged safe libpng build\n'

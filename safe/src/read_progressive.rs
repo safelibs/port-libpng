@@ -4,27 +4,19 @@ use crate::state;
 use crate::types::*;
 use core::ffi::c_int;
 use core::ptr;
-use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
 unsafe extern "C" {
     fn upstream_png_process_data_pause(png_ptr: png_structrp, save: c_int) -> usize;
     fn upstream_png_process_data_skip(png_ptr: png_structrp) -> png_uint_32;
-    fn upstream_png_set_read_fn(
-        png_ptr: png_structrp,
-        io_ptr: png_voidp,
-        read_data_fn: png_rw_ptr,
-    );
+    fn upstream_png_set_read_fn(png_ptr: png_structrp, io_ptr: png_voidp, read_data_fn: png_rw_ptr);
     fn png_safe_call_read_row(
         png_ptr: png_structrp,
         row: png_bytep,
         display_row: png_bytep,
     ) -> c_int;
     fn png_safe_resume_finish_idat(png_ptr: png_structrp);
-    fn png_safe_progressive_buffer_read_bridge(
-        png_ptr: png_structp,
-        out: png_bytep,
-        length: usize,
-    );
+    fn png_safe_progressive_buffer_read_bridge(png_ptr: png_structp, out: png_bytep, length: usize);
 }
 
 #[unsafe(no_mangle)]
@@ -238,10 +230,7 @@ unsafe fn emit_end_callback(png_ptr: png_structrp, info_ptr: png_inforp) -> bool
     take_pause_request(png_ptr)
 }
 
-unsafe fn call_read_impl_or_suspend(
-    png_ptr: png_structrp,
-    call: impl FnOnce(),
-) -> Result<(), ()> {
+unsafe fn call_read_impl_or_suspend(png_ptr: png_structrp, call: impl FnOnce()) -> Result<(), ()> {
     clear_short_read(png_ptr);
     match catch_unwind(AssertUnwindSafe(call)) {
         Ok(()) => Ok(()),
@@ -309,8 +298,12 @@ unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) 
             .map(|png_state| png_state.progressive_state.info_emitted)
             .unwrap_or(false);
         if !info_emitted {
-            if unsafe { call_read_impl_or_suspend(png_ptr, || crate::read::read_info_impl(png_ptr, info_ptr)) }
-                .is_err()
+            if unsafe {
+                call_read_impl_or_suspend(png_ptr, || {
+                    crate::read::read_info_impl(png_ptr, info_ptr)
+                })
+            }
+            .is_err()
             {
                 break;
             }
@@ -345,7 +338,8 @@ unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) 
             }
 
             let mut row = vec![0; rowbytes];
-            let row_outcome = unsafe { read_row_or_suspend(png_ptr, row.as_mut_ptr(), ptr::null_mut()) };
+            let row_outcome =
+                unsafe { read_row_or_suspend(png_ptr, row.as_mut_ptr(), ptr::null_mut()) };
             if row_outcome == RowReadOutcome::SuspendedBeforeRow {
                 break;
             }
@@ -377,8 +371,10 @@ unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) 
             continue;
         }
 
-        if unsafe { call_read_impl_or_suspend(png_ptr, || crate::read::read_end_impl(png_ptr, info_ptr)) }
-            .is_err()
+        if unsafe {
+            call_read_impl_or_suspend(png_ptr, || crate::read::read_end_impl(png_ptr, info_ptr))
+        }
+        .is_err()
         {
             break;
         }
@@ -408,7 +404,10 @@ pub unsafe extern "C" fn png_safe_rust_process_data(
                 png_state.progressive_state.current_input_start =
                     png_state.progressive_state.buffered.len();
                 png_state.progressive_state.current_input_size = input.len();
-                png_state.progressive_state.buffered.extend_from_slice(input);
+                png_state
+                    .progressive_state
+                    .buffered
+                    .extend_from_slice(input);
             });
         } else {
             state::update_png(png_ptr, |png_state| {
@@ -427,7 +426,9 @@ pub unsafe extern "C" fn png_process_data_pause(
     png_ptr: png_structrp,
     save: core::ffi::c_int,
 ) -> usize {
-    crate::abi_guard!(png_ptr, unsafe { upstream_png_process_data_pause(png_ptr, save) })
+    crate::abi_guard!(png_ptr, unsafe {
+        upstream_png_process_data_pause(png_ptr, save)
+    })
 }
 
 #[unsafe(no_mangle)]

@@ -41,12 +41,18 @@ pub const PNG_FREE_EXIF: png_uint_32 = 0x8000;
 pub const PNG_FREE_ALL: png_uint_32 = 0xffff;
 pub const PNG_FREE_MUL: png_uint_32 = 0x4220;
 
+pub const PNG_INFO_gAMA: png_uint_32 = 0x0001;
+pub const PNG_INFO_sBIT: png_uint_32 = 0x0002;
+pub const PNG_INFO_cHRM: png_uint_32 = 0x0004;
 pub const PNG_INFO_PLTE: png_uint_32 = 0x0008;
 pub const PNG_INFO_tRNS: png_uint_32 = 0x0010;
+pub const PNG_INFO_bKGD: png_uint_32 = 0x0020;
 pub const PNG_INFO_hIST: png_uint_32 = 0x0040;
+pub const PNG_INFO_pHYs: png_uint_32 = 0x0080;
 pub const PNG_INFO_oFFs: png_uint_32 = 0x0100;
 pub const PNG_INFO_tIME: png_uint_32 = 0x0200;
 pub const PNG_INFO_pCAL: png_uint_32 = 0x0400;
+pub const PNG_INFO_sRGB: png_uint_32 = 0x0800;
 pub const PNG_INFO_iCCP: png_uint_32 = 0x1000;
 pub const PNG_INFO_sPLT: png_uint_32 = 0x2000;
 pub const PNG_INFO_sCAL: png_uint_32 = 0x4000;
@@ -65,6 +71,47 @@ pub const PNG_OPTION_UNSET: c_int = 0;
 pub const PNG_OPTION_INVALID: c_int = 1;
 pub const PNG_OPTION_OFF: c_int = 2;
 pub const PNG_OPTION_ON: c_int = 3;
+
+pub const PNG_Z_DEFAULT_COMPRESSION: c_int = -1;
+pub const PNG_Z_DEFAULT_STRATEGY: c_int = 1;
+pub const PNG_TEXT_Z_DEFAULT_COMPRESSION: c_int = -1;
+pub const PNG_TEXT_Z_DEFAULT_STRATEGY: c_int = 0;
+pub const PNG_Z_DEFAULT_MEM_LEVEL: c_int = 8;
+pub const PNG_Z_DEFAULT_WINDOW_BITS: c_int = 15;
+pub const PNG_Z_DEFAULT_METHOD: c_int = 8;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct WriteZlibSettings {
+    pub buffer_size: usize,
+    pub level: c_int,
+    pub mem_level: c_int,
+    pub method: c_int,
+    pub strategy: c_int,
+    pub window_bits: c_int,
+    pub text_level: c_int,
+    pub text_mem_level: c_int,
+    pub text_method: c_int,
+    pub text_strategy: c_int,
+    pub text_window_bits: c_int,
+}
+
+impl Default for WriteZlibSettings {
+    fn default() -> Self {
+        Self {
+            buffer_size: PNG_ZBUF_SIZE as usize,
+            level: PNG_Z_DEFAULT_COMPRESSION,
+            mem_level: PNG_Z_DEFAULT_MEM_LEVEL,
+            method: PNG_Z_DEFAULT_METHOD,
+            strategy: PNG_Z_DEFAULT_STRATEGY,
+            window_bits: PNG_Z_DEFAULT_WINDOW_BITS,
+            text_level: PNG_TEXT_Z_DEFAULT_COMPRESSION,
+            text_mem_level: PNG_Z_DEFAULT_MEM_LEVEL,
+            text_method: PNG_Z_DEFAULT_METHOD,
+            text_strategy: PNG_TEXT_Z_DEFAULT_STRATEGY,
+            text_window_bits: PNG_Z_DEFAULT_WINDOW_BITS,
+        }
+    }
+}
 
 pub static PNG_LIBPNG_VER_STRING: &[u8] = b"1.6.43\0";
 pub static PNG_HEADER_VERSION_STRING: &[u8] = b" libpng version 1.6.43\n\n\0";

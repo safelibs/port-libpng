@@ -235,10 +235,7 @@ fn set_rgb_to_gray_fixed_impl(
     } else {
         if red >= 0 && green >= 0 {
             let _ = unsafe {
-                call_warning(
-                    png_ptr,
-                    b"ignoring out of range rgb_to_gray coefficients\0",
-                )
+                call_warning(png_ptr, b"ignoring out of range rgb_to_gray coefficients\0")
             };
         }
         if core.rgb_to_gray_red_coeff == 0 && core.rgb_to_gray_green_coeff == 0 {

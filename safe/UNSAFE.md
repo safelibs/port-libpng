@@ -2,25 +2,28 @@
 
 This phase still ships a mixed Rust and upstream-C libpng. The active boundary
 now includes the exported sequential-read, progressive-read, read-transform,
-colorspace, and simplified-read APIs: Rust owns the public lifetime, callback
-registration, error, memory, IO, policy, read-core entry points, transform or
-colorspace setters, and simplified-read wrappers, while upstream C still owns
-the underlying `png_struct` and `png_info` storage layout plus the remaining
-inflate, write execution, and private helper internals behind the renamed
-symbols.
+colorspace, write-core, write-transform, write-utility, metadata-mutation,
+simplified-read, and simplified-write APIs: Rust owns the public lifetime,
+callback registration, error, memory, IO, policy, read-core entry points,
+transform or colorspace setters, write-side entry points, metadata setters or
+getters, and simplified image wrappers, while upstream C still owns the
+underlying `png_struct` and `png_info` storage layout plus the remaining
+inflate and transitional private helper internals behind the renamed symbols.
 
 ## Current Hybrid Baseline
 
 - `safe/build.rs` still compiles the upstream core libpng C sources from
   `original/` into `libpng16_upstream.a`, but now compiles `pngread.c`
   separately through an adapted bridge source so the public read and
-  simplified-read entry points resolve back into the Rust-owned exports.
+  simplified-read entry points resolve back into the Rust-owned exports while
+  the remaining public write-side entry points are renamed to `upstream_*`
+  helpers and re-exported from Rust.
 - The frozen public ABI still exports 246 `png_*` symbols
   (`safe/abi/exports.txt`).
-- `UPSTREAM_RENAMES` in `safe/build.rs` now renames 106 public symbols to
+- `UPSTREAM_RENAMES` in `safe/build.rs` now renames 187 public symbols to
   `upstream_*` before the upstream C objects are linked.
-- All 106 renamed symbols are re-owned by Rust exports.
-- The remaining 140 public `png_*` exports are still upstream-C owned.
+- All 187 renamed symbols are re-owned by Rust exports.
+- The remaining 59 public `png_*` exports are still upstream-C owned.
 
 ## Active Rust-Owned Public ABI
 
@@ -40,10 +43,12 @@ dormant:
 - newly active phase-4 owners:
   `safe/src/read_transform.rs`, `safe/src/colorspace.rs`,
   and `safe/src/simplified.rs`
+- newly active phase-5 owners:
+  `safe/src/write.rs`, `safe/src/write_transform.rs`,
+  `safe/src/write_util.rs`, and the simplified-write additions in
+  `safe/src/simplified.rs`
 - compiled support modules:
-  `safe/src/write.rs`,
-  `safe/src/write_transform.rs`, `safe/src/write_util.rs`,
-  `safe/src/types.rs`, and `safe/src/abi_exports.rs`
+  `safe/src/types.rs` and `safe/src/abi_exports.rs`
 
 The newly Rust-owned public symbol families are:
 
@@ -94,6 +99,20 @@ The newly Rust-owned public symbol families are:
   `png_image_begin_read_from_file`, `png_image_begin_read_from_stdio`,
   `png_image_begin_read_from_memory`, `png_image_finish_read`,
   and `png_image_free`
+- write core, write transforms, write utilities, metadata mutation, and
+  simplified write:
+  `png_get_compression_buffer_size`, `png_set_compression_buffer_size`,
+  `png_write_sig`, `png_write_chunk*`, `png_write_info_before_PLTE`,
+  `png_write_info`, `png_write_row`, `png_write_rows`, `png_write_image`,
+  `png_write_end`, `png_write_png`, `png_set_flush`, `png_write_flush`,
+  `png_set_filter[_heuristics[_fixed]]`, `png_set_add_alpha`,
+  `png_set_filler`, `png_set_packing`, `png_set_packswap`, `png_set_swap`,
+  `png_set_compression_*`, `png_set_text_compression_*`, the write-side
+  metadata getter or setter families for `bKGD`, `cHRM`, `eXIf`, `gAMA`,
+  `hIST`, `IHDR`, `oFFs`, `pCAL`, `pHYs`, `PLTE`, `sBIT`, `sRGB`, `iCCP`,
+  `sPLT`, `text`, `tIME`, `tRNS`, and `sCAL`, plus
+  `png_image_write_to_file`, `png_image_write_to_stdio`, and
+  `png_image_write_to_memory`
 
 ## Mixed-Runtime Object Ownership
 
@@ -106,13 +125,17 @@ During phases 2 through 5, Rust does not replace the concrete `png_struct` or
 - `safe/src/state.rs` attaches Rust sidecar state to those live pointers and
   mirrors callback registrations, user payloads, limits, option bits, longjmp
   metadata, read-phase state, progressive pause or skip state, unknown-chunk
-  keep policy, and `png_info` ownership flags
+  keep policy, write flush configuration, write zlib defaults or overrides,
+  and `png_info` ownership flags
 - setters update both worlds:
   the actual upstream-compatible struct fields via the renamed upstream helper
   functions, and the Rust sidecar for later Rust-owned phases
 - getters prefer the Rust sidecar only where the state is purely
   registration-policy data and fall back to upstream field access when the
   upstream runtime may legitimately mutate the underlying fields
+- write-side utility setters now update the Rust zlib mirror first-class, while
+  the actual row encoder, chunk writer, and simplified-write runtime continue
+  to execute in the renamed upstream code beneath the Rust public exports
 - the Rust read parser now re-synchronizes native palette, transparency, and
   colorspace aliases after chunk parsing so the adapted upstream `pngread.c`
   simplified-read helpers observe the same native state that the Rust-owned
@@ -163,10 +186,12 @@ The following major surfaces are still upstream-owned in this phase:
 
 - the underlying read-path parser, chunk body handlers, inflate engine, and
   other private helpers still reached through the renamed `upstream_*` symbols
-- write execution, chunk emission, compression-control, and simplified write
-  entry points
-- metadata setters/getters and chunk helpers outside the phase-1 and phase-2
-  families listed above
+- the concrete write row encoder, chunk emission helpers, zlib execution path,
+  and simplified-write control flow reached through the renamed transitional
+  helpers beneath the Rust public exports
+- public getters, setters, and helpers that are not yet in the 187-symbol
+  Rust-owned set and will be finished when phase 6 removes the remaining
+  upstream runtime dependence
 
 ## Active Unsafe
 
@@ -181,6 +206,9 @@ The compiled unsafe boundary is now concentrated in four places:
 - simplified-read wrapper validation in `safe/src/simplified.rs`, which does
   checked stride and total-byte arithmetic before handing control to the
   adapted upstream simplified-read execution code
+- simplified-write wrapper dispatch in `safe/src/simplified.rs` and the
+  write-side wrapper modules, which now forward public ABI calls into renamed
+  upstream helpers after synchronizing the Rust sidecar state
 - upstream C code that still owns the remaining execution paths and private
   layout manipulation
 
