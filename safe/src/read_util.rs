@@ -1,11 +1,10 @@
-use crate::common::{PNG_FLAG_ROW_INIT, PNG_HAVE_PNG_SIGNATURE};
+use crate::common::PNG_FLAG_ROW_INIT;
 use crate::types::*;
 use core::ffi::c_int;
 
 pub(crate) type KeepSymbol = core::sync::atomic::AtomicPtr<()>;
 
 pub(crate) const PNG_HAVE_IEND: png_uint_32 = 0x10;
-pub(crate) const PNG_HAVE_CHUNK_HEADER: png_uint_32 = 0x100;
 
 pub(crate) const PNG_HANDLE_CHUNK_AS_DEFAULT: c_int = 0;
 pub(crate) const PNG_HANDLE_CHUNK_NEVER: c_int = 1;
@@ -13,16 +12,11 @@ pub(crate) const PNG_HANDLE_CHUNK_IF_SAFE: c_int = 2;
 pub(crate) const PNG_HANDLE_CHUNK_ALWAYS: c_int = 3;
 pub(crate) const PNG_HANDLE_CHUNK_LAST: c_int = 4;
 
-const PNG_READ_SIG_MODE: c_int = 0;
-const PNG_READ_CHUNK_MODE: c_int = 1;
-const PNG_READ_IDAT_MODE: c_int = 2;
-const PNG_READ_TEXT_MODE: c_int = 4;
-const PNG_READ_ZTXT_MODE: c_int = 5;
-const PNG_READ_DONE_MODE: c_int = 6;
-const PNG_READ_ITXT_MODE: c_int = 7;
-const PNG_ERROR_MODE: c_int = 8;
-
-const PNG_IDAT: png_uint_32 = 0x4944_4154;
+pub(crate) const PNG_SIGNATURE: [png_byte; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
+pub(crate) const PNG_IDAT: png_uint_32 = u32::from_be_bytes(*b"IDAT");
+pub(crate) const PNG_IEND: png_uint_32 = u32::from_be_bytes(*b"IEND");
+pub(crate) const PNG_IHDR: png_uint_32 = u32::from_be_bytes(*b"IHDR");
+pub(crate) const PNG_PLTE: png_uint_32 = u32::from_be_bytes(*b"PLTE");
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum ReadPhase {
@@ -35,46 +29,18 @@ pub(crate) enum ReadPhase {
     Terminal,
 }
 
-impl ReadPhase {
-    pub(crate) fn from_core(core: &png_safe_read_core) -> Self {
-        if (core.mode & PNG_HAVE_IEND) != 0 || core.process_mode == PNG_READ_DONE_MODE {
-            return Self::Terminal;
-        }
-
-        if (core.flags & PNG_FLAG_ROW_INIT) != 0 {
-            return Self::ImageRows;
-        }
-
-        match core.process_mode {
-            PNG_READ_SIG_MODE => Self::Signature,
-            PNG_READ_CHUNK_MODE => {
-                if (core.mode & PNG_HAVE_CHUNK_HEADER) != 0 {
-                    Self::ChunkPayload
-                } else {
-                    Self::ChunkHeader
-                }
-            }
-            PNG_READ_IDAT_MODE => Self::IdatStream,
-            PNG_READ_TEXT_MODE | PNG_READ_ZTXT_MODE | PNG_READ_ITXT_MODE => Self::ChunkPayload,
-            PNG_ERROR_MODE => Self::Terminal,
-            _ => {
-                if (core.mode & PNG_HAVE_PNG_SIGNATURE) == 0 {
-                    Self::Signature
-                } else if core.chunk_name == PNG_IDAT || core.idat_size != 0 {
-                    Self::IdatStream
-                } else {
-                    Self::ChunkHeader
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ProgressiveReadState {
     pub last_pause_bytes: usize,
     pub last_skip_bytes: png_uint_32,
     pub paused_with_save: bool,
+    pub buffered: Vec<png_byte>,
+    pub decode_offset: usize,
+    pub current_input_start: usize,
+    pub current_input_size: usize,
+    pub info_emitted: bool,
+    pub end_emitted: bool,
+    pub decoded: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -143,6 +109,28 @@ pub(crate) fn copy_chunk_name(chunk_list: png_const_bytep, index: usize) -> Opti
     Some(unsafe { [*base, *base.add(1), *base.add(2), *base.add(3)] })
 }
 
+pub(crate) fn chunk_name_u32(name: [png_byte; 4]) -> png_uint_32 {
+    u32::from_be_bytes(name)
+}
+
+pub(crate) fn validate_chunk_name(name: [png_byte; 4]) -> bool {
+    name.into_iter().all(|byte| byte.is_ascii_alphabetic())
+}
+
+pub(crate) fn known_chunk_names() -> &'static [[png_byte; 4]] {
+    static KNOWN_CHUNKS: [[png_byte; 4]; 22] = [
+        *b"IHDR", *b"PLTE", *b"IDAT", *b"IEND", *b"bKGD", *b"cHRM", *b"eXIf", *b"gAMA",
+        *b"hIST", *b"iCCP", *b"iTXt", *b"oFFs", *b"pCAL", *b"pHYs", *b"sBIT", *b"sCAL",
+        *b"sPLT", *b"sRGB", *b"tEXt", *b"tIME", *b"tRNS", *b"zTXt",
+    ];
+
+    &KNOWN_CHUNKS
+}
+
+pub(crate) fn is_known_chunk_name(name: [png_byte; 4]) -> bool {
+    known_chunk_names().contains(&name)
+}
+
 pub(crate) fn known_chunks_to_ignore() -> &'static [[png_byte; 4]] {
     static KNOWN_CHUNKS: [[png_byte; 4]; 18] = [
         *b"bKGD", *b"cHRM", *b"eXIf", *b"gAMA", *b"hIST", *b"iCCP", *b"iTXt", *b"oFFs",
@@ -159,4 +147,34 @@ pub(crate) fn ancillary_chunk(name: [png_byte; 4]) -> bool {
 
 pub(crate) fn safe_to_copy(name: [png_byte; 4]) -> bool {
     (name[3] & 0x20) != 0
+}
+
+pub(crate) fn crc32_update(mut crc: u32, bytes: &[u8]) -> u32 {
+    for &byte in bytes {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+        }
+    }
+
+    crc
+}
+
+pub(crate) fn png_crc32(name: [png_byte; 4], data: &[u8]) -> u32 {
+    let crc = crc32_update(!0, &name);
+    !crc32_update(crc, data)
+}
+
+pub(crate) fn update_phase_from_row_state(png_ptr: png_structrp, core: &png_safe_read_core) -> ReadPhase {
+    if (core.flags & PNG_FLAG_ROW_INIT) != 0 {
+        ReadPhase::ImageRows
+    } else if (core.mode & PNG_HAVE_IEND) != 0 {
+        ReadPhase::Terminal
+    } else if core.idat_size != 0 || core.chunk_name == PNG_IDAT {
+        ReadPhase::IdatStream
+    } else {
+        let _ = png_ptr;
+        ReadPhase::ChunkHeader
+    }
 }

@@ -11,6 +11,7 @@ typedef struct png_safe_read_core {
     png_uint_32 width;
     png_uint_32 height;
     png_uint_32 num_rows;
+    png_uint_32 row_number;
     png_uint_32 chunk_name;
     png_uint_32 idat_size;
     size_t rowbytes;
@@ -21,8 +22,11 @@ typedef struct png_safe_read_core {
     png_byte interlaced;
     png_byte color_type;
     png_byte bit_depth;
+    png_byte pixel_depth;
     png_byte transformed_pixel_depth;
     png_byte channels;
+    png_byte compression_type;
+    png_byte filter_type;
     png_byte background_gamma_type;
     png_fixed_point background_gamma;
     png_fixed_point screen_gamma;
@@ -33,6 +37,7 @@ typedef struct png_safe_read_core {
     png_byte rgb_to_gray_coefficients_set;
     png_uint_16 rgb_to_gray_red_coeff;
     png_uint_16 rgb_to_gray_green_coeff;
+    int pass;
     int process_mode;
     int num_palette_max;
     int unknown_default;
@@ -74,31 +79,6 @@ extern void upstream_png_set_quantize(png_structrp png_ptr, png_colorp palette,
                                       int full_quantize);
 extern void upstream_png_read_row(png_structrp png_ptr, png_bytep row,
                                   png_bytep display_row);
-
-enum png_safe_chunk_dispatch {
-    PNG_SAFE_CHUNK_IHDR = 1,
-    PNG_SAFE_CHUNK_IEND = 2,
-    PNG_SAFE_CHUNK_PLTE = 3,
-    PNG_SAFE_CHUNK_BKGD = 4,
-    PNG_SAFE_CHUNK_CHRM = 5,
-    PNG_SAFE_CHUNK_EXIF = 6,
-    PNG_SAFE_CHUNK_GAMA = 7,
-    PNG_SAFE_CHUNK_HIST = 8,
-    PNG_SAFE_CHUNK_OFFS = 9,
-    PNG_SAFE_CHUNK_PCAL = 10,
-    PNG_SAFE_CHUNK_SCAL = 11,
-    PNG_SAFE_CHUNK_PHYS = 12,
-    PNG_SAFE_CHUNK_SBIT = 13,
-    PNG_SAFE_CHUNK_SRGB = 14,
-    PNG_SAFE_CHUNK_ICCP = 15,
-    PNG_SAFE_CHUNK_SPLT = 16,
-    PNG_SAFE_CHUNK_TEXT = 17,
-    PNG_SAFE_CHUNK_TIME = 18,
-    PNG_SAFE_CHUNK_TRNS = 19,
-    PNG_SAFE_CHUNK_ZTXT = 20,
-    PNG_SAFE_CHUNK_ITXT = 21,
-    PNG_SAFE_CHUNK_UNKNOWN = 22
-};
 
 void *png_safe_parse_snapshot_capture(png_const_structrp png_ptr,
                                       png_const_inforp info_ptr) {
@@ -156,6 +136,7 @@ void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out)
     out->width = png_ptr->width;
     out->height = png_ptr->height;
     out->num_rows = png_ptr->num_rows;
+    out->row_number = png_ptr->row_number;
     out->chunk_name = png_ptr->chunk_name;
     out->idat_size = png_ptr->idat_size;
     out->rowbytes = png_ptr->rowbytes;
@@ -166,8 +147,11 @@ void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out)
     out->interlaced = png_ptr->interlaced;
     out->color_type = png_ptr->color_type;
     out->bit_depth = png_ptr->bit_depth;
+    out->pixel_depth = png_ptr->pixel_depth;
     out->transformed_pixel_depth = png_ptr->transformed_pixel_depth;
     out->channels = png_ptr->channels;
+    out->compression_type = png_ptr->compression_type;
+    out->filter_type = png_ptr->filter_type;
     out->background_gamma_type = png_ptr->background_gamma_type;
     out->background_gamma = png_ptr->background_gamma;
     out->screen_gamma = png_ptr->screen_gamma;
@@ -178,6 +162,7 @@ void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out)
     out->rgb_to_gray_coefficients_set = png_ptr->rgb_to_gray_coefficients_set;
     out->rgb_to_gray_red_coeff = png_ptr->rgb_to_gray_red_coeff;
     out->rgb_to_gray_green_coeff = png_ptr->rgb_to_gray_green_coeff;
+    out->pass = png_ptr->pass;
     out->process_mode = png_ptr->process_mode;
     out->num_palette_max = png_ptr->num_palette_max;
     out->unknown_default = png_ptr->unknown_default;
@@ -195,6 +180,7 @@ void png_safe_read_core_set(png_structrp png_ptr, const png_safe_read_core *in) 
     png_ptr->width = in->width;
     png_ptr->height = in->height;
     png_ptr->num_rows = in->num_rows;
+    png_ptr->row_number = in->row_number;
     png_ptr->chunk_name = in->chunk_name;
     png_ptr->idat_size = in->idat_size;
     png_ptr->rowbytes = in->rowbytes;
@@ -205,8 +191,11 @@ void png_safe_read_core_set(png_structrp png_ptr, const png_safe_read_core *in) 
     png_ptr->interlaced = in->interlaced;
     png_ptr->color_type = in->color_type;
     png_ptr->bit_depth = in->bit_depth;
+    png_ptr->pixel_depth = in->pixel_depth;
     png_ptr->transformed_pixel_depth = in->transformed_pixel_depth;
     png_ptr->channels = in->channels;
+    png_ptr->compression_type = in->compression_type;
+    png_ptr->filter_type = in->filter_type;
     png_ptr->background_gamma_type = in->background_gamma_type;
     png_ptr->background_gamma = in->background_gamma;
     png_ptr->screen_gamma = in->screen_gamma;
@@ -217,6 +206,7 @@ void png_safe_read_core_set(png_structrp png_ptr, const png_safe_read_core *in) 
     png_ptr->rgb_to_gray_coefficients_set = in->rgb_to_gray_coefficients_set;
     png_ptr->rgb_to_gray_red_coeff = in->rgb_to_gray_red_coeff;
     png_ptr->rgb_to_gray_green_coeff = in->rgb_to_gray_green_coeff;
+    png_ptr->pass = in->pass;
     png_ptr->process_mode = in->process_mode;
     png_ptr->num_palette_max = in->num_palette_max;
     png_ptr->unknown_default = in->unknown_default;
@@ -276,21 +266,54 @@ void png_safe_info_core_set(png_inforp info_ptr, const png_safe_info_core *in) {
     info_ptr->free_me = in->free_me;
 }
 
-int png_safe_call_read_sig(png_structrp png_ptr, png_inforp info_ptr) {
+int png_safe_call_read_data(png_structrp png_ptr, png_bytep buffer, size_t size) {
     if (setjmp(png_jmpbuf(png_ptr)) != 0) {
         return 0;
     }
 
-    png_read_sig(png_ptr, info_ptr);
+    png_read_data(png_ptr, buffer, size);
     return 1;
 }
 
-int png_safe_call_read_chunk_header(png_structrp png_ptr, png_uint_32 *length_out) {
+int png_safe_prepare_idat(png_structrp png_ptr, png_uint_32 length) {
+    static const png_byte idat_name[4] = {'I', 'D', 'A', 'T'};
+
     if (setjmp(png_jmpbuf(png_ptr)) != 0) {
         return 0;
     }
 
-    *length_out = png_read_chunk_header(png_ptr);
+    png_ptr->chunk_name = png_IDAT;
+    png_ptr->idat_size = length;
+#ifdef PNG_IO_STATE_SUPPORTED
+    png_ptr->io_state = PNG_IO_READING | PNG_IO_CHUNK_DATA;
+#endif
+    png_reset_crc(png_ptr);
+    png_calculate_crc(png_ptr, (png_bytep)idat_name, 4);
+    return 1;
+}
+
+int png_safe_complete_idat(png_structrp png_ptr) {
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
+        return 0;
+    }
+
+    if ((png_ptr->flags & PNG_FLAG_ZSTREAM_ENDED) == 0) {
+        png_read_IDAT_data(png_ptr, NULL, 0);
+        png_ptr->zstream.next_out = NULL;
+
+        if ((png_ptr->flags & PNG_FLAG_ZSTREAM_ENDED) == 0) {
+            png_ptr->mode |= PNG_AFTER_IDAT;
+            png_ptr->flags |= PNG_FLAG_ZSTREAM_ENDED;
+        }
+    }
+
+    if (png_ptr->zowner == png_IDAT) {
+        png_ptr->zstream.next_in = NULL;
+        png_ptr->zstream.avail_in = 0;
+        png_ptr->zowner = 0;
+        (void)png_crc_finish(png_ptr, png_ptr->idat_size);
+    }
+
     return 1;
 }
 
@@ -300,106 +323,6 @@ int png_safe_call_read_row(png_structrp png_ptr, png_bytep row, png_bytep displa
     }
 
     upstream_png_read_row(png_ptr, row, display_row);
-    return 1;
-}
-
-int png_safe_call_dispatch_chunk(png_structrp png_ptr, png_inforp info_ptr,
-                                 png_uint_32 length, int dispatch, int keep) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
-    switch (dispatch) {
-        case PNG_SAFE_CHUNK_IHDR:
-            png_handle_IHDR(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_IEND:
-            png_handle_IEND(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_PLTE:
-            png_handle_PLTE(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_BKGD:
-            png_handle_bKGD(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_CHRM:
-            png_handle_cHRM(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_EXIF:
-            png_handle_eXIf(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_GAMA:
-            png_handle_gAMA(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_HIST:
-            png_handle_hIST(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_OFFS:
-            png_handle_oFFs(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_PCAL:
-            png_handle_pCAL(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_SCAL:
-            png_handle_sCAL(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_PHYS:
-            png_handle_pHYs(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_SBIT:
-            png_handle_sBIT(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_SRGB:
-            png_handle_sRGB(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_ICCP:
-            png_handle_iCCP(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_SPLT:
-            png_handle_sPLT(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_TEXT:
-            png_handle_tEXt(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_TIME:
-            png_handle_tIME(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_TRNS:
-            png_handle_tRNS(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_ZTXT:
-            png_handle_zTXt(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_ITXT:
-            png_handle_iTXt(png_ptr, info_ptr, length);
-            break;
-        case PNG_SAFE_CHUNK_UNKNOWN:
-            png_handle_unknown(png_ptr, info_ptr, length, keep);
-            break;
-        default:
-            png_error(png_ptr, "invalid safe chunk dispatch");
-            break;
-    }
-
-    return 1;
-}
-
-int png_safe_call_crc_finish(png_structrp png_ptr, png_uint_32 skip,
-                             int *crc_result) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
-    *crc_result = png_crc_finish(png_ptr, skip);
-    return 1;
-}
-
-int png_safe_call_read_finish_idat(png_structrp png_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
-    png_read_finish_IDAT(png_ptr);
     return 1;
 }
 
@@ -421,42 +344,136 @@ int png_safe_call_read_transform_info(png_structrp png_ptr, png_inforp info_ptr)
     return 1;
 }
 
-int png_safe_call_push_restore_buffer(png_structrp png_ptr, png_bytep buffer,
-                                      size_t buffer_size) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
-
-    png_push_restore_buffer(png_ptr, buffer, buffer_size);
-    return 1;
+#define PNG_SAFE_WRAP_SETTER(fn, args, call) \
+int fn args { \
+    if (setjmp(png_jmpbuf(png_ptr)) != 0) { \
+        return 0; \
+    } \
+    call; \
+    return 1; \
 }
 
-int png_safe_call_push_read_sig(png_structrp png_ptr, png_inforp info_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_IHDR,
+    (png_structrp png_ptr, png_inforp info_ptr, png_uint_32 width,
+     png_uint_32 height, int bit_depth, int color_type, int interlace_type,
+     int compression_type, int filter_type),
+    png_set_IHDR(png_ptr, info_ptr, width, height, bit_depth, color_type,
+                 interlace_type, compression_type, filter_type))
 
-    png_push_read_sig(png_ptr, info_ptr);
-    return 1;
-}
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_PLTE,
+    (png_structrp png_ptr, png_inforp info_ptr, png_colorp palette,
+     int num_palette),
+    png_set_PLTE(png_ptr, info_ptr, palette, num_palette))
 
-int png_safe_call_push_read_chunk(png_structrp png_ptr, png_inforp info_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_tRNS,
+    (png_structrp png_ptr, png_inforp info_ptr, png_bytep trans_alpha,
+     int num_trans, png_color_16p trans_color),
+    png_set_tRNS(png_ptr, info_ptr, trans_alpha, num_trans, trans_color))
 
-    png_push_read_chunk(png_ptr, info_ptr);
-    return 1;
-}
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_bKGD,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_color_16p background),
+    png_set_bKGD(png_ptr, info_ptr, background))
 
-int png_safe_call_push_read_idat(png_structrp png_ptr) {
-    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
-        return 0;
-    }
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_cHRM_fixed,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_fixed_point white_x,
+     png_fixed_point white_y, png_fixed_point red_x, png_fixed_point red_y,
+     png_fixed_point green_x, png_fixed_point green_y, png_fixed_point blue_x,
+     png_fixed_point blue_y),
+    png_set_cHRM_fixed(png_ptr, info_ptr, white_x, white_y, red_x, red_y,
+                       green_x, green_y, blue_x, blue_y))
 
-    png_push_read_IDAT(png_ptr);
-    return 1;
-}
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_eXIf_1,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_uint_32 num_exif,
+     png_bytep exif),
+    png_set_eXIf_1(png_ptr, info_ptr, num_exif, exif))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_gAMA_fixed,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_fixed_point file_gamma),
+    png_set_gAMA_fixed(png_ptr, info_ptr, file_gamma))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_hIST,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_const_uint_16p hist),
+    png_set_hIST(png_ptr, info_ptr, hist))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_oFFs,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_int_32 offset_x,
+     png_int_32 offset_y, int unit_type),
+    png_set_oFFs(png_ptr, info_ptr, offset_x, offset_y, unit_type))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_pCAL,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_charp purpose,
+     png_int_32 X0, png_int_32 X1, int type, int nparams, png_charp units,
+     png_charpp params),
+    png_set_pCAL(png_ptr, info_ptr, purpose, X0, X1, type, nparams, units,
+                 params))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_pHYs,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_uint_32 res_x,
+     png_uint_32 res_y, int unit_type),
+    png_set_pHYs(png_ptr, info_ptr, res_x, res_y, unit_type))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_sBIT,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_color_8p sig_bit),
+    png_set_sBIT(png_ptr, info_ptr, sig_bit))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_sCAL_s,
+    (png_const_structrp png_ptr, png_inforp info_ptr, int unit,
+     png_const_charp swidth, png_const_charp sheight),
+    png_set_sCAL_s(png_ptr, info_ptr, unit, swidth, sheight))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_sPLT,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_sPLT_tp entries,
+     int num_entries),
+    png_set_sPLT(png_ptr, info_ptr, entries, num_entries))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_sRGB,
+    (png_const_structrp png_ptr, png_inforp info_ptr, int srgb_intent),
+    png_set_sRGB(png_ptr, info_ptr, srgb_intent))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_iCCP,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_const_charp name,
+     int compression_type, png_const_bytep profile, png_uint_32 proflen),
+    png_set_iCCP(png_ptr, info_ptr, name, compression_type, profile, proflen))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_text,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_textp text_ptr,
+     int num_text),
+    png_set_text(png_ptr, info_ptr, text_ptr, num_text))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_tIME,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_timep mod_time),
+    png_set_tIME(png_ptr, info_ptr, mod_time))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_unknown_chunks,
+    (png_const_structrp png_ptr, png_inforp info_ptr, png_unknown_chunkp unknowns,
+     int num_unknowns),
+    png_set_unknown_chunks(png_ptr, info_ptr, unknowns, num_unknowns))
+
+PNG_SAFE_WRAP_SETTER(
+    png_safe_set_unknown_chunk_location,
+    (png_const_structrp png_ptr, png_inforp info_ptr, int chunk, int location),
+    png_set_unknown_chunk_location(png_ptr, info_ptr, chunk, location))
+
+#undef PNG_SAFE_WRAP_SETTER
 
 int png_safe_call_warning(png_structrp png_ptr, png_const_charp message) {
     png_warning(png_ptr, message);

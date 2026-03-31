@@ -1,13 +1,14 @@
 use crate::read_util::{
-    PNG_HANDLE_CHUNK_AS_DEFAULT, ReadPhase, UnknownChunkSetting, ancillary_chunk,
-    checked_chunk_length, copy_chunk_name, known_chunks_to_ignore, safe_to_copy,
+    PNG_HANDLE_CHUNK_ALWAYS, PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_HANDLE_CHUNK_IF_SAFE,
+    PNG_HANDLE_CHUNK_NEVER, ReadPhase, UnknownChunkSetting, ancillary_chunk,
+    checked_chunk_length, copy_chunk_name, is_known_chunk_name, known_chunks_to_ignore,
+    safe_to_copy,
 };
 use crate::state;
 use crate::types::*;
 use crate::zlib;
 use core::ffi::{c_char, c_int};
 use core::mem::MaybeUninit;
-use core::ptr;
 
 unsafe extern "C" {
     fn png_safe_read_core_get(png_ptr: png_const_structrp, out: *mut png_safe_read_core);
@@ -19,12 +20,6 @@ unsafe extern "C" {
     fn png_safe_call_benign_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
     fn png_safe_call_app_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
     fn png_safe_call_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
-    fn upstream_png_set_keep_unknown_chunks(
-        png_ptr: png_structrp,
-        keep: c_int,
-        chunk_list: png_const_bytep,
-        num_chunks_in: c_int,
-    );
 }
 
 pub(crate) fn read_core(png_ptr: png_const_structrp) -> png_safe_read_core {
@@ -69,14 +64,6 @@ pub(crate) unsafe fn call_app_error(png_ptr: png_structrp, message: &[u8]) -> c_
 
 pub(crate) unsafe fn call_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
     unsafe { png_safe_call_error(png_ptr, message.as_ptr().cast::<c_char>()) }
-}
-
-pub(crate) fn sync_read_phase_from_core(png_ptr: png_structrp) {
-    let core = read_core(png_ptr);
-    let phase = ReadPhase::from_core(&core);
-    state::update_png(png_ptr, |state| {
-        state.read_phase = phase;
-    });
 }
 
 pub(crate) fn set_read_phase(png_ptr: png_structrp, phase: ReadPhase) {
@@ -142,12 +129,18 @@ pub(crate) fn explicit_keep_for_chunk(
         .map(|entry| c_int::from(entry.keep))
 }
 
-pub(crate) fn effective_keep_for_chunk(png_ptr: png_const_structrp, name: [png_byte; 4]) -> c_int {
-    explicit_keep_for_chunk(png_ptr, name).unwrap_or_else(|| {
+pub(crate) fn keep_for_chunk(png_ptr: png_const_structrp, name: [png_byte; 4]) -> c_int {
+    if let Some(keep) = explicit_keep_for_chunk(png_ptr, name) {
+        return keep;
+    }
+
+    if is_known_chunk_name(name) {
+        PNG_HANDLE_CHUNK_AS_DEFAULT
+    } else {
         state::get_png(png_ptr.cast_mut())
             .map(|state| state.unknown_default_keep)
             .unwrap_or(PNG_HANDLE_CHUNK_AS_DEFAULT)
-    })
+    }
 }
 
 pub(crate) fn dispatch_user_chunk_callback(
@@ -173,20 +166,11 @@ pub(crate) fn validate_chunk_length(length: png_uint_32) -> Option<usize> {
 
 pub(crate) fn validate_ancillary_chunk_limits(
     png_ptr: png_const_structrp,
-    chunk_name: [png_byte; 4],
     length: png_uint_32,
-    cached_chunks: usize,
     requested_allocation: usize,
 ) -> Result<(), &'static [u8]> {
-    let _ = chunk_name;
     let declared = checked_chunk_length(length).ok_or(b"chunk length overflow\0".as_slice())?;
     let png_state = state::get_png(png_ptr.cast_mut()).ok_or(b"missing png state\0".as_slice())?;
-
-    if png_state.user_chunk_cache_max != 0
-        && cached_chunks >= usize::try_from(png_state.user_chunk_cache_max).unwrap_or(usize::MAX)
-    {
-        return Err(b"no space in chunk cache\0".as_slice());
-    }
 
     zlib::validate_ancillary_allocation_limit(
         declared,
@@ -213,57 +197,49 @@ pub(crate) fn validate_parser_chunk(
     let name = chunk_name_bytes(chunk_name);
 
     if chunk_is_ancillary(name) {
-        // The actual parser decrements png_ptr->user_chunk_cache_max inside the
-        // ancillary handlers themselves. Prechecking against our keep-rule list
-        // length rejects valid files, so only the malloc-side limit is checked
-        // here and the real handler keeps ownership of cache accounting.
-        validate_ancillary_chunk_limits(png_ptr, name, length, 0, declared)?;
+        validate_ancillary_chunk_limits(png_ptr, length, declared)?;
     }
 
     Ok(())
 }
 
-pub(crate) fn sync_unknown_chunk_policy_to_upstream(png_ptr: png_structrp) {
-    let Some(png_state) = state::get_png(png_ptr) else {
-        return;
-    };
+pub(crate) fn reserve_chunk_cache_slot(
+    png_ptr: png_structrp,
+    warning_message: &'static [u8],
+) -> Result<(), &'static [u8]> {
+    let mut outcome = Ok(());
 
-    unsafe {
-        upstream_png_set_keep_unknown_chunks(png_ptr, png_state.unknown_default_keep, ptr::null(), 0);
-    }
-
-    let policy_bytes = png_state
-        .unknown_chunk_list
-        .len()
-        .checked_mul(5)
-        .unwrap_or(usize::MAX);
-    let Some(length) = validate_chunk_length(policy_bytes.try_into().unwrap_or(u32::MAX)) else {
-        unsafe {
-            let _ = call_app_error(png_ptr, b"png_set_keep_unknown_chunks: too many chunks\0");
+    state::update_png(png_ptr, |png_state| {
+        if png_state.user_chunk_cache_max == 0 {
+            return;
         }
-        return;
-    };
 
-    if let Err(message) = validate_ancillary_chunk_limits(
-        png_ptr,
-        *b"uNkN",
-        length.try_into().unwrap_or(u32::MAX),
-        0,
-        policy_bytes,
-    ) {
-        unsafe {
-            let _ = call_app_error(png_ptr, message);
+        if png_state.user_chunk_cache_max == 1 {
+            outcome = Err(warning_message);
+            return;
         }
-        return;
-    }
 
-    for entry in &png_state.unknown_chunk_list {
-        let keep = effective_keep_for_chunk(png_ptr, entry.name);
-        let _ancillary = chunk_is_ancillary(entry.name);
-        let _safe_to_copy = chunk_safe_to_copy(entry.name);
-        let chunk_name = [entry.name[0], entry.name[1], entry.name[2], entry.name[3], 0];
-        unsafe {
-            upstream_png_set_keep_unknown_chunks(png_ptr, keep, chunk_name.as_ptr(), 1);
+        png_state.user_chunk_cache_max -= 1;
+        if png_state.user_chunk_cache_max == 1 {
+            outcome = Err(warning_message);
         }
-    }
+    });
+
+    outcome
+}
+
+pub(crate) fn keep_requests_storage(keep: c_int, name: [png_byte; 4]) -> bool {
+    keep == PNG_HANDLE_CHUNK_ALWAYS
+        || (keep == PNG_HANDLE_CHUNK_IF_SAFE && chunk_is_ancillary(name))
+}
+
+pub(crate) fn keep_discards_chunk(keep: c_int, name: [png_byte; 4]) -> bool {
+    keep == PNG_HANDLE_CHUNK_NEVER
+        || (keep == PNG_HANDLE_CHUNK_IF_SAFE && !chunk_safe_to_copy(name))
+}
+
+pub(crate) fn ancillary_error_is_fatal(png_ptr: png_structrp) -> bool {
+    state::get_png(png_ptr)
+        .map(|png_state| png_state.benign_errors == 0)
+        .unwrap_or(true)
 }
