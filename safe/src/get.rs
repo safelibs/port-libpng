@@ -436,9 +436,9 @@ pub unsafe extern "C" fn png_get_rows(
 ) -> png_bytepp {
     crate::abi_guard!(png_ptr.cast_mut(), {
         if let Some(info_state) = state::get_info(info_ptr.cast_mut())
-            && !info_state.row_pointers.is_null()
+            && !info_state.core.row_pointers.is_null()
         {
-            info_state.row_pointers
+            info_state.core.row_pointers
         } else {
             unsafe { bridge_png_get_rows(png_ptr, info_ptr) }
         }

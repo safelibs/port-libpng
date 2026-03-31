@@ -23,6 +23,7 @@ const PNG_HAVE_IHDR: png_uint_32 = 0x01;
 const PNG_HAVE_PLTE: png_uint_32 = 0x02;
 const PNG_HAVE_IDAT: png_uint_32 = 0x04;
 const PNG_AFTER_IDAT: png_uint_32 = 0x08;
+const PNG_HAVE_IEND: png_uint_32 = 0x10;
 const PNG_HAVE_CHUNK_AFTER_IDAT: png_uint_32 = 0x2000;
 const PNG_FLAG_ZSTREAM_ENDED: png_uint_32 = 0x0008;
 const PNG_FLAG_CRC_ANCILLARY_USE: png_uint_32 = 0x0100;
@@ -237,10 +238,6 @@ pub(crate) unsafe fn snapshot_parse_state(
     } else {
         unsafe { png_safe_parse_snapshot_capture(png_ptr, info_ptr) }
     };
-    if !info_ptr.is_null() && native.is_null() {
-        let _ = unsafe { call_error(png_ptr, b"insufficient memory for parse snapshot\0") };
-        raise_read_longjmp();
-    }
 
     ParseSnapshot {
         native,
@@ -288,7 +285,7 @@ pub(crate) unsafe fn rollback_parse_state(
     if let Some(png_state) = snapshot.png_state.clone() {
         state::register_png(png_ptr, png_state);
     }
-    if let Some(info_state) = snapshot.info_state {
+    if let Some(info_state) = snapshot.info_state.clone() {
         state::register_info(info_ptr, info_state);
     }
 }
@@ -465,8 +462,20 @@ unsafe fn read_chunk_header_or_rethrow(
     info_ptr: png_inforp,
     snapshot: &ParseSnapshot,
 ) -> (png_uint_32, [png_byte; 4]) {
-    let mut header = [0u8; 8];
-    unsafe { read_exact_or_rethrow(png_ptr, info_ptr, snapshot, &mut header) };
+    let mut header = state::with_png_mut(png_ptr, |png_state| {
+        if png_state.has_pending_chunk_header {
+            png_state.has_pending_chunk_header = false;
+            Some(png_state.pending_chunk_header)
+        } else {
+            None
+        }
+    })
+    .flatten()
+    .unwrap_or([0u8; 8]);
+
+    if header == [0; 8] {
+        unsafe { read_exact_or_rethrow(png_ptr, info_ptr, snapshot, &mut header) };
+    }
 
     let length = read_be_u32(&header[..4]);
     let name = [header[4], header[5], header[6], header[7]];
@@ -1607,8 +1616,9 @@ unsafe fn read_end_loop(png_ptr: png_structrp, info_ptr: png_inforp) {
     let core = read_core(png_ptr);
     let info = read_info_core(info_ptr);
     if core.color_type == 3 && core.num_palette_max >= i32::from(info.num_palette) {
-        let _ =
-            unsafe { call_benign_error(png_ptr, b"Read palette index exceeding num_palette\0") };
+        let _ = unsafe {
+            call_benign_error(png_ptr, b"IDAT: Read palette index exceeding num_palette\0")
+        };
     }
     state::update_png(png_ptr, |png_state| {
         if png_state.check_for_invalid_index > 0 {
@@ -1694,6 +1704,18 @@ pub(crate) unsafe fn read_info_impl(png_ptr: png_structrp, info_ptr: png_inforp)
 }
 
 pub(crate) unsafe fn read_end_impl(png_ptr: png_structrp, info_ptr: png_inforp) {
+    let finished_rows = state::with_png(png_ptr, |png_state| png_state.read_phase == ReadPhase::ImageRows)
+        .unwrap_or(false);
+    if finished_rows {
+        let mut core = read_core(png_ptr);
+        core.mode |= PNG_HAVE_IEND | PNG_AFTER_IDAT | PNG_HAVE_CHUNK_AFTER_IDAT;
+        core.idat_size = 0;
+        core.flags |= PNG_FLAG_ZSTREAM_ENDED;
+        write_core(png_ptr, &core);
+        set_read_phase(png_ptr, ReadPhase::Terminal);
+        return;
+    }
+
     read_end_loop(png_ptr, info_ptr);
     set_read_phase(png_ptr, ReadPhase::Terminal);
 }

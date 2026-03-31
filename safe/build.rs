@@ -5,9 +5,6 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[path = "tools/build_support/build_support.rs"]
-mod build_support;
-
 const ABI_BASENAME: &str = "png16";
 const LIBPNG_VERSION: &str = "1.6.43";
 const FULL_SO_NAME: &str = "libpng16.so.16.43.0";
@@ -29,8 +26,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for path in [
         manifest_dir.join("build.rs"),
-        manifest_dir.join("tools/build_support/build_support.rs"),
-        manifest_dir.join("tools/build_support/compat_payload.bin"),
         include_dir.join("png.h"),
         include_dir.join("pngconf.h"),
         include_dir.join("pnglibconf.h"),
@@ -43,8 +38,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
-
-    build_support::build_support_core(&manifest_dir, &out_dir, &include_dir, &exports_file)?;
 
     println!("cargo:rustc-link-lib=z");
     println!("cargo:rustc-link-lib=m");

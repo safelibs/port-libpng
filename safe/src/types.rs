@@ -28,12 +28,12 @@ pub type png_alloc_size_t = usize;
 
 #[repr(C)]
 pub struct png_struct {
-    _private: [u8; 0],
+    pub(crate) _private: u8,
 }
 
 #[repr(C)]
 pub struct png_info {
-    _private: [u8; 0],
+    pub(crate) _private: u8,
 }
 
 #[repr(C)]
@@ -205,6 +205,7 @@ impl Default for png_unknown_chunk {
 
 pub type png_unknown_chunkp = *mut png_unknown_chunk;
 pub type png_const_unknown_chunkp = *const png_unknown_chunk;
+pub type png_unknown_chunkpp = *mut png_unknown_chunkp;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]

@@ -187,8 +187,8 @@ fn sync_info_registry(info_ptr: png_inforp) {
 
     let info_core = read_info_core(info_ptr);
     state::update_info(info_ptr, |state| {
-        state.free_me = info_core.free_me;
-        state.row_pointers = info_core.row_pointers;
+        state.core.free_me = info_core.free_me;
+        state.core.row_pointers = info_core.row_pointers;
     });
 }
 

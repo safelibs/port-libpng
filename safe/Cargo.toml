@@ -11,7 +11,9 @@ name = "png16"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+flate2 = "1"
 libc = "0.2"
+png = "0.18.1"
 
 [build-dependencies]
 cc = "1.2"
