@@ -4,12 +4,12 @@
 
 #include "pngpriv.h"
 
-extern void upstream_png_set_quantize(png_structrp png_ptr, png_colorp palette,
+extern void runtime_png_set_quantize(png_structrp png_ptr, png_colorp palette,
                                       int num_palette, int maximum_colors,
                                       png_const_uint_16p histogram,
                                       int full_quantize);
-extern void upstream_png_longjmp(png_const_structrp png_ptr, int val);
-extern void upstream_png_read_row(png_structrp png_ptr, png_bytep row,
+extern void runtime_png_longjmp(png_const_structrp png_ptr, int val);
+extern void runtime_png_read_row(png_structrp png_ptr, png_bytep row,
                                   png_bytep display_row);
 extern int png_safe_rust_read_info(png_structrp png_ptr, png_inforp info_ptr);
 extern int png_safe_rust_read_update_info(png_structrp png_ptr,
@@ -22,14 +22,14 @@ extern int png_safe_rust_read_rows(png_structrp png_ptr, png_bytepp row,
                                    png_uint_32 num_rows);
 extern int png_safe_rust_read_image(png_structrp png_ptr, png_bytepp image);
 extern int png_safe_rust_read_end(png_structrp png_ptr, png_inforp info_ptr);
-extern void upstream_png_process_data(png_structrp png_ptr, png_inforp info_ptr,
+extern void runtime_png_process_data(png_structrp png_ptr, png_inforp info_ptr,
                                       png_bytep buffer, size_t buffer_size);
 extern int png_safe_rust_progressive_buffer_read(png_structp png_ptr,
                                                  png_bytep out, size_t length);
 
 static void png_safe_rethrow_to_application(png_structrp png_ptr) {
     if (png_ptr != NULL) {
-        upstream_png_longjmp(png_ptr, 1);
+        runtime_png_longjmp(png_ptr, 1);
     }
 
     abort();
@@ -113,7 +113,7 @@ void PNGAPI png_process_data(png_structrp png_ptr, png_inforp info_ptr,
         return;
     }
 
-    upstream_png_process_data(png_ptr, info_ptr, buffer, buffer_size);
+    runtime_png_process_data(png_ptr, info_ptr, buffer, buffer_size);
 }
 
 void png_safe_progressive_buffer_read_bridge(png_structp png_ptr, png_bytep out,
@@ -244,7 +244,7 @@ void png_safe_resume_finish_idat(png_structrp png_ptr) {
 
 int png_safe_call_read_row(png_structrp png_ptr, png_bytep row, png_bytep display_row) {
     PNG_SAFE_SETJMP_BEGIN(png_ptr)
-    upstream_png_read_row(png_ptr, row, display_row);
+    runtime_png_read_row(png_ptr, row, display_row);
     PNG_SAFE_SETJMP_END(png_ptr)
 }
 
@@ -418,7 +418,7 @@ int png_safe_call_set_quantize(png_structrp png_ptr, png_colorp palette,
                                png_const_uint_16p histogram,
                                int full_quantize) {
     PNG_SAFE_SETJMP_BEGIN(png_ptr)
-    upstream_png_set_quantize(png_ptr, palette, num_palette, maximum_colors,
+    runtime_png_set_quantize(png_ptr, palette, num_palette, maximum_colors,
                               histogram, full_quantize);
     PNG_SAFE_SETJMP_END(png_ptr)
 }

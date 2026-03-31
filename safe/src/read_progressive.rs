@@ -7,9 +7,9 @@ use core::ptr;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
 unsafe extern "C" {
-    fn upstream_png_process_data_pause(png_ptr: png_structrp, save: c_int) -> usize;
-    fn upstream_png_process_data_skip(png_ptr: png_structrp) -> png_uint_32;
-    fn upstream_png_set_read_fn(png_ptr: png_structrp, io_ptr: png_voidp, read_data_fn: png_rw_ptr);
+    fn runtime_png_process_data_pause(png_ptr: png_structrp, save: c_int) -> usize;
+    fn runtime_png_process_data_skip(png_ptr: png_structrp) -> png_uint_32;
+    fn runtime_png_set_read_fn(png_ptr: png_structrp, io_ptr: png_voidp, read_data_fn: png_rw_ptr);
     fn png_safe_call_read_row(
         png_ptr: png_structrp,
         row: png_bytep,
@@ -278,7 +278,7 @@ unsafe fn read_row_or_suspend(
 
 unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) {
     unsafe {
-        upstream_png_set_read_fn(
+        runtime_png_set_read_fn(
             png_ptr,
             ptr::null_mut(),
             Some(png_safe_progressive_buffer_read_bridge),
@@ -427,11 +427,11 @@ pub unsafe extern "C" fn png_process_data_pause(
     save: core::ffi::c_int,
 ) -> usize {
     crate::abi_guard!(png_ptr, unsafe {
-        upstream_png_process_data_pause(png_ptr, save)
+        runtime_png_process_data_pause(png_ptr, save)
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_process_data_skip(png_ptr: png_structrp) -> png_uint_32 {
-    crate::abi_guard!(png_ptr, unsafe { upstream_png_process_data_skip(png_ptr) })
+    crate::abi_guard!(png_ptr, unsafe { runtime_png_process_data_skip(png_ptr) })
 }

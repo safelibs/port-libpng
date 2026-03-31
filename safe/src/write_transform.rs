@@ -1,34 +1,34 @@
 use crate::types::*;
 
 unsafe extern "C" {
-    fn upstream_png_set_filter(
+    fn runtime_png_set_filter(
         png_ptr: png_structrp,
         method: core::ffi::c_int,
         filters: core::ffi::c_int,
     );
-    fn upstream_png_set_filter_heuristics(
+    fn runtime_png_set_filter_heuristics(
         png_ptr: png_structrp,
         heuristic_method: core::ffi::c_int,
         num_weights: core::ffi::c_int,
         filter_weights: png_const_doublep,
         filter_costs: png_const_doublep,
     );
-    fn upstream_png_set_filter_heuristics_fixed(
+    fn runtime_png_set_filter_heuristics_fixed(
         png_ptr: png_structrp,
         heuristic_method: core::ffi::c_int,
         num_weights: core::ffi::c_int,
         filter_weights: png_const_fixed_point_p,
         filter_costs: png_const_fixed_point_p,
     );
-    fn upstream_png_set_add_alpha(
+    fn runtime_png_set_add_alpha(
         png_ptr: png_structrp,
         filler: png_uint_32,
         flags: core::ffi::c_int,
     );
-    fn upstream_png_set_filler(png_ptr: png_structrp, filler: png_uint_32, flags: core::ffi::c_int);
-    fn upstream_png_set_packing(png_ptr: png_structrp);
-    fn upstream_png_set_packswap(png_ptr: png_structrp);
-    fn upstream_png_set_swap(png_ptr: png_structrp);
+    fn runtime_png_set_filler(png_ptr: png_structrp, filler: png_uint_32, flags: core::ffi::c_int);
+    fn runtime_png_set_packing(png_ptr: png_structrp);
+    fn runtime_png_set_packswap(png_ptr: png_structrp);
+    fn runtime_png_set_swap(png_ptr: png_structrp);
 }
 
 fn touch_write_user_transform_state(png_ptr: png_structrp) {
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn png_set_filter(
 ) {
     crate::abi_guard!(png_ptr, unsafe {
         touch_write_user_transform_state(png_ptr);
-        upstream_png_set_filter(png_ptr, method, filters);
+        runtime_png_set_filter(png_ptr, method, filters);
     });
 }
 
@@ -57,7 +57,7 @@ pub unsafe extern "C" fn png_set_filter_heuristics(
 ) {
     crate::abi_guard!(png_ptr, unsafe {
         touch_write_user_transform_state(png_ptr);
-        upstream_png_set_filter_heuristics(
+        runtime_png_set_filter_heuristics(
             png_ptr,
             heuristic_method,
             num_weights,
@@ -77,7 +77,7 @@ pub unsafe extern "C" fn png_set_filter_heuristics_fixed(
 ) {
     crate::abi_guard!(png_ptr, unsafe {
         touch_write_user_transform_state(png_ptr);
-        upstream_png_set_filter_heuristics_fixed(
+        runtime_png_set_filter_heuristics_fixed(
             png_ptr,
             heuristic_method,
             num_weights,
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn png_set_add_alpha(
 ) {
     crate::abi_guard!(png_ptr, unsafe {
         touch_write_user_transform_state(png_ptr);
-        upstream_png_set_add_alpha(png_ptr, filler, flags);
+        runtime_png_set_add_alpha(png_ptr, filler, flags);
     });
 }
 
@@ -107,7 +107,7 @@ pub unsafe extern "C" fn png_set_filler(
 ) {
     crate::abi_guard!(png_ptr, unsafe {
         touch_write_user_transform_state(png_ptr);
-        upstream_png_set_filler(png_ptr, filler, flags);
+        runtime_png_set_filler(png_ptr, filler, flags);
     });
 }
 
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn png_set_filler(
 pub unsafe extern "C" fn png_set_packing(png_ptr: png_structrp) {
     crate::abi_guard!(png_ptr, unsafe {
         touch_write_user_transform_state(png_ptr);
-        upstream_png_set_packing(png_ptr);
+        runtime_png_set_packing(png_ptr);
     });
 }
 
@@ -123,7 +123,7 @@ pub unsafe extern "C" fn png_set_packing(png_ptr: png_structrp) {
 pub unsafe extern "C" fn png_set_packswap(png_ptr: png_structrp) {
     crate::abi_guard!(png_ptr, unsafe {
         touch_write_user_transform_state(png_ptr);
-        upstream_png_set_packswap(png_ptr);
+        runtime_png_set_packswap(png_ptr);
     });
 }
 
@@ -131,6 +131,6 @@ pub unsafe extern "C" fn png_set_packswap(png_ptr: png_structrp) {
 pub unsafe extern "C" fn png_set_swap(png_ptr: png_structrp) {
     crate::abi_guard!(png_ptr, unsafe {
         touch_write_user_transform_state(png_ptr);
-        upstream_png_set_swap(png_ptr);
+        runtime_png_set_swap(png_ptr);
     });
 }

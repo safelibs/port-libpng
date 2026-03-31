@@ -11,409 +11,411 @@ const FULL_SO_NAME: &str = "libpng16.so.16.43.0";
 const SONAME: &str = "libpng16.so.16";
 const LIBS_PRIVATE: &str = "-lm -lz -lm ";
 
-const UPSTREAM_SOURCES: &[&str] = &[
-    "../original/png.c",
-    "../original/pngerror.c",
-    "../original/pngget.c",
-    "../original/pngmem.c",
-    "../original/pngpread.c",
-    "../original/pngrio.c",
-    "../original/pngrtran.c",
-    "../original/pngrutil.c",
-    "../original/pngset.c",
-    "../original/pngtrans.c",
-    "../original/pngwrite.c",
-    "../original/pngwio.c",
-    "../original/pngwtran.c",
-    "../original/pngwutil.c",
+const LEGACY_RUNTIME_C_NAMES: &[&str] = &[
+    "png",
+    "pngerror",
+    "pngget",
+    "pngmem",
+    "pngpread",
+    "pngrio",
+    "pngrtran",
+    "pngrutil",
+    "pngset",
+    "pngtrans",
+    "pngwrite",
+    "pngwio",
+    "pngwtran",
+    "pngwutil",
 ];
 
+const PNGREAD_SOURCE_NAME: &str = "pngread";
+
 const UPSTREAM_RENAMES: &[(&str, &str)] = &[
-    ("png_sig_cmp", "upstream_png_sig_cmp"),
+    ("png_sig_cmp", "runtime_png_sig_cmp"),
     (
         "png_access_version_number",
-        "upstream_png_access_version_number",
+        "runtime_png_access_version_number",
     ),
-    ("png_get_libpng_ver", "upstream_png_get_libpng_ver"),
-    ("png_get_header_ver", "upstream_png_get_header_ver"),
-    ("png_get_header_version", "upstream_png_get_header_version"),
-    ("png_get_copyright", "upstream_png_get_copyright"),
+    ("png_get_libpng_ver", "runtime_png_get_libpng_ver"),
+    ("png_get_header_ver", "runtime_png_get_header_ver"),
+    ("png_get_header_version", "runtime_png_get_header_version"),
+    ("png_get_copyright", "runtime_png_get_copyright"),
     (
         "png_build_grayscale_palette",
-        "upstream_png_build_grayscale_palette",
+        "runtime_png_build_grayscale_palette",
     ),
-    ("png_save_uint_32", "upstream_png_save_uint_32"),
-    ("png_save_uint_16", "upstream_png_save_uint_16"),
-    ("png_save_int_32", "upstream_png_save_int_32"),
+    ("png_save_uint_32", "runtime_png_save_uint_32"),
+    ("png_save_uint_16", "runtime_png_save_uint_16"),
+    ("png_save_int_32", "runtime_png_save_int_32"),
     (
         "png_convert_to_rfc1123_buffer",
-        "upstream_png_convert_to_rfc1123_buffer",
+        "runtime_png_convert_to_rfc1123_buffer",
     ),
     (
         "png_convert_from_struct_tm",
-        "upstream_png_convert_from_struct_tm",
+        "runtime_png_convert_from_struct_tm",
     ),
     (
         "png_convert_from_time_t",
-        "upstream_png_convert_from_time_t",
+        "runtime_png_convert_from_time_t",
     ),
-    ("png_set_sig_bytes", "upstream_png_set_sig_bytes"),
+    ("png_set_sig_bytes", "runtime_png_set_sig_bytes"),
     (
         "png_get_compression_buffer_size",
-        "upstream_png_get_compression_buffer_size",
+        "runtime_png_get_compression_buffer_size",
     ),
     (
         "png_set_compression_buffer_size",
-        "upstream_png_set_compression_buffer_size",
+        "runtime_png_set_compression_buffer_size",
     ),
-    ("png_create_read_struct", "upstream_png_create_read_struct"),
+    ("png_create_read_struct", "runtime_png_create_read_struct"),
     (
         "png_create_write_struct",
-        "upstream_png_create_write_struct",
+        "runtime_png_create_write_struct",
     ),
-    ("png_set_longjmp_fn", "upstream_png_set_longjmp_fn"),
-    ("png_longjmp", "upstream_png_longjmp"),
+    ("png_set_longjmp_fn", "runtime_png_set_longjmp_fn"),
+    ("png_longjmp", "runtime_png_longjmp"),
     (
         "png_create_read_struct_2",
-        "upstream_png_create_read_struct_2",
+        "runtime_png_create_read_struct_2",
     ),
     (
         "png_create_write_struct_2",
-        "upstream_png_create_write_struct_2",
+        "runtime_png_create_write_struct_2",
     ),
-    ("png_create_info_struct", "upstream_png_create_info_struct"),
-    ("png_info_init_3", "upstream_png_info_init_3"),
-    ("png_write_sig", "upstream_png_write_sig"),
-    ("png_write_chunk", "upstream_png_write_chunk"),
-    ("png_write_chunk_start", "upstream_png_write_chunk_start"),
-    ("png_write_chunk_data", "upstream_png_write_chunk_data"),
-    ("png_write_chunk_end", "upstream_png_write_chunk_end"),
+    ("png_create_info_struct", "runtime_png_create_info_struct"),
+    ("png_info_init_3", "runtime_png_info_init_3"),
+    ("png_write_sig", "runtime_png_write_sig"),
+    ("png_write_chunk", "runtime_png_write_chunk"),
+    ("png_write_chunk_start", "runtime_png_write_chunk_start"),
+    ("png_write_chunk_data", "runtime_png_write_chunk_data"),
+    ("png_write_chunk_end", "runtime_png_write_chunk_end"),
     (
         "png_write_info_before_PLTE",
-        "upstream_png_write_info_before_PLTE",
+        "runtime_png_write_info_before_PLTE",
     ),
-    ("png_write_info", "upstream_png_write_info"),
+    ("png_write_info", "runtime_png_write_info"),
     (
         "png_destroy_info_struct",
-        "upstream_png_destroy_info_struct",
+        "runtime_png_destroy_info_struct",
     ),
     (
         "png_destroy_read_struct",
-        "upstream_png_destroy_read_struct",
+        "runtime_png_destroy_read_struct",
     ),
     (
         "png_destroy_write_struct",
-        "upstream_png_destroy_write_struct",
+        "runtime_png_destroy_write_struct",
     ),
-    ("png_init_io", "upstream_png_init_io"),
-    ("png_set_error_fn", "upstream_png_set_error_fn"),
-    ("png_get_error_ptr", "upstream_png_get_error_ptr"),
-    ("png_set_write_fn", "upstream_png_set_write_fn"),
-    ("png_set_read_fn", "upstream_png_set_read_fn"),
-    ("png_get_io_ptr", "upstream_png_get_io_ptr"),
-    ("png_set_read_status_fn", "upstream_png_set_read_status_fn"),
+    ("png_init_io", "runtime_png_init_io"),
+    ("png_set_error_fn", "runtime_png_set_error_fn"),
+    ("png_get_error_ptr", "runtime_png_get_error_ptr"),
+    ("png_set_write_fn", "runtime_png_set_write_fn"),
+    ("png_set_read_fn", "runtime_png_set_read_fn"),
+    ("png_get_io_ptr", "runtime_png_get_io_ptr"),
+    ("png_set_read_status_fn", "runtime_png_set_read_status_fn"),
     (
         "png_set_write_status_fn",
-        "upstream_png_set_write_status_fn",
+        "runtime_png_set_write_status_fn",
     ),
-    ("png_set_mem_fn", "upstream_png_set_mem_fn"),
-    ("png_get_mem_ptr", "upstream_png_get_mem_ptr"),
+    ("png_set_mem_fn", "runtime_png_set_mem_fn"),
+    ("png_get_mem_ptr", "runtime_png_get_mem_ptr"),
     (
         "png_set_read_user_transform_fn",
-        "upstream_png_set_read_user_transform_fn",
+        "runtime_png_set_read_user_transform_fn",
     ),
     (
         "png_set_write_user_transform_fn",
-        "upstream_png_set_write_user_transform_fn",
+        "runtime_png_set_write_user_transform_fn",
     ),
     (
         "png_set_user_transform_info",
-        "upstream_png_set_user_transform_info",
+        "runtime_png_set_user_transform_info",
     ),
     (
         "png_get_user_transform_ptr",
-        "upstream_png_get_user_transform_ptr",
+        "runtime_png_get_user_transform_ptr",
     ),
     (
         "png_set_read_user_chunk_fn",
-        "upstream_png_set_read_user_chunk_fn",
+        "runtime_png_set_read_user_chunk_fn",
     ),
-    ("png_get_user_chunk_ptr", "upstream_png_get_user_chunk_ptr"),
+    ("png_get_user_chunk_ptr", "runtime_png_get_user_chunk_ptr"),
     (
         "png_set_progressive_read_fn",
-        "upstream_png_set_progressive_read_fn",
+        "runtime_png_set_progressive_read_fn",
     ),
     (
         "png_get_progressive_ptr",
-        "upstream_png_get_progressive_ptr",
+        "runtime_png_get_progressive_ptr",
     ),
-    ("png_calloc", "upstream_png_calloc"),
-    ("png_malloc", "upstream_png_malloc"),
-    ("png_malloc_warn", "upstream_png_malloc_warn"),
-    ("png_free", "upstream_png_free"),
-    ("png_free_data", "upstream_png_free_data"),
-    ("png_data_freer", "upstream_png_data_freer"),
-    ("png_malloc_default", "upstream_png_malloc_default"),
-    ("png_free_default", "upstream_png_free_default"),
-    ("png_warning", "upstream_png_warning"),
-    ("png_chunk_warning", "upstream_png_chunk_warning"),
-    ("png_benign_error", "upstream_png_benign_error"),
-    ("png_chunk_benign_error", "upstream_png_chunk_benign_error"),
-    ("png_error", "upstream_png_error"),
-    ("png_chunk_error", "upstream_png_chunk_error"),
-    ("png_get_valid", "upstream_png_get_valid"),
-    ("png_get_rowbytes", "upstream_png_get_rowbytes"),
-    ("png_get_rows", "upstream_png_get_rows"),
-    ("png_set_rows", "upstream_png_set_rows"),
-    ("png_get_channels", "upstream_png_get_channels"),
-    ("png_get_image_width", "upstream_png_get_image_width"),
-    ("png_get_image_height", "upstream_png_get_image_height"),
-    ("png_get_bit_depth", "upstream_png_get_bit_depth"),
-    ("png_get_color_type", "upstream_png_get_color_type"),
-    ("png_get_filter_type", "upstream_png_get_filter_type"),
-    ("png_get_interlace_type", "upstream_png_get_interlace_type"),
+    ("png_calloc", "runtime_png_calloc"),
+    ("png_malloc", "runtime_png_malloc"),
+    ("png_malloc_warn", "runtime_png_malloc_warn"),
+    ("png_free", "runtime_png_free"),
+    ("png_free_data", "runtime_png_free_data"),
+    ("png_data_freer", "runtime_png_data_freer"),
+    ("png_malloc_default", "runtime_png_malloc_default"),
+    ("png_free_default", "runtime_png_free_default"),
+    ("png_warning", "runtime_png_warning"),
+    ("png_chunk_warning", "runtime_png_chunk_warning"),
+    ("png_benign_error", "runtime_png_benign_error"),
+    ("png_chunk_benign_error", "runtime_png_chunk_benign_error"),
+    ("png_error", "runtime_png_error"),
+    ("png_chunk_error", "runtime_png_chunk_error"),
+    ("png_get_valid", "runtime_png_get_valid"),
+    ("png_get_rowbytes", "runtime_png_get_rowbytes"),
+    ("png_get_rows", "runtime_png_get_rows"),
+    ("png_set_rows", "runtime_png_set_rows"),
+    ("png_get_channels", "runtime_png_get_channels"),
+    ("png_get_image_width", "runtime_png_get_image_width"),
+    ("png_get_image_height", "runtime_png_get_image_height"),
+    ("png_get_bit_depth", "runtime_png_get_bit_depth"),
+    ("png_get_color_type", "runtime_png_get_color_type"),
+    ("png_get_filter_type", "runtime_png_get_filter_type"),
+    ("png_get_interlace_type", "runtime_png_get_interlace_type"),
     (
         "png_get_compression_type",
-        "upstream_png_get_compression_type",
+        "runtime_png_get_compression_type",
     ),
-    ("png_set_benign_errors", "upstream_png_set_benign_errors"),
-    ("png_get_user_width_max", "upstream_png_get_user_width_max"),
+    ("png_set_benign_errors", "runtime_png_set_benign_errors"),
+    ("png_get_user_width_max", "runtime_png_get_user_width_max"),
     (
         "png_get_user_height_max",
-        "upstream_png_get_user_height_max",
+        "runtime_png_get_user_height_max",
     ),
-    ("png_set_user_limits", "upstream_png_set_user_limits"),
+    ("png_set_user_limits", "runtime_png_set_user_limits"),
     (
         "png_get_chunk_cache_max",
-        "upstream_png_get_chunk_cache_max",
+        "runtime_png_get_chunk_cache_max",
     ),
     (
         "png_set_chunk_cache_max",
-        "upstream_png_set_chunk_cache_max",
+        "runtime_png_set_chunk_cache_max",
     ),
     (
         "png_get_chunk_malloc_max",
-        "upstream_png_get_chunk_malloc_max",
+        "runtime_png_get_chunk_malloc_max",
     ),
     (
         "png_set_chunk_malloc_max",
-        "upstream_png_set_chunk_malloc_max",
+        "runtime_png_set_chunk_malloc_max",
     ),
-    ("png_get_io_state", "upstream_png_get_io_state"),
-    ("png_get_io_chunk_type", "upstream_png_get_io_chunk_type"),
-    ("png_read_info", "upstream_png_read_info"),
-    ("png_read_update_info", "upstream_png_read_update_info"),
-    ("png_read_rows", "upstream_png_read_rows"),
-    ("png_read_image", "upstream_png_read_image"),
-    ("png_read_end", "upstream_png_read_end"),
-    ("png_start_read_image", "upstream_png_start_read_image"),
-    ("png_process_data", "upstream_png_process_data"),
-    ("png_process_data_pause", "upstream_png_process_data_pause"),
-    ("png_process_data_skip", "upstream_png_process_data_skip"),
-    ("png_write_row", "upstream_png_write_row"),
-    ("png_write_rows", "upstream_png_write_rows"),
-    ("png_write_image", "upstream_png_write_image"),
-    ("png_write_end", "upstream_png_write_end"),
-    ("png_write_png", "upstream_png_write_png"),
-    ("png_set_flush", "upstream_png_set_flush"),
-    ("png_write_flush", "upstream_png_write_flush"),
+    ("png_get_io_state", "runtime_png_get_io_state"),
+    ("png_get_io_chunk_type", "runtime_png_get_io_chunk_type"),
+    ("png_read_info", "runtime_png_read_info"),
+    ("png_read_update_info", "runtime_png_read_update_info"),
+    ("png_read_rows", "runtime_png_read_rows"),
+    ("png_read_image", "runtime_png_read_image"),
+    ("png_read_end", "runtime_png_read_end"),
+    ("png_start_read_image", "runtime_png_start_read_image"),
+    ("png_process_data", "runtime_png_process_data"),
+    ("png_process_data_pause", "runtime_png_process_data_pause"),
+    ("png_process_data_skip", "runtime_png_process_data_skip"),
+    ("png_write_row", "runtime_png_write_row"),
+    ("png_write_rows", "runtime_png_write_rows"),
+    ("png_write_image", "runtime_png_write_image"),
+    ("png_write_end", "runtime_png_write_end"),
+    ("png_write_png", "runtime_png_write_png"),
+    ("png_set_flush", "runtime_png_set_flush"),
+    ("png_write_flush", "runtime_png_write_flush"),
     (
         "png_set_keep_unknown_chunks",
-        "upstream_png_set_keep_unknown_chunks",
+        "runtime_png_set_keep_unknown_chunks",
     ),
     (
         "png_set_check_for_invalid_index",
-        "upstream_png_set_check_for_invalid_index",
+        "runtime_png_set_check_for_invalid_index",
     ),
-    ("png_get_palette_max", "upstream_png_get_palette_max"),
-    ("png_set_option", "upstream_png_set_option"),
-    ("png_read_row", "upstream_png_read_row"),
-    ("png_set_expand", "upstream_png_set_expand"),
-    ("png_set_expand_16", "upstream_png_set_expand_16"),
-    ("png_set_palette_to_rgb", "upstream_png_set_palette_to_rgb"),
-    ("png_set_tRNS_to_alpha", "upstream_png_set_tRNS_to_alpha"),
-    ("png_set_gray_to_rgb", "upstream_png_set_gray_to_rgb"),
-    ("png_set_scale_16", "upstream_png_set_scale_16"),
-    ("png_set_strip_16", "upstream_png_set_strip_16"),
-    ("png_set_quantize", "upstream_png_set_quantize"),
-    ("png_set_shift", "upstream_png_set_shift"),
-    ("png_set_swap", "upstream_png_set_swap"),
-    ("png_set_swap_alpha", "upstream_png_set_swap_alpha"),
-    ("png_set_invert_alpha", "upstream_png_set_invert_alpha"),
-    ("png_set_invert_mono", "upstream_png_set_invert_mono"),
-    ("png_set_bgr", "upstream_png_set_bgr"),
-    ("png_set_filler", "upstream_png_set_filler"),
-    ("png_set_add_alpha", "upstream_png_set_add_alpha"),
-    ("png_set_packing", "upstream_png_set_packing"),
-    ("png_set_packswap", "upstream_png_set_packswap"),
-    ("png_set_filter", "upstream_png_set_filter"),
+    ("png_get_palette_max", "runtime_png_get_palette_max"),
+    ("png_set_option", "runtime_png_set_option"),
+    ("png_read_row", "runtime_png_read_row"),
+    ("png_set_expand", "runtime_png_set_expand"),
+    ("png_set_expand_16", "runtime_png_set_expand_16"),
+    ("png_set_palette_to_rgb", "runtime_png_set_palette_to_rgb"),
+    ("png_set_tRNS_to_alpha", "runtime_png_set_tRNS_to_alpha"),
+    ("png_set_gray_to_rgb", "runtime_png_set_gray_to_rgb"),
+    ("png_set_scale_16", "runtime_png_set_scale_16"),
+    ("png_set_strip_16", "runtime_png_set_strip_16"),
+    ("png_set_quantize", "runtime_png_set_quantize"),
+    ("png_set_shift", "runtime_png_set_shift"),
+    ("png_set_swap", "runtime_png_set_swap"),
+    ("png_set_swap_alpha", "runtime_png_set_swap_alpha"),
+    ("png_set_invert_alpha", "runtime_png_set_invert_alpha"),
+    ("png_set_invert_mono", "runtime_png_set_invert_mono"),
+    ("png_set_bgr", "runtime_png_set_bgr"),
+    ("png_set_filler", "runtime_png_set_filler"),
+    ("png_set_add_alpha", "runtime_png_set_add_alpha"),
+    ("png_set_packing", "runtime_png_set_packing"),
+    ("png_set_packswap", "runtime_png_set_packswap"),
+    ("png_set_filter", "runtime_png_set_filter"),
     (
         "png_set_filter_heuristics",
-        "upstream_png_set_filter_heuristics",
+        "runtime_png_set_filter_heuristics",
     ),
     (
         "png_set_filter_heuristics_fixed",
-        "upstream_png_set_filter_heuristics_fixed",
+        "runtime_png_set_filter_heuristics_fixed",
     ),
     (
         "png_set_compression_level",
-        "upstream_png_set_compression_level",
+        "runtime_png_set_compression_level",
     ),
     (
         "png_set_compression_mem_level",
-        "upstream_png_set_compression_mem_level",
+        "runtime_png_set_compression_mem_level",
     ),
     (
         "png_set_compression_method",
-        "upstream_png_set_compression_method",
+        "runtime_png_set_compression_method",
     ),
     (
         "png_set_compression_strategy",
-        "upstream_png_set_compression_strategy",
+        "runtime_png_set_compression_strategy",
     ),
     (
         "png_set_compression_window_bits",
-        "upstream_png_set_compression_window_bits",
+        "runtime_png_set_compression_window_bits",
     ),
     (
         "png_set_text_compression_level",
-        "upstream_png_set_text_compression_level",
+        "runtime_png_set_text_compression_level",
     ),
     (
         "png_set_text_compression_mem_level",
-        "upstream_png_set_text_compression_mem_level",
+        "runtime_png_set_text_compression_mem_level",
     ),
     (
         "png_set_text_compression_method",
-        "upstream_png_set_text_compression_method",
+        "runtime_png_set_text_compression_method",
     ),
     (
         "png_set_text_compression_strategy",
-        "upstream_png_set_text_compression_strategy",
+        "runtime_png_set_text_compression_strategy",
     ),
     (
         "png_set_text_compression_window_bits",
-        "upstream_png_set_text_compression_window_bits",
+        "runtime_png_set_text_compression_window_bits",
     ),
     (
         "png_set_interlace_handling",
-        "upstream_png_set_interlace_handling",
+        "runtime_png_set_interlace_handling",
     ),
-    ("png_set_rgb_to_gray", "upstream_png_set_rgb_to_gray"),
+    ("png_set_rgb_to_gray", "runtime_png_set_rgb_to_gray"),
     (
         "png_set_rgb_to_gray_fixed",
-        "upstream_png_set_rgb_to_gray_fixed",
+        "runtime_png_set_rgb_to_gray_fixed",
     ),
-    ("png_set_background", "upstream_png_set_background"),
+    ("png_set_background", "runtime_png_set_background"),
     (
         "png_set_background_fixed",
-        "upstream_png_set_background_fixed",
+        "runtime_png_set_background_fixed",
     ),
-    ("png_set_alpha_mode", "upstream_png_set_alpha_mode"),
+    ("png_set_alpha_mode", "runtime_png_set_alpha_mode"),
     (
         "png_set_alpha_mode_fixed",
-        "upstream_png_set_alpha_mode_fixed",
+        "runtime_png_set_alpha_mode_fixed",
     ),
-    ("png_get_bKGD", "upstream_png_get_bKGD"),
-    ("png_set_bKGD", "upstream_png_set_bKGD"),
-    ("png_get_cHRM", "upstream_png_get_cHRM"),
-    ("png_get_cHRM_fixed", "upstream_png_get_cHRM_fixed"),
-    ("png_set_cHRM", "upstream_png_set_cHRM"),
-    ("png_set_cHRM_fixed", "upstream_png_set_cHRM_fixed"),
-    ("png_set_cHRM_XYZ", "upstream_png_set_cHRM_XYZ"),
-    ("png_set_cHRM_XYZ_fixed", "upstream_png_set_cHRM_XYZ_fixed"),
-    ("png_get_gAMA", "upstream_png_get_gAMA"),
-    ("png_get_gAMA_fixed", "upstream_png_get_gAMA_fixed"),
-    ("png_set_gAMA", "upstream_png_set_gAMA"),
-    ("png_set_gAMA_fixed", "upstream_png_set_gAMA_fixed"),
-    ("png_get_hIST", "upstream_png_get_hIST"),
-    ("png_set_hIST", "upstream_png_set_hIST"),
-    ("png_get_IHDR", "upstream_png_get_IHDR"),
-    ("png_set_IHDR", "upstream_png_set_IHDR"),
-    ("png_get_oFFs", "upstream_png_get_oFFs"),
-    ("png_set_oFFs", "upstream_png_set_oFFs"),
-    ("png_get_pCAL", "upstream_png_get_pCAL"),
-    ("png_set_pCAL", "upstream_png_set_pCAL"),
-    ("png_get_pHYs", "upstream_png_get_pHYs"),
-    ("png_set_pHYs", "upstream_png_set_pHYs"),
-    ("png_get_PLTE", "upstream_png_get_PLTE"),
-    ("png_set_PLTE", "upstream_png_set_PLTE"),
-    ("png_get_sBIT", "upstream_png_get_sBIT"),
-    ("png_set_sBIT", "upstream_png_set_sBIT"),
-    ("png_get_sRGB", "upstream_png_get_sRGB"),
-    ("png_set_sRGB", "upstream_png_set_sRGB"),
+    ("png_get_bKGD", "runtime_png_get_bKGD"),
+    ("png_set_bKGD", "runtime_png_set_bKGD"),
+    ("png_get_cHRM", "runtime_png_get_cHRM"),
+    ("png_get_cHRM_fixed", "runtime_png_get_cHRM_fixed"),
+    ("png_set_cHRM", "runtime_png_set_cHRM"),
+    ("png_set_cHRM_fixed", "runtime_png_set_cHRM_fixed"),
+    ("png_set_cHRM_XYZ", "runtime_png_set_cHRM_XYZ"),
+    ("png_set_cHRM_XYZ_fixed", "runtime_png_set_cHRM_XYZ_fixed"),
+    ("png_get_gAMA", "runtime_png_get_gAMA"),
+    ("png_get_gAMA_fixed", "runtime_png_get_gAMA_fixed"),
+    ("png_set_gAMA", "runtime_png_set_gAMA"),
+    ("png_set_gAMA_fixed", "runtime_png_set_gAMA_fixed"),
+    ("png_get_hIST", "runtime_png_get_hIST"),
+    ("png_set_hIST", "runtime_png_set_hIST"),
+    ("png_get_IHDR", "runtime_png_get_IHDR"),
+    ("png_set_IHDR", "runtime_png_set_IHDR"),
+    ("png_get_oFFs", "runtime_png_get_oFFs"),
+    ("png_set_oFFs", "runtime_png_set_oFFs"),
+    ("png_get_pCAL", "runtime_png_get_pCAL"),
+    ("png_set_pCAL", "runtime_png_set_pCAL"),
+    ("png_get_pHYs", "runtime_png_get_pHYs"),
+    ("png_set_pHYs", "runtime_png_set_pHYs"),
+    ("png_get_PLTE", "runtime_png_get_PLTE"),
+    ("png_set_PLTE", "runtime_png_set_PLTE"),
+    ("png_get_sBIT", "runtime_png_get_sBIT"),
+    ("png_set_sBIT", "runtime_png_set_sBIT"),
+    ("png_get_sRGB", "runtime_png_get_sRGB"),
+    ("png_set_sRGB", "runtime_png_set_sRGB"),
     (
         "png_set_sRGB_gAMA_and_cHRM",
-        "upstream_png_set_sRGB_gAMA_and_cHRM",
+        "runtime_png_set_sRGB_gAMA_and_cHRM",
     ),
-    ("png_get_iCCP", "upstream_png_get_iCCP"),
-    ("png_set_iCCP", "upstream_png_set_iCCP"),
-    ("png_get_sPLT", "upstream_png_get_sPLT"),
-    ("png_set_sPLT", "upstream_png_set_sPLT"),
-    ("png_get_text", "upstream_png_get_text"),
-    ("png_set_text", "upstream_png_set_text"),
-    ("png_get_tIME", "upstream_png_get_tIME"),
-    ("png_set_tIME", "upstream_png_set_tIME"),
-    ("png_get_tRNS", "upstream_png_get_tRNS"),
-    ("png_set_tRNS", "upstream_png_set_tRNS"),
-    ("png_get_sCAL", "upstream_png_get_sCAL"),
-    ("png_get_sCAL_fixed", "upstream_png_get_sCAL_fixed"),
-    ("png_get_sCAL_s", "upstream_png_get_sCAL_s"),
-    ("png_set_sCAL", "upstream_png_set_sCAL"),
-    ("png_set_sCAL_fixed", "upstream_png_set_sCAL_fixed"),
-    ("png_set_sCAL_s", "upstream_png_set_sCAL_s"),
-    ("png_get_eXIf", "upstream_png_get_eXIf"),
-    ("png_set_eXIf", "upstream_png_set_eXIf"),
-    ("png_get_eXIf_1", "upstream_png_get_eXIf_1"),
-    ("png_set_eXIf_1", "upstream_png_set_eXIf_1"),
-    ("png_get_cHRM_XYZ", "upstream_png_get_cHRM_XYZ"),
-    ("png_get_cHRM_XYZ_fixed", "upstream_png_get_cHRM_XYZ_fixed"),
+    ("png_get_iCCP", "runtime_png_get_iCCP"),
+    ("png_set_iCCP", "runtime_png_set_iCCP"),
+    ("png_get_sPLT", "runtime_png_get_sPLT"),
+    ("png_set_sPLT", "runtime_png_set_sPLT"),
+    ("png_get_text", "runtime_png_get_text"),
+    ("png_set_text", "runtime_png_set_text"),
+    ("png_get_tIME", "runtime_png_get_tIME"),
+    ("png_set_tIME", "runtime_png_set_tIME"),
+    ("png_get_tRNS", "runtime_png_get_tRNS"),
+    ("png_set_tRNS", "runtime_png_set_tRNS"),
+    ("png_get_sCAL", "runtime_png_get_sCAL"),
+    ("png_get_sCAL_fixed", "runtime_png_get_sCAL_fixed"),
+    ("png_get_sCAL_s", "runtime_png_get_sCAL_s"),
+    ("png_set_sCAL", "runtime_png_set_sCAL"),
+    ("png_set_sCAL_fixed", "runtime_png_set_sCAL_fixed"),
+    ("png_set_sCAL_s", "runtime_png_set_sCAL_s"),
+    ("png_get_eXIf", "runtime_png_get_eXIf"),
+    ("png_set_eXIf", "runtime_png_set_eXIf"),
+    ("png_get_eXIf_1", "runtime_png_get_eXIf_1"),
+    ("png_set_eXIf_1", "runtime_png_set_eXIf_1"),
+    ("png_get_cHRM_XYZ", "runtime_png_get_cHRM_XYZ"),
+    ("png_get_cHRM_XYZ_fixed", "runtime_png_get_cHRM_XYZ_fixed"),
     (
         "png_image_write_to_file",
-        "upstream_png_image_write_to_file",
+        "runtime_png_image_write_to_file",
     ),
     (
         "png_image_write_to_stdio",
-        "upstream_png_image_write_to_stdio",
+        "runtime_png_image_write_to_stdio",
     ),
     (
         "png_image_write_to_memory",
-        "upstream_png_image_write_to_memory",
+        "runtime_png_image_write_to_memory",
     ),
-    ("png_image_free", "upstream_png_image_free"),
+    ("png_image_free", "runtime_png_image_free"),
 ];
 
 const PNGREAD_DEFINITION_RENAMES: &[(&str, &str)] = &[
-    ("png_create_read_struct", "upstream_png_create_read_struct"),
+    ("png_create_read_struct", "runtime_png_create_read_struct"),
     (
         "png_create_read_struct_2",
-        "upstream_png_create_read_struct_2",
+        "runtime_png_create_read_struct_2",
     ),
-    ("png_read_info", "upstream_png_read_info"),
-    ("png_read_update_info", "upstream_png_read_update_info"),
-    ("png_start_read_image", "upstream_png_start_read_image"),
-    ("png_read_row", "upstream_png_read_row"),
-    ("png_read_rows", "upstream_png_read_rows"),
-    ("png_read_image", "upstream_png_read_image"),
-    ("png_read_end", "upstream_png_read_end"),
+    ("png_read_info", "runtime_png_read_info"),
+    ("png_read_update_info", "runtime_png_read_update_info"),
+    ("png_start_read_image", "runtime_png_start_read_image"),
+    ("png_read_row", "runtime_png_read_row"),
+    ("png_read_rows", "runtime_png_read_rows"),
+    ("png_read_image", "runtime_png_read_image"),
+    ("png_read_end", "runtime_png_read_end"),
     (
         "png_destroy_read_struct",
-        "upstream_png_destroy_read_struct",
+        "runtime_png_destroy_read_struct",
     ),
-    ("png_set_read_status_fn", "upstream_png_set_read_status_fn"),
+    ("png_set_read_status_fn", "runtime_png_set_read_status_fn"),
     (
         "png_image_begin_read_from_file",
-        "upstream_png_image_begin_read_from_file",
+        "runtime_png_image_begin_read_from_file",
     ),
     (
         "png_image_begin_read_from_stdio",
-        "upstream_png_image_begin_read_from_stdio",
+        "runtime_png_image_begin_read_from_stdio",
     ),
     (
         "png_image_begin_read_from_memory",
-        "upstream_png_image_begin_read_from_memory",
+        "runtime_png_image_begin_read_from_memory",
     ),
-    ("png_image_finish_read", "upstream_png_image_finish_read"),
+    ("png_image_finish_read", "runtime_png_image_finish_read"),
 ];
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -421,6 +423,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let profile = env::var("PROFILE")?;
     let target = env::var("TARGET")?;
+    let original_root = original_tree_dir(&manifest_dir);
 
     let include_dir = manifest_dir.join("include");
     let abi_dir = manifest_dir.join("abi");
@@ -462,20 +465,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         manifest_dir.join("src/write_transform.rs"),
         manifest_dir.join("src/write_util.rs"),
         manifest_dir.join("src/zlib.rs"),
-        manifest_dir.join("../original/png.h"),
-        manifest_dir.join("../original/pngconf.h"),
-        manifest_dir.join("../original/pngpriv.h"),
-        manifest_dir.join("../original/pngstruct.h"),
-        manifest_dir.join("../original/pnginfo.h"),
-        manifest_dir.join("../original/pngread.c"),
+        original_root.join("png.h"),
+        original_root.join("pngconf.h"),
+        original_root.join("pngpriv.h"),
+        original_root.join("pngstruct.h"),
+        original_root.join("pnginfo.h"),
+        original_c_source(&manifest_dir, PNGREAD_SOURCE_NAME),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
 
-    for source in UPSTREAM_SOURCES {
+    for stem in LEGACY_RUNTIME_C_NAMES {
         println!(
             "cargo:rerun-if-changed={}",
-            manifest_dir.join(source).display()
+            original_c_source(&manifest_dir, stem).display()
         );
     }
 
@@ -490,7 +493,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .warnings(true)
         .std("c99")
         .include(&include_dir)
-        .include(manifest_dir.join("../original"))
+        .include(&original_root)
         .compile("png16_read_phase_bridge");
 
     cc::Build::new()
@@ -498,12 +501,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .warnings(true)
         .std("c99")
         .include(&include_dir)
-        .include(manifest_dir.join("../original"))
+        .include(&original_root)
         .compile("png16_longjmp_bridge");
 
     let adapted_pngread = out_dir.join("pngread_rust_entry_bridge.c");
     generate_pngread_bridge_source(
-        &manifest_dir.join("../original/pngread.c"),
+        &original_c_source(&manifest_dir, PNGREAD_SOURCE_NAME),
         &adapted_pngread,
     )?;
 
@@ -512,7 +515,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .warnings(true)
         .std("c99")
         .include(&include_dir)
-        .include(manifest_dir.join("../original"))
+        .include(&original_root)
         .define("PNG_DISABLE_ADLER32_CHECK_SUPPORTED", "1")
         .define("PNG_INTEL_SSE_OPT", "0")
         .define("PNG_ARM_NEON_OPT", "0")
@@ -525,8 +528,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         upstream.define(symbol, renamed);
     }
 
-    for source in UPSTREAM_SOURCES {
-        upstream.file(manifest_dir.join(source));
+    for stem in LEGACY_RUNTIME_C_NAMES {
+        upstream.file(original_c_source(&manifest_dir, stem));
     }
 
     upstream.compile("png16_upstream");
@@ -536,7 +539,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .warnings(true)
         .std("c99")
         .include(&include_dir)
-        .include(manifest_dir.join("../original"))
+        .include(&original_root)
         .define("PNG_DISABLE_ADLER32_CHECK_SUPPORTED", "1")
         .define("PNG_INTEL_SSE_OPT", "0")
         .define("PNG_ARM_NEON_OPT", "0")
@@ -567,6 +570,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn original_tree_dir(manifest_dir: &Path) -> PathBuf {
+    manifest_dir.join("..").join("original")
+}
+
+fn original_c_source(manifest_dir: &Path, stem: &str) -> PathBuf {
+    original_tree_dir(manifest_dir).join(format!("{stem}.c"))
 }
 
 fn stage_install_tree(
