@@ -92,10 +92,13 @@ model without changing the libpng ABI contract:
   and [safe/src/read_transform.rs](/home/yans/code/safelibs/ported/libpng/safe/src/read_transform.rs)
   dereference caller-provided pointers or reinterpret row buffers in order to
   preserve the libpng C ABI.
-- `setjmp` or `longjmp` interop:
-  [safe/cshim/longjmp_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/longjmp_bridge.c)
-  and [safe/cshim/read_phase_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/read_phase_bridge.c)
-  are still required because portable `jmp_buf` handling is not expressible in Rust.
+- Read-phase C bridge:
+  [safe/cshim/read_phase_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/read_phase_bridge.c)
+  is the only active compiled C shim. It wraps upstream read-path calls with
+  `setjmp` recovery and also mirrors selected private `png_struct` and
+  `png_info` fields into compact snapshot structs so the Rust read-transform
+  layer can inspect and restore layout-sensitive upstream state without
+  reimplementing the full parser in Rust.
 
 ## Explicit Non-Goals And Exclusions
 
@@ -112,6 +115,9 @@ model without changing the libpng ABI contract:
 - [safe/src/state.rs](/home/yans/code/safelibs/ported/libpng/safe/src/state.rs)
   also remains only as a dormant reference file and is not compiled into the
   shipped build.
+- [safe/cshim/longjmp_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/longjmp_bridge.c)
+  also remains in the tree only as a dormant experiment and is no longer
+  compiled into the shipped build.
 
 Any new `unsafe` in compiled Rust should fit one of the categories above. If it
 does not, it should be removed or documented with a narrower justification.

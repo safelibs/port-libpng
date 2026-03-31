@@ -1,7 +1,6 @@
 use crate::types::*;
 use core::ffi::{c_char, c_int};
 use core::ptr;
-use std::ffi::CStr;
 
 unsafe extern "C" {
     fn upstream_png_convert_to_rfc1123(
@@ -104,99 +103,6 @@ macro_rules! abi_guard_no_png {
     }};
 }
 
-pub fn cstr_len(ptr: png_const_charp) -> usize {
-    if ptr.is_null() {
-        0
-    } else {
-        unsafe { libc::strlen(ptr.cast()) }
-    }
-}
-
-pub fn write_stderr(bytes: &[u8]) {
-    unsafe {
-        let _ = libc::write(2, bytes.as_ptr().cast(), bytes.len());
-    }
-}
-
-pub fn write_stderr_cstr(ptr: png_const_charp) {
-    if !ptr.is_null() {
-        let len = cstr_len(ptr);
-        unsafe {
-            let _ = libc::write(2, ptr.cast(), len);
-        }
-    }
-}
-
-pub fn zero_bytes(ptr: png_voidp, size: usize) {
-    if !ptr.is_null() && size != 0 {
-        unsafe {
-            libc::memset(ptr, 0, size);
-        }
-    }
-}
-
-pub fn safecat(
-    buffer: png_charp,
-    bufsize: usize,
-    mut pos: usize,
-    string: png_const_charp,
-) -> usize {
-    if buffer.is_null() || pos >= bufsize {
-        return pos;
-    }
-
-    if !string.is_null() {
-        let mut src = string;
-        while unsafe { *src } != 0 && pos + 1 < bufsize {
-            unsafe {
-                *buffer.add(pos) = *src;
-            }
-            pos += 1;
-            src = unsafe { src.add(1) };
-        }
-    }
-
-    unsafe {
-        *buffer.add(pos) = 0;
-    }
-    pos
-}
-
-pub fn matches_version(user_png_ver: png_const_charp) -> bool {
-    if user_png_ver.is_null() {
-        return false;
-    }
-
-    let expected = CStr::from_bytes_with_nul(PNG_LIBPNG_VER_STRING)
-        .expect("PNG_LIBPNG_VER_STRING must be a valid C string");
-    let supplied = unsafe { CStr::from_ptr(user_png_ver) };
-    let expected = expected.to_bytes();
-    let supplied = supplied.to_bytes();
-    let mut index = 0usize;
-    let mut dots = 0usize;
-
-    loop {
-        if index >= expected.len() || index >= supplied.len() {
-            break;
-        }
-
-        if expected[index] != supplied[index] {
-            return false;
-        }
-
-        if expected[index] == b'.' {
-            dots += 1;
-            if dots == 2 {
-                return true;
-            }
-        }
-
-        index += 1;
-    }
-
-    false
-}
-
 pub fn month_name(month: png_byte) -> Option<&'static [u8; 3]> {
     match month {
         1 => Some(b"Jan"),
@@ -212,12 +118,6 @@ pub fn month_name(month: png_byte) -> Option<&'static [u8; 3]> {
         11 => Some(b"Nov"),
         12 => Some(b"Dec"),
         _ => None,
-    }
-}
-
-pub fn set_bytes(dst: *mut c_char, bytes: &[u8]) {
-    unsafe {
-        ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), dst, bytes.len());
     }
 }
 
@@ -358,32 +258,6 @@ pub(crate) unsafe fn png_get_uint_32_internal(buf: png_const_bytep) -> png_uint_
             | ((png_uint_32::from(*buf.add(1))) << 16)
             | ((png_uint_32::from(*buf.add(2))) << 8)
             | png_uint_32::from(*buf.add(3))
-    })
-}
-
-pub(crate) unsafe fn png_get_uint_16_internal(buf: png_const_bytep) -> png_uint_16 {
-    crate::abi_guard_no_png!({
-        if buf.is_null() {
-            return 0;
-        }
-
-        ((((u32::from(*buf)) << 8) | u32::from(*buf.add(1))) & 0xffff) as png_uint_16
-    })
-}
-
-pub(crate) unsafe fn png_get_int_32_internal(buf: png_const_bytep) -> png_int_32 {
-    crate::abi_guard_no_png!({
-        let mut value = png_get_uint_32_internal(buf);
-        if (value & 0x8000_0000) == 0 {
-            return value as png_int_32;
-        }
-
-        value = (value ^ 0xffff_ffff).wrapping_add(1);
-        if (value & 0x8000_0000) == 0 {
-            -(value as png_int_32)
-        } else {
-            0
-        }
     })
 }
 

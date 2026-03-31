@@ -219,7 +219,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         exports_file,
         pkg_dir.join("libpng.pc.in"),
         pkg_dir.join("libpng-config.in"),
-        cshim_dir.join("longjmp_bridge.c"),
         cshim_dir.join("read_phase_bridge.c"),
         manifest_dir.join("src/lib.rs"),
         manifest_dir.join("src/abi_exports.rs"),
@@ -259,11 +258,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         &generated_stubs,
         "// Mixed Rust/upstream libpng build; no generated Rust export stubs required.\n",
     )?;
-
-    cc::Build::new()
-        .file(cshim_dir.join("longjmp_bridge.c"))
-        .warnings(true)
-        .compile("png16_longjmp_bridge");
 
     cc::Build::new()
         .file(cshim_dir.join("read_phase_bridge.c"))

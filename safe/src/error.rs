@@ -31,14 +31,6 @@ pub(crate) unsafe fn panic_to_png_error(png_ptr: png_structrp) -> ! {
     unsafe { upstream_png_error(png_ptr, INTERNAL_PANIC_MESSAGE.as_ptr().cast()) }
 }
 
-pub(crate) unsafe fn png_app_warning(png_ptr: png_const_structrp, error_message: png_const_charp) {
-    unsafe { upstream_png_warning(png_ptr, error_message) }
-}
-
-pub(crate) unsafe fn png_app_error(png_ptr: png_const_structrp, error_message: png_const_charp) {
-    unsafe { upstream_png_error(png_ptr, error_message) }
-}
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_warning(
     png_ptr: png_const_structrp,

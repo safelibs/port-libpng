@@ -19920,7 +19920,7 @@ Forwarded: not-needed
 +checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 --- /dev/null
 +++ libpng1.6-1.6.43/UNSAFE.md
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,123 @@
 +# Unsafe Boundaries
 +
 +This build is still a mixed Rust and upstream-C libpng implementation.
@@ -20015,10 +20015,13 @@ Forwarded: not-needed
 +  and [safe/src/read_transform.rs](/home/yans/code/safelibs/ported/libpng/safe/src/read_transform.rs)
 +  dereference caller-provided pointers or reinterpret row buffers in order to
 +  preserve the libpng C ABI.
-+- `setjmp` or `longjmp` interop:
-+  [safe/cshim/longjmp_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/longjmp_bridge.c)
-+  and [safe/cshim/read_phase_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/read_phase_bridge.c)
-+  are still required because portable `jmp_buf` handling is not expressible in Rust.
++- Read-phase C bridge:
++  [safe/cshim/read_phase_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/read_phase_bridge.c)
++  is the only active compiled C shim. It wraps upstream read-path calls with
++  `setjmp` recovery and also mirrors selected private `png_struct` and
++  `png_info` fields into compact snapshot structs so the Rust read-transform
++  layer can inspect and restore layout-sensitive upstream state without
++  reimplementing the full parser in Rust.
 +
 +## Explicit Non-Goals And Exclusions
 +
@@ -20035,6 +20038,9 @@ Forwarded: not-needed
 +- [safe/src/state.rs](/home/yans/code/safelibs/ported/libpng/safe/src/state.rs)
 +  also remains only as a dormant reference file and is not compiled into the
 +  shipped build.
++- [safe/cshim/longjmp_bridge.c](/home/yans/code/safelibs/ported/libpng/safe/cshim/longjmp_bridge.c)
++  also remains in the tree only as a dormant experiment and is no longer
++  compiled into the shipped build.
 +
 +Any new `unsafe` in compiled Rust should fit one of the categories above. If it
 +does not, it should be removed or documented with a narrower justification.
@@ -20184,7 +20190,11 @@ Forwarded: not-needed
  ];
  
  fn main() -> Result<(), Box<dyn Error>> {
-@@ -101,12 +223,18 @@ fn main() -> Result<(), Box<dyn Error>>
+@@ -97,16 +219,21 @@ fn main() -> Result<(), Box<dyn Error>>
+         exports_file,
+         pkg_dir.join("libpng.pc.in"),
+         pkg_dir.join("libpng-config.in"),
+-        cshim_dir.join("longjmp_bridge.c"),
          cshim_dir.join("read_phase_bridge.c"),
          manifest_dir.join("src/lib.rs"),
          manifest_dir.join("src/abi_exports.rs"),
@@ -20204,7 +20214,7 @@ Forwarded: not-needed
          manifest_dir.join("src/chunks.rs"),
          manifest_dir.join("src/interlace.rs"),
          manifest_dir.join("src/zlib.rs"),
-@@ -129,7 +257,7 @@ fn main() -> Result<(), Box<dyn Error>>
+@@ -129,15 +256,10 @@ fn main() -> Result<(), Box<dyn Error>>
      let generated_stubs = out_dir.join("abi_export_stubs.rs");
      fs::write(
          &generated_stubs,
@@ -20213,7 +20223,15 @@ Forwarded: not-needed
      )?;
  
      cc::Build::new()
-@@ -151,6 +279,7 @@ fn main() -> Result<(), Box<dyn Error>>
+-        .file(cshim_dir.join("longjmp_bridge.c"))
+-        .warnings(true)
+-        .compile("png16_longjmp_bridge");
+-
+-    cc::Build::new()
+         .file(cshim_dir.join("read_phase_bridge.c"))
+         .warnings(true)
+         .std("c99")
+@@ -151,6 +273,7 @@ fn main() -> Result<(), Box<dyn Error>>
          .std("c99")
          .include(&include_dir)
          .include(manifest_dir.join("../original"))
@@ -23716,31 +23734,134 @@ Forwarded: not-needed
  #define PNG_ERROR_TEXT_SUPPORTED
 --- libpng1.6-1.6.43.orig/src/common.rs
 +++ libpng1.6-1.6.43/src/common.rs
-@@ -3,6 +3,13 @@ use core::ffi::{c_char, c_int};
+@@ -1,7 +1,13 @@
+ use crate::types::*;
+ use core::ffi::{c_char, c_int};
  use core::ptr;
- use std::ffi::CStr;
- 
+-use std::ffi::CStr;
++
 +unsafe extern "C" {
 +    fn upstream_png_convert_to_rfc1123(
 +        png_ptr: png_structrp,
 +        ptime: png_const_timep,
 +    ) -> png_const_charp;
 +}
-+
+ 
  pub const PNG_LIBPNG_VER: png_uint_32 = 10643;
  pub const PNG_UINT_31_MAX: png_uint_32 = 0x7fff_ffff;
- pub const PNG_USER_WIDTH_MAX: png_uint_32 = 1_000_000;
-@@ -160,7 +167,8 @@ pub fn matches_version(user_png_ver: png
-         return false;
-     }
+@@ -97,98 +103,6 @@ macro_rules! abi_guard_no_png {
+     }};
+ }
  
+-pub fn cstr_len(ptr: png_const_charp) -> usize {
+-    if ptr.is_null() {
+-        0
+-    } else {
+-        unsafe { libc::strlen(ptr.cast()) }
+-    }
+-}
+-
+-pub fn write_stderr(bytes: &[u8]) {
+-    unsafe {
+-        let _ = libc::write(2, bytes.as_ptr().cast(), bytes.len());
+-    }
+-}
+-
+-pub fn write_stderr_cstr(ptr: png_const_charp) {
+-    if !ptr.is_null() {
+-        let len = cstr_len(ptr);
+-        unsafe {
+-            let _ = libc::write(2, ptr.cast(), len);
+-        }
+-    }
+-}
+-
+-pub fn zero_bytes(ptr: png_voidp, size: usize) {
+-    if !ptr.is_null() && size != 0 {
+-        unsafe {
+-            libc::memset(ptr, 0, size);
+-        }
+-    }
+-}
+-
+-pub fn safecat(
+-    buffer: png_charp,
+-    bufsize: usize,
+-    mut pos: usize,
+-    string: png_const_charp,
+-) -> usize {
+-    if buffer.is_null() || pos >= bufsize {
+-        return pos;
+-    }
+-
+-    if !string.is_null() {
+-        let mut src = string;
+-        while unsafe { *src } != 0 && pos + 1 < bufsize {
+-            unsafe {
+-                *buffer.add(pos) = *src;
+-            }
+-            pos += 1;
+-            src = unsafe { src.add(1) };
+-        }
+-    }
+-
+-    unsafe {
+-        *buffer.add(pos) = 0;
+-    }
+-    pos
+-}
+-
+-pub fn matches_version(user_png_ver: png_const_charp) -> bool {
+-    if user_png_ver.is_null() {
+-        return false;
+-    }
+-
 -    let expected = unsafe { CStr::from_bytes_with_nul_unchecked(PNG_LIBPNG_VER_STRING) };
-+    let expected = CStr::from_bytes_with_nul(PNG_LIBPNG_VER_STRING)
-+        .expect("PNG_LIBPNG_VER_STRING must be a valid C string");
-     let supplied = unsafe { CStr::from_ptr(user_png_ver) };
-     let expected = expected.to_bytes();
-     let supplied = supplied.to_bytes();
-@@ -340,8 +348,7 @@ pub unsafe extern "C" fn png_build_grays
+-    let supplied = unsafe { CStr::from_ptr(user_png_ver) };
+-    let expected = expected.to_bytes();
+-    let supplied = supplied.to_bytes();
+-    let mut index = 0usize;
+-    let mut dots = 0usize;
+-
+-    loop {
+-        if index >= expected.len() || index >= supplied.len() {
+-            break;
+-        }
+-
+-        if expected[index] != supplied[index] {
+-            return false;
+-        }
+-
+-        if expected[index] == b'.' {
+-            dots += 1;
+-            if dots == 2 {
+-                return true;
+-            }
+-        }
+-
+-        index += 1;
+-    }
+-
+-    false
+-}
+-
+ pub fn month_name(month: png_byte) -> Option<&'static [u8; 3]> {
+     match month {
+         1 => Some(b"Jan"),
+@@ -207,12 +121,6 @@ pub fn month_name(month: png_byte) -> Op
+     }
+ }
+ 
+-pub fn set_bytes(dst: *mut c_char, bytes: &[u8]) {
+-    unsafe {
+-        ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), dst, bytes.len());
+-    }
+-}
+-
+ pub fn chunk_name_byte(chunk_name: png_uint_32, shift: u32) -> u8 {
+     ((chunk_name >> shift) & 0xff) as u8
+ }
+@@ -340,8 +248,7 @@ pub unsafe extern "C" fn png_build_grays
      });
  }
  
@@ -23750,30 +23871,40 @@ Forwarded: not-needed
      crate::abi_guard_no_png!({
          if buf.is_null() {
              return 0;
-@@ -354,8 +361,7 @@ pub unsafe extern "C" fn png_get_uint_32
-     })
+@@ -355,40 +262,12 @@ pub unsafe extern "C" fn png_get_uint_32
  }
  
--#[unsafe(no_mangle)]
+ #[unsafe(no_mangle)]
 -pub unsafe extern "C" fn png_get_uint_16(buf: png_const_bytep) -> png_uint_16 {
-+pub(crate) unsafe fn png_get_uint_16_internal(buf: png_const_bytep) -> png_uint_16 {
-     crate::abi_guard_no_png!({
-         if buf.is_null() {
-             return 0;
-@@ -365,10 +371,9 @@ pub unsafe extern "C" fn png_get_uint_16
-     })
- }
- 
+-    crate::abi_guard_no_png!({
+-        if buf.is_null() {
+-            return 0;
+-        }
+-
+-        ((((u32::from(*buf)) << 8) | u32::from(*buf.add(1))) & 0xffff) as png_uint_16
+-    })
+-}
+-
 -#[unsafe(no_mangle)]
 -pub unsafe extern "C" fn png_get_int_32(buf: png_const_bytep) -> png_int_32 {
-+pub(crate) unsafe fn png_get_int_32_internal(buf: png_const_bytep) -> png_int_32 {
-     crate::abi_guard_no_png!({
+-    crate::abi_guard_no_png!({
 -        let mut value = png_get_uint_32(buf);
-+        let mut value = png_get_uint_32_internal(buf);
-         if (value & 0x8000_0000) == 0 {
-             return value as png_int_32;
-         }
-@@ -388,7 +393,7 @@ pub unsafe extern "C" fn png_get_uint_31
+-        if (value & 0x8000_0000) == 0 {
+-            return value as png_int_32;
+-        }
+-
+-        value = (value ^ 0xffff_ffff).wrapping_add(1);
+-        if (value & 0x8000_0000) == 0 {
+-            -(value as png_int_32)
+-        } else {
+-            0
+-        }
+-    })
+-}
+-
+-#[unsafe(no_mangle)]
+ pub unsafe extern "C" fn png_get_uint_31(
+     png_ptr: png_const_structrp,
      buf: png_const_bytep,
  ) -> png_uint_32 {
      crate::abi_guard!(png_ptr.cast_mut(), {
@@ -23782,7 +23913,7 @@ Forwarded: not-needed
          if value > PNG_UINT_31_MAX {
              crate::error::png_error(
                  png_ptr,
-@@ -484,24 +489,7 @@ pub unsafe extern "C" fn png_convert_to_
+@@ -484,24 +363,7 @@ pub unsafe extern "C" fn png_convert_to_
      png_ptr: png_structrp,
      ptime: png_const_timep,
  ) -> png_const_charp {
@@ -23810,7 +23941,7 @@ Forwarded: not-needed
  #[unsafe(no_mangle)]
 --- libpng1.6-1.6.43.orig/src/error.rs
 +++ libpng1.6-1.6.43/src/error.rs
-@@ -1,54 +1,42 @@
+@@ -1,54 +1,34 @@
 -use crate::common::{
 -    INTERNAL_PANIC_MESSAGE, PNG_FLAG_APP_ERRORS_WARN, PNG_FLAG_APP_WARNINGS_WARN,
 -    PNG_FLAG_BENIGN_ERRORS_WARN, build_chunk_message, write_stderr, write_stderr_cstr,
@@ -23866,10 +23997,9 @@ Forwarded: not-needed
  
  pub(crate) unsafe fn panic_to_png_error(png_ptr: png_structrp) -> ! {
 -    default_error(png_ptr, INTERNAL_PANIC_MESSAGE.as_ptr().cast());
-+    unsafe { upstream_png_error(png_ptr, INTERNAL_PANIC_MESSAGE.as_ptr().cast()) }
- }
- 
- pub(crate) unsafe fn png_app_warning(png_ptr: png_const_structrp, error_message: png_const_charp) {
+-}
+-
+-pub(crate) unsafe fn png_app_warning(png_ptr: png_const_structrp, error_message: png_const_charp) {
 -    if let Some(state) = png_ptr_state_const(png_ptr) {
 -        if (state.flags & PNG_FLAG_APP_WARNINGS_WARN) != 0 {
 -            png_warning(png_ptr, error_message);
@@ -23877,10 +24007,9 @@ Forwarded: not-needed
 -            png_error(png_ptr, error_message);
 -        }
 -    }
-+    unsafe { upstream_png_warning(png_ptr, error_message) }
- }
- 
- pub(crate) unsafe fn png_app_error(png_ptr: png_const_structrp, error_message: png_const_charp) {
+-}
+-
+-pub(crate) unsafe fn png_app_error(png_ptr: png_const_structrp, error_message: png_const_charp) {
 -    if let Some(state) = png_ptr_state_const(png_ptr) {
 -        if (state.flags & PNG_FLAG_APP_ERRORS_WARN) != 0 {
 -            png_warning(png_ptr, error_message);
@@ -23888,11 +24017,11 @@ Forwarded: not-needed
 -            png_error(png_ptr, error_message);
 -        }
 -    }
-+    unsafe { upstream_png_error(png_ptr, error_message) }
++    unsafe { upstream_png_error(png_ptr, INTERNAL_PANIC_MESSAGE.as_ptr().cast()) }
  }
  
  #[unsafe(no_mangle)]
-@@ -56,16 +44,8 @@ pub unsafe extern "C" fn png_warning(
+@@ -56,16 +36,8 @@ pub unsafe extern "C" fn png_warning(
      png_ptr: png_const_structrp,
      warning_message: png_const_charp,
  ) {
@@ -23911,7 +24040,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -74,13 +54,8 @@ pub unsafe extern "C" fn png_error(
+@@ -74,13 +46,8 @@ pub unsafe extern "C" fn png_error(
      png_ptr: png_const_structrp,
      error_message: png_const_charp,
  ) -> ! {
@@ -23927,7 +24056,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -89,21 +64,8 @@ pub unsafe extern "C" fn png_benign_erro
+@@ -89,21 +56,8 @@ pub unsafe extern "C" fn png_benign_erro
      png_ptr: png_const_structrp,
      error_message: png_const_charp,
  ) {
@@ -23951,7 +24080,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -112,14 +74,8 @@ pub unsafe extern "C" fn png_chunk_warni
+@@ -112,14 +66,8 @@ pub unsafe extern "C" fn png_chunk_warni
      png_ptr: png_const_structrp,
      warning_message: png_const_charp,
  ) {
@@ -23968,7 +24097,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -128,14 +84,8 @@ pub unsafe extern "C" fn png_chunk_error
+@@ -128,14 +76,8 @@ pub unsafe extern "C" fn png_chunk_error
      png_ptr: png_const_structrp,
      error_message: png_const_charp,
  ) -> ! {
@@ -23985,7 +24114,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -144,14 +94,8 @@ pub unsafe extern "C" fn png_chunk_benig
+@@ -144,14 +86,8 @@ pub unsafe extern "C" fn png_chunk_benig
      png_ptr: png_const_structrp,
      error_message: png_const_charp,
  ) {
@@ -24002,7 +24131,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -162,22 +106,14 @@ pub unsafe extern "C" fn png_set_error_f
+@@ -162,22 +98,14 @@ pub unsafe extern "C" fn png_set_error_f
      error_fn: png_error_ptr,
      warning_fn: png_error_ptr,
  ) {
@@ -24028,7 +24157,7 @@ Forwarded: not-needed
  }
  
  #[unsafe(no_mangle)]
-@@ -186,108 +122,12 @@ pub unsafe extern "C" fn png_set_longjmp
+@@ -186,108 +114,12 @@ pub unsafe extern "C" fn png_set_longjmp
      longjmp_fn: png_longjmp_ptr,
      jmp_buf_size: usize,
  ) -> *mut JmpBuf {
