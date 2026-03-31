@@ -253,10 +253,7 @@ unsafe fn read_row_or_suspend(
         if row_completed {
             unsafe { png_safe_resume_finish_idat(png_ptr) };
         }
-        if core_before.idat_size == 0
-            && core_after.idat_size == 0
-            && !row_completed
-        {
+        if core_before.idat_size == 0 && core_after.idat_size == 0 && !row_completed {
             unsafe { crate::read::rollback_parse_state(png_ptr, ptr::null_mut(), &snapshot) };
         }
         unsafe { crate::read::free_parse_snapshot(&snapshot) };
@@ -267,7 +264,7 @@ unsafe fn read_row_or_suspend(
         };
     }
 
-    unsafe { crate::read::rollback_parse_state(png_ptr, ptr::null_mut(), &snapshot) };
+    unsafe { crate::read::free_parse_snapshot(&snapshot) };
     unsafe { crate::error::png_longjmp(png_ptr, 1) }
 }
 

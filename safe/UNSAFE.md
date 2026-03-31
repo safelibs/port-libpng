@@ -103,7 +103,8 @@ expects the original private layouts.
 ## Active Longjmp Boundary
 
 `safe/cshim/longjmp_bridge.c` is now the authoritative `jmp_buf` storage and
-interop boundary for the public longjmp APIs:
+interop boundary for the public longjmp APIs and the remaining upstream calls
+that still need `setjmp` containment during the read-core transition:
 
 - Rust-owned `png_set_longjmp_fn` uses the shim to discover the local
   `jmp_buf`, populate the active `png_struct` longjmp fields, and preserve the
@@ -113,11 +114,15 @@ interop boundary for the public longjmp APIs:
 - the public `png_jmpbuf` macro in the shipped headers now lands on the
   Rust-owned `png_set_longjmp_fn`, but still receives a real `jmp_buf *`
   compatible with application `setjmp`
+- the remaining containment-only shims for upstream `png_set_*`,
+  `png_read_start_row`, `png_read_transform_info`, `png_read_row`,
+  `png_read_finish_IDAT`, and error-reporting helpers also live here so Rust
+  never crosses an uncontrolled libpng longjmp
 
-`safe/cshim/read_phase_bridge.c` remains compiled, but only for the unavoidable
-private-layout mirror helpers plus the longjmp-containing error and
-`png_set_quantize` shims that Rust still calls into. It no longer exports any
-public read entry point.
+`safe/cshim/read_phase_bridge.c` now only handles private-layout mirror helpers
+and rollback snapshots for read-side `png_info` state. Rust-owned rollback
+restores the parser scalars it mirrors itself, then rebinds the native palette
+and transparency aliases to the restored `png_info`.
 
 ## Remaining Upstream-Owned Public ABI
 
