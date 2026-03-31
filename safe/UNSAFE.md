@@ -135,9 +135,11 @@ The compiled unsafe boundary is now concentrated in four places:
 - upstream C code that still owns the remaining execution paths and private
   layout manipulation
 
-The library still aborts on Rust panic at the ABI boundary. Public callbacks
-and longjmp behavior follow libpng semantics; Rust panics are not translated
-into recoverable libpng errors.
+Rust panics are contained at the ABI boundary. Exports that already have, or
+successfully created, a live `png_struct` translate a caught panic into the
+active libpng error path by calling the configured error callback and
+`png_longjmp`. Exports with no `png_struct` recovery context fall back to
+conservative zero/null/void results instead of unwinding across the C ABI.
 
 ## Non-APNG Contract
 

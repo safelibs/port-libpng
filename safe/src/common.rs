@@ -73,9 +73,15 @@ pub static PNG_COPYRIGHT_STRING: &[u8] = b"libpng version 1.6.43\nCopyright (c) 
 #[macro_export]
 macro_rules! abi_guard {
     ($png_ptr:expr, $body:expr) => {{
+        let png_ptr = $png_ptr;
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $body)) {
             Ok(value) => value,
-            Err(_) => std::process::abort(),
+            Err(_) => {
+                if !png_ptr.is_null() {
+                    unsafe { crate::error::panic_to_png_error(png_ptr) }
+                }
+                std::process::abort();
+            }
         }
     }};
 }
@@ -85,7 +91,7 @@ macro_rules! abi_guard_no_png {
     ($body:expr) => {{
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $body)) {
             Ok(value) => value,
-            Err(_) => std::process::abort(),
+            Err(_) => Default::default(),
         }
     }};
 }

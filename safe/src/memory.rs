@@ -104,6 +104,29 @@ fn register_write_state(
     );
 }
 
+unsafe fn create_png_struct_with_state(
+    create: impl FnOnce() -> png_structp,
+    register: impl FnOnce(png_structrp),
+) -> png_structp {
+    let mut png_ptr = ptr::null_mut();
+
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        png_ptr = create();
+        if !png_ptr.is_null() {
+            register(png_ptr);
+        }
+        png_ptr
+    })) {
+        Ok(png_ptr) => png_ptr,
+        Err(_) => {
+            if !png_ptr.is_null() {
+                crate::error::panic_to_png_error(png_ptr);
+            }
+            ptr::null_mut()
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_calloc(
     png_ptr: png_const_structrp,
@@ -185,21 +208,22 @@ pub unsafe extern "C" fn png_create_read_struct(
     error_fn: png_error_ptr,
     warn_fn: png_error_ptr,
 ) -> png_structp {
-    crate::abi_guard_no_png!(unsafe {
-        let png_ptr = upstream_png_create_read_struct(user_png_ver, error_ptr, error_fn, warn_fn);
-        if !png_ptr.is_null() {
-            register_read_state(
-                png_ptr,
-                error_ptr,
-                error_fn,
-                warn_fn,
-                ptr::null_mut(),
-                None,
-                None,
-            );
-        }
-        png_ptr
-    })
+    unsafe {
+        create_png_struct_with_state(
+            || upstream_png_create_read_struct(user_png_ver, error_ptr, error_fn, warn_fn),
+            |png_ptr| {
+                register_read_state(
+                    png_ptr,
+                    error_ptr,
+                    error_fn,
+                    warn_fn,
+                    ptr::null_mut(),
+                    None,
+                    None,
+                );
+            },
+        )
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -212,21 +236,26 @@ pub unsafe extern "C" fn png_create_read_struct_2(
     malloc_fn: png_malloc_ptr,
     free_fn: png_free_ptr,
 ) -> png_structp {
-    crate::abi_guard_no_png!(unsafe {
-        let png_ptr = upstream_png_create_read_struct_2(
-            user_png_ver,
-            error_ptr,
-            error_fn,
-            warn_fn,
-            mem_ptr,
-            malloc_fn,
-            free_fn,
-        );
-        if !png_ptr.is_null() {
-            register_read_state(png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn);
-        }
-        png_ptr
-    })
+    unsafe {
+        create_png_struct_with_state(
+            || {
+                upstream_png_create_read_struct_2(
+                    user_png_ver,
+                    error_ptr,
+                    error_fn,
+                    warn_fn,
+                    mem_ptr,
+                    malloc_fn,
+                    free_fn,
+                )
+            },
+            |png_ptr| {
+                register_read_state(
+                    png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
+                );
+            },
+        )
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -236,22 +265,22 @@ pub unsafe extern "C" fn png_create_write_struct(
     error_fn: png_error_ptr,
     warn_fn: png_error_ptr,
 ) -> png_structp {
-    crate::abi_guard_no_png!(unsafe {
-        let png_ptr =
-            upstream_png_create_write_struct(user_png_ver, error_ptr, error_fn, warn_fn);
-        if !png_ptr.is_null() {
-            register_write_state(
-                png_ptr,
-                error_ptr,
-                error_fn,
-                warn_fn,
-                ptr::null_mut(),
-                None,
-                None,
-            );
-        }
-        png_ptr
-    })
+    unsafe {
+        create_png_struct_with_state(
+            || upstream_png_create_write_struct(user_png_ver, error_ptr, error_fn, warn_fn),
+            |png_ptr| {
+                register_write_state(
+                    png_ptr,
+                    error_ptr,
+                    error_fn,
+                    warn_fn,
+                    ptr::null_mut(),
+                    None,
+                    None,
+                );
+            },
+        )
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -264,29 +293,32 @@ pub unsafe extern "C" fn png_create_write_struct_2(
     malloc_fn: png_malloc_ptr,
     free_fn: png_free_ptr,
 ) -> png_structp {
-    crate::abi_guard_no_png!(unsafe {
-        let png_ptr = upstream_png_create_write_struct_2(
-            user_png_ver,
-            error_ptr,
-            error_fn,
-            warn_fn,
-            mem_ptr,
-            malloc_fn,
-            free_fn,
-        );
-        if !png_ptr.is_null() {
-            register_write_state(
-                png_ptr,
-                error_ptr,
-                error_fn,
-                warn_fn,
-                mem_ptr,
-                malloc_fn,
-                free_fn,
-            );
-        }
-        png_ptr
-    })
+    unsafe {
+        create_png_struct_with_state(
+            || {
+                upstream_png_create_write_struct_2(
+                    user_png_ver,
+                    error_ptr,
+                    error_fn,
+                    warn_fn,
+                    mem_ptr,
+                    malloc_fn,
+                    free_fn,
+                )
+            },
+            |png_ptr| {
+                register_write_state(
+                    png_ptr,
+                    error_ptr,
+                    error_fn,
+                    warn_fn,
+                    mem_ptr,
+                    malloc_fn,
+                    free_fn,
+                );
+            },
+        )
+    }
 }
 
 #[unsafe(no_mangle)]

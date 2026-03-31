@@ -6,7 +6,7 @@ use crate::types::*;
 use core::ffi::c_int;
 use core::ptr;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 #[derive(Clone, Copy)]
 pub(crate) struct PngStructState {
@@ -133,6 +133,13 @@ fn png_info_states() -> &'static Mutex<HashMap<usize, PngInfoState>> {
     STATES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn lock_recover<T>(mutex: &'static Mutex<T>) -> MutexGuard<'static, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 fn png_key<T>(ptr: *mut T) -> Option<usize> {
     (!ptr.is_null()).then_some(ptr as usize)
 }
@@ -143,13 +150,13 @@ fn info_key<T>(ptr: *mut T) -> Option<usize> {
 
 pub(crate) fn register_png(png_ptr: png_structrp, state: PngStructState) {
     if let Some(key) = png_key(png_ptr) {
-        png_struct_states().lock().unwrap().insert(key, state);
+        lock_recover(png_struct_states()).insert(key, state);
     }
 }
 
 pub(crate) fn get_png(png_ptr: png_structrp) -> Option<PngStructState> {
     let key = png_key(png_ptr)?;
-    png_struct_states().lock().unwrap().get(&key).copied()
+    lock_recover(png_struct_states()).get(&key).copied()
 }
 
 pub(crate) fn update_png(png_ptr: png_structrp, update: impl FnOnce(&mut PngStructState)) {
@@ -157,19 +164,19 @@ pub(crate) fn update_png(png_ptr: png_structrp, update: impl FnOnce(&mut PngStru
         return;
     };
 
-    if let Some(state) = png_struct_states().lock().unwrap().get_mut(&key) {
+    if let Some(state) = lock_recover(png_struct_states()).get_mut(&key) {
         update(state);
     }
 }
 
 pub(crate) fn remove_png(png_ptr: png_structrp) -> Option<PngStructState> {
     let key = png_key(png_ptr)?;
-    png_struct_states().lock().unwrap().remove(&key)
+    lock_recover(png_struct_states()).remove(&key)
 }
 
 pub(crate) fn register_info(info_ptr: png_infop, state: PngInfoState) {
     if let Some(key) = info_key(info_ptr) {
-        png_info_states().lock().unwrap().insert(key, state);
+        lock_recover(png_info_states()).insert(key, state);
     }
 }
 
@@ -179,7 +186,7 @@ pub(crate) fn register_default_info(info_ptr: png_infop) {
 
 pub(crate) fn get_info(info_ptr: png_infop) -> Option<PngInfoState> {
     let key = info_key(info_ptr)?;
-    png_info_states().lock().unwrap().get(&key).copied()
+    lock_recover(png_info_states()).get(&key).copied()
 }
 
 pub(crate) fn update_info(info_ptr: png_infop, update: impl FnOnce(&mut PngInfoState)) {
@@ -187,14 +194,14 @@ pub(crate) fn update_info(info_ptr: png_infop, update: impl FnOnce(&mut PngInfoS
         return;
     };
 
-    if let Some(state) = png_info_states().lock().unwrap().get_mut(&key) {
+    if let Some(state) = lock_recover(png_info_states()).get_mut(&key) {
         update(state);
     }
 }
 
 pub(crate) fn remove_info(info_ptr: png_infop) -> Option<PngInfoState> {
     let key = info_key(info_ptr)?;
-    png_info_states().lock().unwrap().remove(&key)
+    lock_recover(png_info_states()).remove(&key)
 }
 
 pub(crate) fn move_info(old_info_ptr: png_infop, new_info_ptr: png_infop) {
@@ -205,7 +212,7 @@ pub(crate) fn move_info(old_info_ptr: png_infop, new_info_ptr: png_infop) {
         return;
     };
 
-    let mut states = png_info_states().lock().unwrap();
+    let mut states = lock_recover(png_info_states());
     let state = states.remove(&old_key);
 
     if let Some(new_key) = info_key(new_info_ptr) {
