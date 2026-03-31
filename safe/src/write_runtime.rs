@@ -57,6 +57,26 @@ fn trim_trailing_nul(bytes: &[u8]) -> &[u8] {
     }
 }
 
+fn current_width(info_core: &png_safe_info_core, png_core: &png_safe_read_core) -> Option<usize> {
+    if info_core.width != 0 {
+        usize::try_from(info_core.width).ok()
+    } else if png_core.width != 0 {
+        usize::try_from(png_core.width).ok()
+    } else {
+        None
+    }
+}
+
+fn current_height(info_core: &png_safe_info_core, png_core: &png_safe_read_core) -> Option<usize> {
+    if info_core.height != 0 {
+        usize::try_from(info_core.height).ok()
+    } else if png_core.height != 0 {
+        usize::try_from(png_core.height).ok()
+    } else {
+        None
+    }
+}
+
 fn current_rowbytes(info_core: &png_safe_info_core, png_core: &png_safe_read_core) -> Option<usize> {
     if info_core.rowbytes != 0 {
         return Some(info_core.rowbytes);
@@ -65,13 +85,10 @@ fn current_rowbytes(info_core: &png_safe_info_core, png_core: &png_safe_read_cor
         return Some(png_core.info_rowbytes);
     }
 
-    let pixel_depth = if info_core.pixel_depth != 0 {
-        usize::from(info_core.pixel_depth)
-    } else {
-        usize::from(info_core.channels).checked_mul(usize::from(info_core.bit_depth))?
-    };
+    let pixel_depth = current_pixel_depth(info_core, png_core)?;
+    let width = current_width(info_core, png_core)?;
 
-    checked_rowbytes_for_width(usize::try_from(info_core.width).ok()?, pixel_depth)
+    checked_rowbytes_for_width(width, pixel_depth)
 }
 
 fn current_pixel_depth(info_core: &png_safe_info_core, png_core: &png_safe_read_core) -> Option<usize> {
@@ -82,8 +99,19 @@ fn current_pixel_depth(info_core: &png_safe_info_core, png_core: &png_safe_read_
         return Some(usize::from(png_core.pixel_depth));
     }
 
-    usize::from(info_core.channels)
-        .checked_mul(usize::from(info_core.bit_depth))
+    let channels = if info_core.channels != 0 {
+        usize::from(info_core.channels)
+    } else {
+        usize::from(png_core.channels)
+    };
+    let bit_depth = if info_core.bit_depth != 0 {
+        usize::from(info_core.bit_depth)
+    } else {
+        usize::from(png_core.bit_depth)
+    };
+
+    channels
+        .checked_mul(bit_depth)
         .filter(|depth| *depth != 0)
 }
 
@@ -229,6 +257,17 @@ fn write_iccp_chunk(
     writer.write_chunk(chunk::iCCP, &data)
 }
 
+fn write_exif_chunk(
+    writer: &mut png::Writer<&mut Vec<u8>>,
+    info_state: &PngInfoState,
+) -> Result<(), png::EncodingError> {
+    if (info_state.core.valid & crate::common::PNG_INFO_eXIf) != 0 && !info_state.exif.is_empty() {
+        writer.write_chunk(ChunkType(*b"eXIf"), &info_state.exif)?;
+    }
+
+    Ok(())
+}
+
 fn write_pre_idat_chunks(
     writer: &mut png::Writer<&mut Vec<u8>>,
     info_state: &PngInfoState,
@@ -251,6 +290,8 @@ fn write_pre_idat_chunks(
         }
     }
 
+    write_exif_chunk(writer, info_state)?;
+
     if (info_state.core.valid & PNG_INFO_hIST) != 0 && !info_state.hist.is_empty() {
         writer.write_chunk(ChunkType(*b"hIST"), &chunk_data_hist(info_state))?;
     }
@@ -264,6 +305,12 @@ fn write_pre_idat_chunks(
     if (info_state.core.valid & PNG_INFO_sCAL) != 0 {
         if let Some(data) = chunk_data_scal(info_state) {
             writer.write_chunk(ChunkType(*b"sCAL"), &data)?;
+        }
+    }
+
+    if (info_state.core.valid & PNG_INFO_tIME) != 0 {
+        if let Some(data) = chunk_data_time(info_state) {
+            writer.write_chunk(ChunkType(*b"tIME"), &data)?;
         }
     }
 
@@ -281,15 +328,21 @@ fn write_post_idat_chunks(
     writer: &mut png::Writer<&mut Vec<u8>>,
     info_state: &PngInfoState,
     start_text_index: usize,
+    write_time: bool,
+    write_exif: bool,
 ) -> Result<(), png::EncodingError> {
     for text in info_state.text_chunks.iter().skip(start_text_index) {
         write_text_chunk(writer, text)?;
     }
 
-    if (info_state.core.valid & PNG_INFO_tIME) != 0 {
+    if write_time && (info_state.core.valid & PNG_INFO_tIME) != 0 {
         if let Some(data) = chunk_data_time(info_state) {
             writer.write_chunk(ChunkType(*b"tIME"), &data)?;
         }
+    }
+
+    if write_exif {
+        write_exif_chunk(writer, info_state)?;
     }
 
     for chunk in &info_state.unknown_chunks {
@@ -530,7 +583,12 @@ fn copy_missing_rows_from_info(info_ptr: png_inforp, session: &mut WriteSessionS
         if row.is_null() {
             continue;
         }
-        let dst = &mut session.image_data[index * session.rowbytes..(index + 1) * session.rowbytes];
+        let start = index * session.rowbytes;
+        let end = start + session.rowbytes;
+        if end > session.image_data.len() {
+            break;
+        }
+        let dst = &mut session.image_data[start..end];
         unsafe {
             ptr::copy_nonoverlapping(row, dst.as_mut_ptr(), session.rowbytes);
         }
@@ -561,33 +619,67 @@ pub(crate) unsafe fn begin_write_info(png_ptr: png_structrp, info_ptr: png_const
         return;
     }
 
-    let info_core = read_info_core(info_ptr);
+    let info_state = state::get_info(info_ptr.cast_mut()).unwrap_or_default();
+    let info_core = info_state.core;
     let png_core = read_core(png_ptr);
     let Some(rowbytes) = current_rowbytes(&info_core, &png_core) else {
         return;
     };
-    let height = usize::try_from(info_core.height).unwrap_or(0);
+    let height = current_height(&info_core, &png_core).unwrap_or(0);
     let total = match rowbytes.checked_mul(height) {
         Some(total) => total,
         None => png_error_message(png_ptr, b"write error\0"),
     };
-    let header_text_count =
-        state::with_info(info_ptr.cast_mut(), |info_state| info_state.text_chunks.len()).unwrap_or(0);
+    let header_text_count = info_state.text_chunks.len();
+    let captures_header_info = info_core.width != 0 && info_core.height != 0;
+    let wrote_time_in_header = (info_state.core.valid & PNG_INFO_tIME) != 0;
+    let wrote_exif_in_header = (info_state.core.valid & crate::common::PNG_INFO_eXIf) != 0;
 
     state::update_png(png_ptr, |png_state| {
+        let needs_reinit = png_state
+            .write_session
+            .as_ref()
+            .map(|session| session.rowbytes != rowbytes || session.image_data.len() != total)
+            .unwrap_or(true);
+
+        if needs_reinit {
+            png_state.write_session = Some(WriteSessionState {
+                rowbytes,
+                image_data: vec![0; total],
+                seen_rows: vec![false; height],
+                header_text_count: 0,
+                total_row_writes: 0,
+                header_info_ptr: ptr::null_mut(),
+                header_info: None,
+                wrote_time_in_header: false,
+                wrote_exif_in_header: false,
+            });
+        }
+
         png_state.core.flags |= PNG_FLAG_ROW_INIT;
         png_state.core.rowbytes = rowbytes;
         png_state.core.info_rowbytes = rowbytes;
-        png_state.core.row_number = 0;
-        png_state.core.pass = 0;
-        png_state.core.num_rows = info_core.height;
-        png_state.write_session = Some(WriteSessionState {
-            rowbytes,
-            image_data: vec![0; total],
-            seen_rows: vec![false; height],
-            header_text_count,
-            total_row_writes: 0,
-        });
+        png_state.core.num_rows = current_height(&info_core, &png_core).unwrap_or(0) as png_uint_32;
+        let wrote_rows = png_state
+            .write_session
+            .as_ref()
+            .map(|session| session.total_row_writes != 0)
+            .unwrap_or(false);
+        if !wrote_rows {
+            png_state.core.row_number = 0;
+            png_state.core.pass = 0;
+        }
+
+        if let Some(session) = png_state.write_session.as_mut() {
+            if captures_header_info || session.header_info.is_none() {
+                session.header_info_ptr = info_ptr.cast_mut();
+                session.header_info = Some(info_state.clone());
+                session.header_text_count = header_text_count;
+                session.wrote_time_in_header = wrote_time_in_header;
+                session.wrote_exif_in_header = wrote_exif_in_header;
+            }
+        }
+
         png_state.passthrough_written = false;
     });
 }
@@ -651,6 +743,9 @@ pub(crate) unsafe fn write_row(png_ptr: png_structrp, row: png_const_bytep) {
         let row_index = usize::try_from(png_state.core.row_number).unwrap_or(0) % height;
         let start = row_index * session.rowbytes;
         let end = start + session.rowbytes;
+        if end > session.image_data.len() {
+            return None;
+        }
         session.image_data[start..end].copy_from_slice(&row_data[..session.rowbytes]);
         if let Some(seen) = session.seen_rows.get_mut(row_index) {
             *seen = true;
@@ -717,11 +812,15 @@ pub(crate) unsafe fn write_image(png_ptr: png_structrp, image: png_bytepp) {
 
 fn encode_png(
     png_state: &PngStructState,
-    info_state: &PngInfoState,
+    header_info_state: &PngInfoState,
+    trailer_info_state: Option<&PngInfoState>,
+    trailer_text_index: usize,
+    write_trailer_time: bool,
+    write_trailer_exif: bool,
     session: &WriteSessionState,
 ) -> Result<Vec<u8>, &'static [u8]> {
     let mut bytes = Vec::new();
-    let info = build_png_info(info_state, session)?;
+    let info = build_png_info(header_info_state, session)?;
     let mut encoder =
         Encoder::with_info(&mut bytes, info).map_err(|_| b"write error\0".as_slice())?;
     encoder.set_compression(write_compression(png_state.write_zlib));
@@ -730,45 +829,92 @@ fn encode_png(
     let mut writer = encoder
         .write_header()
         .map_err(|_| b"write error\0".as_slice())?;
-    write_pre_idat_chunks(&mut writer, info_state).map_err(|_| b"write error\0".as_slice())?;
+    write_pre_idat_chunks(&mut writer, header_info_state).map_err(|_| b"write error\0".as_slice())?;
 
-    let idat = compressed_idat_data(png_state, info_state, session)?;
+    let idat = compressed_idat_data(png_state, header_info_state, session)?;
     for chunk_bytes in idat.chunks(MAX_IDAT_CHUNK_LEN) {
         writer
             .write_chunk(chunk::IDAT, chunk_bytes)
             .map_err(|_| b"write error\0".as_slice())?;
     }
 
-    write_post_idat_chunks(&mut writer, info_state, session.header_text_count)
+    if let Some(trailer_info_state) = trailer_info_state {
+        write_post_idat_chunks(
+            &mut writer,
+            trailer_info_state,
+            trailer_text_index,
+            write_trailer_time,
+            write_trailer_exif,
+        )
         .map_err(|_| b"write error\0".as_slice())?;
+    }
     drop(writer);
     Ok(bytes)
 }
 
 pub(crate) unsafe fn write_end(png_ptr: png_structrp, info_ptr: png_inforp) -> bool {
-    if png_ptr.is_null() || info_ptr.is_null() {
+    if png_ptr.is_null() {
         return false;
     }
 
-    let (png_state, info_state) = match (
-        state::get_png(png_ptr),
-        state::get_info(info_ptr),
-    ) {
-        (Some(png_state), Some(info_state)) => (png_state, info_state),
-        _ => return false,
+    let Some(png_state) = state::get_png(png_ptr) else {
+        return false;
     };
 
     if png_state.write_session.is_none() {
-        unsafe { begin_write_info(png_ptr, info_ptr) };
+        let fallback_info = if info_ptr.is_null() {
+            ptr::null()
+        } else {
+            info_ptr.cast_const()
+        };
+        if fallback_info.is_null() {
+            return false;
+        }
+        unsafe { begin_write_info(png_ptr, fallback_info) };
     }
 
     let mut session = match state::with_png(png_ptr, |png_state| png_state.write_session.clone()).flatten() {
         Some(session) => session,
         None => return false,
     };
-    copy_missing_rows_from_info(info_ptr, &mut session);
+    if !session.header_info_ptr.is_null() {
+        copy_missing_rows_from_info(session.header_info_ptr, &mut session);
+    }
+    if !info_ptr.is_null() && info_ptr != session.header_info_ptr {
+        copy_missing_rows_from_info(info_ptr, &mut session);
+    }
 
-    let bytes = match encode_png(&png_state, &info_state, &session) {
+    let header_info_state = match session
+        .header_info
+        .clone()
+        .or_else(|| (!info_ptr.is_null()).then(|| state::get_info(info_ptr)).flatten())
+    {
+        Some(info_state) => info_state,
+        None => return false,
+    };
+    let trailer_info_state = if info_ptr.is_null() {
+        None
+    } else {
+        state::get_info(info_ptr)
+    };
+    let same_info_ptr = !info_ptr.is_null() && info_ptr == session.header_info_ptr;
+    let trailer_text_index = if same_info_ptr {
+        session.header_text_count
+    } else {
+        0
+    };
+    let write_trailer_time = !same_info_ptr || !session.wrote_time_in_header;
+    let write_trailer_exif = !same_info_ptr || !session.wrote_exif_in_header;
+
+    let bytes = match encode_png(
+        &png_state,
+        &header_info_state,
+        trailer_info_state.as_ref(),
+        trailer_text_index,
+        write_trailer_time,
+        write_trailer_exif,
+        &session,
+    ) {
         Ok(bytes) => bytes,
         Err(message) => png_error_message(png_ptr, message),
     };

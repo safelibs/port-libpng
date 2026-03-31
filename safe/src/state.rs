@@ -165,6 +165,10 @@ pub(crate) struct WriteSessionState {
     pub seen_rows: Vec<bool>,
     pub header_text_count: usize,
     pub total_row_writes: u64,
+    pub header_info_ptr: png_inforp,
+    pub header_info: Option<PngInfoState>,
+    pub wrote_time_in_header: bool,
+    pub wrote_exif_in_header: bool,
 }
 
 #[derive(Clone, Default)]
