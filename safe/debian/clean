@@ -1,3 +1,8 @@
 target
 debian/build-tools
 debian/cargo-home
+debian/debhelper-build-stamp
+debian/files
+debian/*.debhelper.log
+debian/*.substvars
+pngout.png

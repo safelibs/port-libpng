@@ -21,6 +21,8 @@ stage_libdir := $(stage_root)/usr/lib/$(multiarch)
 stage_includedir := $(stage_root)/usr/include
 tool_builddir := $(CURDIR)/debian/build-tools
 package_version := $(shell dpkg-parsechangelog -SVersion)
+runtime_lib = $(firstword $(wildcard debian/libpng16-16t64/usr/lib/$(multiarch)/libpng16.so.*.*.*))
+runtime_soname = $(notdir $(runtime_lib))
 
 %:
 	dh $@
@@ -50,21 +52,22 @@ override_dh_auto_install:
 
 override_dh_install:
 	dh_install
-	rm -rf debian/libpng16-16-udeb
-	mkdir -p debian/libpng16-16-udeb/lib/$(multiarch)
-	install -m0644 debian/tmp/usr/lib/$(multiarch)/libpng16.so.16.43.0 debian/libpng16-16-udeb/lib/$(multiarch)/libpng16.so.16.43.0
-	ln -sf libpng16.so.16.43.0 debian/libpng16-16-udeb/lib/$(multiarch)/libpng16.so.16
 
 override_dh_auto_clean:
 	cargo clean --manifest-path $(CURDIR)/Cargo.toml
-	rm -rf debian/build-tools debian/cargo-home
+	rm -rf debian/build-tools debian/cargo-home debian/.debhelper debian/tmp \
+		debian/libpng-dev debian/libpng-tools debian/libpng16-16-udeb \
+		debian/libpng16-16t64
 
 override_dh_makeshlibs:
 	dh_makeshlibs --add-udeb=libpng16-16-udeb -a
 
 override_dh_builddeb:
 	dh_builddeb
-	mkdir -p debian/libpng16-16-udeb/DEBIAN
-	dpkg-shlibdeps -tudeb -Tdebian/libpng16-16-udeb.substvars debian/libpng16-16-udeb/lib/$(multiarch)/libpng16.so.16.43.0
+	rm -rf debian/libpng16-16-udeb
+	mkdir -p debian/libpng16-16-udeb/lib/$(multiarch) debian/libpng16-16-udeb/DEBIAN
+	install -m0644 $(runtime_lib) debian/libpng16-16-udeb/lib/$(multiarch)/$(runtime_soname)
+	ln -sf $(runtime_soname) debian/libpng16-16-udeb/lib/$(multiarch)/libpng16.so.16
+	dpkg-shlibdeps -tudeb -Tdebian/libpng16-16-udeb.substvars debian/libpng16-16-udeb/lib/$(multiarch)/$(runtime_soname)
 	dpkg-gencontrol -plibpng16-16-udeb -ldebian/changelog -Tdebian/libpng16-16-udeb.substvars -Pdebian/libpng16-16-udeb
-	dpkg-deb -z6 -Zxz -Sextreme --build debian/libpng16-16-udeb ../libpng16-16-udeb_$(package_version)_$(DEB_HOST_ARCH).udeb
+	dpkg-deb -z6 -Zxz -Sextreme --root-owner-group --build debian/libpng16-16-udeb ../libpng16-16-udeb_$(package_version)_$(DEB_HOST_ARCH).udeb

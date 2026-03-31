@@ -62,7 +62,7 @@ Package-Type: udeb
 Build-Profiles: <!noudeb>
 Section: debian-installer
 Architecture: any
-Depends: ${shlibs:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: PNG library - minimal runtime library (version 1.6)
  libpng is a library implementing an interface for reading and writing
  PNG (Portable Network Graphics) format files.
