@@ -2,13 +2,6 @@ use crate::types::*;
 use core::ffi::{c_char, c_int};
 use core::ptr;
 
-unsafe extern "C" {
-    fn upstream_png_convert_to_rfc1123(
-        png_ptr: png_structrp,
-        ptime: png_const_timep,
-    ) -> png_const_charp;
-}
-
 pub const PNG_LIBPNG_VER: png_uint_32 = 10643;
 pub const PNG_UINT_31_MAX: png_uint_32 = 0x7fff_ffff;
 pub const PNG_USER_WIDTH_MAX: png_uint_32 = 1_000_000;
@@ -76,19 +69,13 @@ pub const PNG_OPTION_ON: c_int = 3;
 pub static PNG_LIBPNG_VER_STRING: &[u8] = b"1.6.43\0";
 pub static PNG_HEADER_VERSION_STRING: &[u8] = b" libpng version 1.6.43\n\n\0";
 pub static PNG_COPYRIGHT_STRING: &[u8] = b"libpng version 1.6.43\nCopyright (c) 2018-2024 Cosmin Truta\nCopyright (c) 1998-2002,2004,2006-2018 Glenn Randers-Pehrson\nCopyright (c) 1996-1997 Andreas Dilger\nCopyright (c) 1995-1996 Guy Eric Schalnat, Group 42, Inc.\n\0";
-pub static INTERNAL_PANIC_MESSAGE: &[u8] = b"internal libpng safe panic\0";
 
 #[macro_export]
 macro_rules! abi_guard {
     ($png_ptr:expr, $body:expr) => {{
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $body)) {
             Ok(value) => value,
-            Err(_) => {
-                if !$png_ptr.is_null() {
-                    unsafe { crate::error::panic_to_png_error($png_ptr) }
-                }
-                std::process::abort();
-            }
+            Err(_) => std::process::abort(),
         }
     }};
 }
@@ -261,33 +248,20 @@ pub(crate) unsafe fn png_get_uint_32_internal(buf: png_const_bytep) -> png_uint_
     })
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_get_uint_31(
-    png_ptr: png_const_structrp,
-    buf: png_const_bytep,
-) -> png_uint_32 {
-    crate::abi_guard!(png_ptr.cast_mut(), {
-        let value = png_get_uint_32_internal(buf);
-        if value > PNG_UINT_31_MAX {
-            crate::error::png_error(
-                png_ptr,
-                b"PNG unsigned integer out of range\0".as_ptr().cast(),
-            );
-        }
-        value
-    })
+unsafe fn png_save_uint_32_impl(buf: png_bytep, value: png_uint_32) {
+    if buf.is_null() {
+        return;
+    }
+    *buf = ((value >> 24) & 0xff) as png_byte;
+    *buf.add(1) = ((value >> 16) & 0xff) as png_byte;
+    *buf.add(2) = ((value >> 8) & 0xff) as png_byte;
+    *buf.add(3) = (value & 0xff) as png_byte;
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_save_uint_32(buf: png_bytep, value: png_uint_32) {
     crate::abi_guard_no_png!({
-        if buf.is_null() {
-            return;
-        }
-        *buf = ((value >> 24) & 0xff) as png_byte;
-        *buf.add(1) = ((value >> 16) & 0xff) as png_byte;
-        *buf.add(2) = ((value >> 8) & 0xff) as png_byte;
-        *buf.add(3) = (value & 0xff) as png_byte;
+        png_save_uint_32_impl(buf, value);
     });
 }
 
@@ -304,7 +278,7 @@ pub unsafe extern "C" fn png_save_uint_16(buf: png_bytep, value: core::ffi::c_ui
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_save_int_32(buf: png_bytep, value: png_int_32) {
-    crate::abi_guard_no_png!(png_save_uint_32(buf, value as png_uint_32))
+    crate::abi_guard_no_png!(png_save_uint_32_impl(buf, value as png_uint_32))
 }
 
 fn rfc1123_string(ptime: &png_time) -> Option<[u8; 29]> {
@@ -339,6 +313,19 @@ fn rfc1123_string(ptime: &png_time) -> Option<[u8; 29]> {
     Some(out)
 }
 
+unsafe fn png_convert_from_struct_tm_impl(ptime: png_timep, ttime: *const libc::tm) {
+    if ptime.is_null() || ttime.is_null() {
+        return;
+    }
+
+    (*ptime).year = (1900 + (*ttime).tm_year) as png_uint_16;
+    (*ptime).month = ((*ttime).tm_mon + 1) as png_byte;
+    (*ptime).day = (*ttime).tm_mday as png_byte;
+    (*ptime).hour = (*ttime).tm_hour as png_byte;
+    (*ptime).minute = (*ttime).tm_min as png_byte;
+    (*ptime).second = (*ttime).tm_sec as png_byte;
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_convert_to_rfc1123_buffer(
     out: *mut c_char,
@@ -359,27 +346,8 @@ pub unsafe extern "C" fn png_convert_to_rfc1123_buffer(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn png_convert_to_rfc1123(
-    png_ptr: png_structrp,
-    ptime: png_const_timep,
-) -> png_const_charp {
-    crate::abi_guard!(png_ptr, unsafe { upstream_png_convert_to_rfc1123(png_ptr, ptime) })
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_convert_from_struct_tm(ptime: png_timep, ttime: *const libc::tm) {
-    crate::abi_guard_no_png!({
-        if ptime.is_null() || ttime.is_null() {
-            return;
-        }
-
-        (*ptime).year = (1900 + (*ttime).tm_year) as png_uint_16;
-        (*ptime).month = ((*ttime).tm_mon + 1) as png_byte;
-        (*ptime).day = (*ttime).tm_mday as png_byte;
-        (*ptime).hour = (*ttime).tm_hour as png_byte;
-        (*ptime).minute = (*ttime).tm_min as png_byte;
-        (*ptime).second = (*ttime).tm_sec as png_byte;
-    });
+    crate::abi_guard_no_png!(png_convert_from_struct_tm_impl(ptime, ttime));
 }
 
 #[unsafe(no_mangle)]
@@ -395,6 +363,6 @@ pub unsafe extern "C" fn png_convert_from_time_t(ptime: png_timep, ttime: libc::
             return;
         }
 
-        png_convert_from_struct_tm(ptime, &out);
+        png_convert_from_struct_tm_impl(ptime, &out);
     })
 }

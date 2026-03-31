@@ -51,15 +51,77 @@ typedef struct png_safe_info_core {
     png_uint_32 free_me;
 } png_safe_info_core;
 
+#define PNG_SAFE_INTERLACE_TRANSFORM 0x0002U
+
 extern void upstream_png_set_quantize(png_structrp png_ptr, png_colorp palette,
                                       int num_palette, int maximum_colors,
                                       png_const_uint_16p histogram,
                                       int full_quantize);
+extern void upstream_png_read_row(png_structrp png_ptr, png_bytep row,
+                                  png_bytep display_row);
 
 static void png_safe_ignore_warning(png_structp png_ptr,
                                     png_const_charp message) {
     (void)png_ptr;
     (void)message;
+}
+
+static size_t png_safe_rowbytes_for_width(size_t width, size_t pixel_depth) {
+    if (pixel_depth == 0 || width > ((((size_t)-1) - 7U) / pixel_depth)) {
+        return 0;
+    }
+
+    return (width * pixel_depth + 7U) / 8U;
+}
+
+static size_t png_safe_infer_pixel_depth(const png_structrp png_ptr,
+                                         size_t rowbytes) {
+    static const size_t candidates[] = {1U,  2U,  4U,  8U,  16U,
+                                        24U, 32U, 48U, 64U};
+    const size_t width = png_ptr->width;
+    const size_t transformed = png_ptr->transformed_pixel_depth;
+    const size_t derived = (size_t)png_ptr->channels * (size_t)png_ptr->bit_depth;
+    size_t i;
+
+    if (transformed != 0U) {
+        return transformed;
+    }
+
+    if (derived != 0U && png_safe_rowbytes_for_width(width, derived) == rowbytes) {
+        return derived;
+    }
+
+    for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        if (png_safe_rowbytes_for_width(width, candidates[i]) == rowbytes) {
+            return candidates[i];
+        }
+    }
+
+    return 0U;
+}
+
+static void png_safe_mask_packed_row_padding(png_bytep row, size_t rowbytes,
+                                             size_t width, size_t pixel_depth) {
+    size_t used_bits;
+    size_t padding_bits;
+    png_byte mask;
+
+    if (row == NULL || rowbytes == 0U || width == 0U || pixel_depth >= 8U) {
+        return;
+    }
+
+    if (pixel_depth != 0U && width > (((size_t)-1) / pixel_depth)) {
+        return;
+    }
+
+    used_bits = width * pixel_depth;
+    padding_bits = (8U - (used_bits % 8U)) % 8U;
+    if (padding_bits == 0U) {
+        return;
+    }
+
+    mask = (png_byte)~((1U << padding_bits) - 1U);
+    row[rowbytes - 1U] &= mask;
 }
 
 void png_safe_read_core_get(png_const_structrp png_ptr, png_safe_read_core *out) {
@@ -274,4 +336,35 @@ int png_safe_call_set_quantize(png_structrp png_ptr, png_colorp palette,
     upstream_png_set_quantize(png_ptr, palette, num_palette, maximum_colors,
                               histogram, full_quantize);
     return 1;
+}
+
+void png_read_row(png_structrp png_ptr, png_bytep row, png_bytep display_row) {
+    size_t rowbytes;
+    size_t width;
+    size_t pixel_depth;
+    int handled_interlace;
+
+    if (png_ptr == NULL) {
+        return;
+    }
+
+    if (row == NULL && display_row == NULL) {
+        upstream_png_read_row(png_ptr, row, display_row);
+        return;
+    }
+
+    handled_interlace = png_ptr->interlaced != 0 &&
+                        (png_ptr->transformations & PNG_SAFE_INTERLACE_TRANSFORM) != 0;
+    rowbytes = png_ptr->rowbytes != 0U ? png_ptr->rowbytes : png_ptr->info_rowbytes;
+    width = png_ptr->width;
+    pixel_depth = png_safe_infer_pixel_depth(png_ptr, rowbytes);
+
+    upstream_png_read_row(png_ptr, row, display_row);
+
+    if (!handled_interlace && png_ptr->interlaced != 0) {
+        return;
+    }
+
+    png_safe_mask_packed_row_padding(row, rowbytes, width, pixel_depth);
+    png_safe_mask_packed_row_padding(display_row, rowbytes, width, pixel_depth);
 }
