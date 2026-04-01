@@ -43,18 +43,18 @@ Changes:
    * Keep package-artifact verification read-only so it validates the
      committed outputs instead of rewriting them in place.
 Checksums-Sha1:
- 19d4b7f901423c7e7e0d352882a928a3bb5256e4 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ da4a12c54d3283e9aad3fabfb0936bc6581335c7 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
  7e8ad7c14b4aca0b860447e82cefd54331eeea37 190828 libpng1.6_1.6.43.orig.tar.xz
- eab8f2d3680f55d40d33a234eb236f553c2e2c72 704716 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
- 0401394324ee79bcec59ee8eb4d9392ad56d5c74 8916 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+ 6684cedab7c8d8df462bdd0978a3a1e637f29e9e 707048 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ 3daa3e2e044b6879a46752625ff7737953b81bb5 8916 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
 Checksums-Sha256:
- 7ede8f4f6f4589bc8e709faa55ed56d7f30f9b8deb344ffad05249dd02f9a48e 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ f2e668a3290ab37c3cdeff227495f83a7cbe95223a55081640491e471271eb14 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
  245573d767b5374b12e0d261b69d38c48236b15581c5cf3de8b46caa494e4ba5 190828 libpng1.6_1.6.43.orig.tar.xz
- 633435cd9a27f94ea2205f43bb2ce0fdcf3b3df7c1cf7db0a2f2c1cd34aba917 704716 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
- 0e8b1be048e095618d3ef86e7b861a83f41e1f3ed6512efeeb0d3dfffae34228 8916 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+ 6db494218adfb5c3a67bcca6d56c56406e5d2987970b3e4ae1dfc128d50bf29c 707048 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ 132b28a81ff0c6d0498c71acd741d9fcba780fdb8de14f1d87d3c23eca9f5f98 8916 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
 Files:
- fd98ee3fd08077234964b9fb0872e506 1553 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 5310a8fae7ae478a6867cde797837839 1553 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
  17d02fb01d828e0cdc9e25389aae22d4 190828 libs optional libpng1.6_1.6.43.orig.tar.xz
- 52426ce1d8c0b05bfaf4a2772ab90bee 704716 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
- 33b8fb48fec9c5bfecd4b43bc6e3b8b7 8916 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+ 332196ef05a83e2a8df9628a6e3d718c 707048 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ 4587e96a707195890cd4ff63e646a941 8916 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
 Original-Maintainer: Maintainers of libpng1.6 packages <libpng1.6@packages.debian.org>

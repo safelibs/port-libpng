@@ -11,6 +11,7 @@ use std::ffi::CStr;
 use std::fs;
 use std::io::Cursor;
 use std::slice;
+use std::sync::OnceLock;
 
 const PNG_FORMAT_FLAG_ALPHA: png_uint_32 = 0x01;
 const PNG_FORMAT_FLAG_COLOR: png_uint_32 = 0x02;
@@ -21,6 +22,11 @@ const PNG_FORMAT_FLAG_AFIRST: png_uint_32 = 0x20;
 
 const PNG_IMAGE_FLAG_FAST: png_uint_32 = 0x02;
 const PNG_IMAGE_FLAG_16BIT_sRGB: png_uint_32 = 0x04;
+const PNG_DEFAULT_SRGB_GAMMA: f64 = 45_455.0 / 100_000.0;
+const PNG_GAMMA_SRGB_FIXED: u32 = 220_000;
+const PNG_MAX_GAMMA_8_SHIFT: usize = 5;
+const PNG_MAX_GAMMA_8_SUBTABLES: usize = 1 << (8 - PNG_MAX_GAMMA_8_SHIFT);
+const PNG_MAX_GAMMA_8_TABLE_LEN: usize = PNG_MAX_GAMMA_8_SUBTABLES * 256;
 const DEFAULT_BACKGROUND_U8: u8 = 73;
 const RGB_CUBE_VALUES: [u8; 6] = [0, 51, 102, 153, 204, 255];
 const RGB_MID_VALUES: [u8; 3] = [0, 127, 255];
@@ -39,7 +45,7 @@ struct ParsedHeader {
     colormap_entries: png_uint_32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Transfer {
     Srgb,
     Gamma(f64),
@@ -66,9 +72,12 @@ struct DecodedImage {
     line_size: usize,
     color_type: PngColorType,
     bit_depth: PngBitDepth,
+    is_srgb: bool,
     file_gamma: Option<f64>,
     transfer: Transfer,
     nonlinear_encode: Transfer,
+    direct_transfer: Transfer,
+    direct_nonlinear_encode: Transfer,
     data: Vec<u8>,
 }
 
@@ -310,12 +319,24 @@ fn parse_header(bytes: &[u8]) -> Result<ParsedHeader, String> {
 }
 
 fn info_gamma(info: &png::Info<'_>) -> Option<f64> {
-    info.source_gamma
-        .map(|gamma| gamma.into_value().into())
-        .or_else(|| info.gama_chunk.map(|gamma| gamma.into_value().into()))
+    info.gama_chunk.map(|gamma| gamma.into_value().into())
 }
 
 fn source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
+    if info.srgb.is_some() {
+        Transfer::Srgb
+    } else if let Some(gamma) = info_gamma(info) {
+        Transfer::Gamma(gamma)
+    } else if info.bit_depth == PngBitDepth::Sixteen && (image_flags & PNG_IMAGE_FLAG_16BIT_sRGB) == 0 {
+        Transfer::Gamma(1.0)
+    } else if info.bit_depth == PngBitDepth::Sixteen {
+        Transfer::Srgb
+    } else {
+        Transfer::Srgb
+    }
+}
+
+fn direct_source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
     if info.srgb.is_some() {
         Transfer::Srgb
     } else if let Some(gamma) = info_gamma(info) {
@@ -335,8 +356,18 @@ fn decode_png(bytes: &[u8], image_flags: png_uint_32) -> Result<DecodedImage, St
     let mut reader = decoder.read_info().map_err(|err| err.to_string())?;
     let info = reader.info();
     let transfer = source_transfer(info, image_flags);
+    let direct_transfer = direct_source_transfer(info, image_flags);
+    let is_srgb = info.srgb.is_some();
     let file_gamma = info_gamma(info);
     let nonlinear_encode = Transfer::Srgb;
+    let direct_nonlinear_encode = if info.bit_depth == PngBitDepth::Sixteen
+        && !is_srgb
+        && (image_flags & PNG_IMAGE_FLAG_16BIT_sRGB) == 0
+    {
+        Transfer::Gamma(PNG_DEFAULT_SRGB_GAMMA)
+    } else {
+        Transfer::Srgb
+    };
     let mut buffer = vec![
         0;
         reader
@@ -352,14 +383,22 @@ fn decode_png(bytes: &[u8], image_flags: png_uint_32) -> Result<DecodedImage, St
         line_size: output.line_size,
         color_type: output.color_type,
         bit_depth: output.bit_depth,
+        is_srgb,
         file_gamma,
         transfer,
         nonlinear_encode,
+        direct_transfer,
+        direct_nonlinear_encode,
         data: buffer,
     })
 }
 
-fn decoded_pixel(decoded: &DecodedImage, x: usize, y: usize) -> CanonicalPixel {
+fn decoded_pixel_with_transfer(
+    decoded: &DecodedImage,
+    transfer: Transfer,
+    x: usize,
+    y: usize,
+) -> CanonicalPixel {
     let sample_bytes = if decoded.bit_depth == PngBitDepth::Sixteen { 2 } else { 1 };
     let channels = match decoded.color_type {
         PngColorType::Grayscale => 1,
@@ -383,7 +422,7 @@ fn decoded_pixel(decoded: &DecodedImage, x: usize, y: usize) -> CanonicalPixel {
             decode_u16_be(&pixel[offset..offset + 2])
         }
     };
-    let linear = |offset: usize| decoded.transfer.to_linear(f64::from(sample(offset)) / max);
+    let linear = |offset: usize| transfer.to_linear(f64::from(sample(offset)) / max);
     let alpha = |offset: usize| f64::from(sample(offset)) / max;
 
     match decoded.color_type {
@@ -411,7 +450,19 @@ fn decoded_pixel(decoded: &DecodedImage, x: usize, y: usize) -> CanonicalPixel {
     }
 }
 
-fn read_direct_pixel(format: png_uint_32, bytes: &[u8]) -> CanonicalPixel {
+fn decoded_pixel(decoded: &DecodedImage, x: usize, y: usize) -> CanonicalPixel {
+    decoded_pixel_with_transfer(decoded, decoded.transfer, x, y)
+}
+
+fn decoded_direct_pixel(decoded: &DecodedImage, x: usize, y: usize) -> CanonicalPixel {
+    decoded_pixel_with_transfer(decoded, decoded.direct_transfer, x, y)
+}
+
+fn read_direct_pixel_with_transfer(
+    format: png_uint_32,
+    bytes: &[u8],
+    nonlinear_decode: Transfer,
+) -> CanonicalPixel {
     let component_size = pixel_component_size(format);
     let has_alpha = (format & PNG_FORMAT_FLAG_ALPHA) != 0;
     let has_color = (format & PNG_FORMAT_FLAG_COLOR) != 0;
@@ -422,7 +473,7 @@ fn read_direct_pixel(format: png_uint_32, bytes: &[u8]) -> CanonicalPixel {
 
     let decode_component = |slice: &[u8]| -> f64 {
         if component_size == 1 {
-            srgb_to_linear(f64::from(slice[0]) / 255.0)
+            nonlinear_decode.to_linear(f64::from(slice[0]) / 255.0)
         } else {
             f64::from(decode_u16_native(slice)) / 65_535.0
         }
@@ -480,6 +531,14 @@ fn read_direct_pixel(format: png_uint_32, bytes: &[u8]) -> CanonicalPixel {
     }
 
     pixel
+}
+
+fn read_direct_pixel(format: png_uint_32, bytes: &[u8]) -> CanonicalPixel {
+    read_direct_pixel_with_transfer(format, bytes, Transfer::Srgb)
+}
+
+fn read_write_direct_pixel(format: png_uint_32, bytes: &[u8]) -> CanonicalPixel {
+    read_direct_pixel_with_transfer(format, bytes, Transfer::Srgb)
 }
 
 fn encode_nonlinear_byte(transfer: Transfer, value: f64) -> u8 {
@@ -658,6 +717,418 @@ fn nonlinear8_components(pixel: CanonicalPixel, nonlinear_encode: Transfer) -> (
     )
 }
 
+fn compat_16_to_8_table(gamma_fixed: u32) -> Vec<u16> {
+    let mut table = vec![u16::MAX; PNG_MAX_GAMMA_8_TABLE_LEN];
+    let max = (1u32 << (16 - PNG_MAX_GAMMA_8_SHIFT)) - 1;
+    let mut last = 0usize;
+
+    for out in 0u16..255 {
+        let out16 = out * 257;
+        let mut bound = u32::from(gamma_correct_16bit_fixed(out16 + 128, gamma_fixed));
+        bound = ((bound * max) + 32_768) / 65_535 + 1;
+        let limit = bound.min((PNG_MAX_GAMMA_8_SUBTABLES << 8) as u32) as usize;
+        while last < limit {
+            let low = last & (0xff >> PNG_MAX_GAMMA_8_SHIFT);
+            let high = last >> (8 - PNG_MAX_GAMMA_8_SHIFT);
+            table[low * 256 + high] = out16;
+            last += 1;
+        }
+    }
+
+    table
+}
+
+fn linear_default_gamma_16_to_8_table() -> &'static [u16] {
+    static TABLE: OnceLock<Vec<u16>> = OnceLock::new();
+    TABLE.get_or_init(|| compat_16_to_8_table(PNG_GAMMA_SRGB_FIXED))
+}
+
+fn gamma_correct_16bit_fixed(value: u16, gamma_fixed: u32) -> u16 {
+    if value == 0 || value == u16::MAX {
+        return value;
+    }
+
+    let gamma = f64::from(gamma_fixed) * 0.00001;
+    (65_535.0 * (f64::from(value) / 65_535.0).powf(gamma) + 0.5).floor() as u16
+}
+
+fn compat_16_to_8_lookup(table: &[u16], sample: u16) -> u16 {
+    let sample = usize::from(sample);
+    let low = (sample & 0xff) >> PNG_MAX_GAMMA_8_SHIFT;
+    let high = sample >> 8;
+    table[low * 256 + high]
+}
+
+fn encode_default_gamma_8bit_from_linear(value: f64) -> u8 {
+    let sample = encode_u16(clamp01(value));
+    sample_to_u8(compat_16_to_8_lookup(linear_default_gamma_16_to_8_table(), sample), 2)
+}
+
+fn compat_default_gamma_from_transfer(transfer: Transfer) -> Option<u32> {
+    match transfer {
+        Transfer::Gamma(gamma) => {
+            let file_gamma_fixed = (gamma * 100_000.0).round() as u32;
+            Some((((file_gamma_fixed as u64) * (PNG_GAMMA_SRGB_FIXED as u64) + 50_000) / 100_000) as u32)
+        }
+        Transfer::Srgb => None,
+    }
+}
+
+fn gamma_correct_8bit(value: u8, gamma: f64) -> u8 {
+    if value == 0 || value == u8::MAX {
+        value
+    } else {
+        (255.0 * (f64::from(value) / 255.0).powf(gamma) + 0.5).floor() as u8
+    }
+}
+
+fn rgb_to_gray8(r: u8, g: u8, b: u8) -> u8 {
+    if r == g && g == b {
+        r
+    } else {
+        (((6968u32 * u32::from(r) + 23_434u32 * u32::from(g) + 2366u32 * u32::from(b)) >> 15) & 0xff) as u8
+    }
+}
+
+fn is_default_gamma(transfer: Transfer) -> bool {
+    matches!(transfer, Transfer::Gamma(gamma) if (gamma - PNG_DEFAULT_SRGB_GAMMA).abs() < 1e-12)
+}
+
+fn source_8bit_components(pixel: &[u8], color_type: PngColorType) -> (u8, u8, u8, u8) {
+    match color_type {
+        PngColorType::Grayscale => {
+            let gray = pixel[0];
+            (gray, gray, gray, 255)
+        }
+        PngColorType::GrayscaleAlpha => {
+            let gray = pixel[0];
+            (gray, gray, gray, pixel[1])
+        }
+        PngColorType::Rgb => (pixel[0], pixel[1], pixel[2], 255),
+        PngColorType::Rgba => (pixel[0], pixel[1], pixel[2], pixel[3]),
+        PngColorType::Indexed => (0, 0, 0, 255),
+    }
+}
+
+fn write_direct_nonlinear_8bit_pixel(format: png_uint_32, rgba: (u8, u8, u8, u8), out: &mut [u8]) {
+    let (r, g, b, a) = rgba;
+    let has_alpha = (format & PNG_FORMAT_FLAG_ALPHA) != 0;
+    let has_color = (format & PNG_FORMAT_FLAG_COLOR) != 0;
+    let bgr = (format & PNG_FORMAT_FLAG_BGR) != 0;
+    let alpha_first = has_alpha && (format & PNG_FORMAT_FLAG_AFIRST) != 0;
+    let gray = rgb_to_gray8(r, g, b);
+    let (first, second, third) = if has_color {
+        if bgr { (b, g, r) } else { (r, g, b) }
+    } else {
+        (gray, gray, gray)
+    };
+    let mut offset = 0usize;
+
+    if alpha_first {
+        out[offset] = a;
+        offset += 1;
+    }
+
+    if has_color {
+        out[offset] = first;
+        out[offset + 1] = second;
+        out[offset + 2] = third;
+        offset += 3;
+    } else {
+        out[offset] = gray;
+        offset += 1;
+    }
+
+    if has_alpha && !alpha_first {
+        out[offset] = a;
+    }
+}
+
+fn finish_direct_read_nonlinear_8bit(
+    image: &png_image,
+    source_format: png_uint_32,
+    decoded: &DecodedImage,
+    background: png_const_colorp,
+    buffer: png_voidp,
+    row_stride: png_int_32,
+) -> bool {
+    let target_format = image.format;
+    let target_has_alpha = (target_format & PNG_FORMAT_FLAG_ALPHA) != 0;
+    let target_has_color = (target_format & PNG_FORMAT_FLAG_COLOR) != 0;
+    let target_linear = (target_format & PNG_FORMAT_FLAG_LINEAR) != 0;
+    let source_has_alpha = matches!(decoded.color_type, PngColorType::GrayscaleAlpha | PngColorType::Rgba);
+    let source_has_color = matches!(decoded.color_type, PngColorType::Rgb | PngColorType::Rgba);
+
+    if decoded.bit_depth != PngBitDepth::Eight
+        || (source_format & PNG_FORMAT_FLAG_LINEAR) != 0
+        || target_linear
+        || !background.is_null()
+        || (target_format & (PNG_FORMAT_FLAG_BGR | PNG_FORMAT_FLAG_AFIRST | PNG_FORMAT_FLAG_COLORMAP)) != 0
+        || source_has_color != target_has_color
+        || (source_has_alpha && !target_has_alpha)
+        || !(decoded.file_gamma.is_none() || decoded.is_srgb)
+        || matches!(decoded.color_type, PngColorType::Indexed)
+    {
+        return false;
+    }
+
+    let target_pixel_size = direct_pixel_size(target_format);
+    let source_channels = match decoded.color_type {
+        PngColorType::Grayscale => 1,
+        PngColorType::GrayscaleAlpha => 2,
+        PngColorType::Rgb => 3,
+        PngColorType::Rgba => 4,
+        PngColorType::Indexed => 0,
+    };
+
+    for y in 0..decoded.height {
+        let row = target_row(image, buffer, row_stride, y);
+        let source_row = &decoded.data[y * decoded.line_size..(y + 1) * decoded.line_size];
+        for x in 0..decoded.width {
+            let source_start = x * source_channels;
+            let source_pixel = &source_row[source_start..source_start + source_channels];
+            let start = x * target_pixel_size;
+            let end = start + target_pixel_size;
+            write_direct_nonlinear_8bit_pixel(
+                target_format,
+                source_8bit_components(source_pixel, decoded.color_type),
+                &mut row[start..end],
+            );
+        }
+    }
+
+    true
+}
+
+fn finish_direct_read_scaled_linear_8bit(
+    image: &png_image,
+    source_format: png_uint_32,
+    decoded: &DecodedImage,
+    background: png_const_colorp,
+    buffer: png_voidp,
+    row_stride: png_int_32,
+) -> bool {
+    let target_format = image.format;
+    let target_has_alpha = (target_format & PNG_FORMAT_FLAG_ALPHA) != 0;
+    let target_has_color = (target_format & PNG_FORMAT_FLAG_COLOR) != 0;
+    let target_linear = (target_format & PNG_FORMAT_FLAG_LINEAR) != 0;
+    let source_has_alpha = matches!(decoded.color_type, PngColorType::GrayscaleAlpha | PngColorType::Rgba);
+    let source_has_color = matches!(decoded.color_type, PngColorType::Rgb | PngColorType::Rgba);
+    let gamma = match decoded.direct_transfer {
+        Transfer::Gamma(source_gamma) => PNG_DEFAULT_SRGB_GAMMA / source_gamma,
+        Transfer::Srgb => 1.0,
+    };
+
+    if decoded.bit_depth != PngBitDepth::Eight
+        || (source_format & PNG_FORMAT_FLAG_LINEAR) == 0
+        || target_linear
+        || !background.is_null()
+        || (target_format & (PNG_FORMAT_FLAG_BGR | PNG_FORMAT_FLAG_AFIRST | PNG_FORMAT_FLAG_COLORMAP)) != 0
+        || source_has_color != target_has_color
+        || (source_has_alpha && !target_has_alpha)
+        || matches!(decoded.color_type, PngColorType::Indexed)
+    {
+        return false;
+    }
+
+    let target_pixel_size = direct_pixel_size(target_format);
+    let source_channels = match decoded.color_type {
+        PngColorType::Grayscale => 1,
+        PngColorType::GrayscaleAlpha => 2,
+        PngColorType::Rgb => 3,
+        PngColorType::Rgba => 4,
+        PngColorType::Indexed => 0,
+    };
+
+    for y in 0..decoded.height {
+        let row = target_row(image, buffer, row_stride, y);
+        let source_row = &decoded.data[y * decoded.line_size..(y + 1) * decoded.line_size];
+        for x in 0..decoded.width {
+            let source_start = x * source_channels;
+            let source_pixel = &source_row[source_start..source_start + source_channels];
+            let (r, g, b, a) = source_8bit_components(source_pixel, decoded.color_type);
+            let corrected = (
+                gamma_correct_8bit(r, gamma),
+                gamma_correct_8bit(g, gamma),
+                gamma_correct_8bit(b, gamma),
+                a,
+            );
+            let start = x * target_pixel_size;
+            let end = start + target_pixel_size;
+            write_direct_nonlinear_8bit_pixel(target_format, corrected, &mut row[start..end]);
+        }
+    }
+
+    true
+}
+
+fn write_direct_raw_16bit_default_gamma_pixel(
+    format: png_uint_32,
+    source_has_alpha: bool,
+    target_has_alpha: bool,
+    source_pixel: &[u8],
+    color_type: PngColorType,
+    compat_table: &[u16],
+    out: &mut [u8],
+) {
+    let has_color = (format & PNG_FORMAT_FLAG_COLOR) != 0;
+    let bgr = (format & PNG_FORMAT_FLAG_BGR) != 0;
+    let alpha_first = target_has_alpha && (format & PNG_FORMAT_FLAG_AFIRST) != 0;
+    let mut offset = 0usize;
+
+    let sample = |index: usize| -> u16 {
+        let start = index * 2;
+        decode_u16_be(&source_pixel[start..start + 2])
+    };
+    let encode_color = |value: u16| -> u8 {
+        sample_to_u8(compat_16_to_8_lookup(compat_table, value), 2)
+    };
+    let encode_alpha = |value: u16| -> u8 { sample_to_u8(value, 2) };
+
+    let alpha = if source_has_alpha {
+        encode_alpha(sample(match color_type {
+            PngColorType::GrayscaleAlpha => 1,
+            PngColorType::Rgba => 3,
+            _ => 0,
+        }))
+    } else {
+        255
+    };
+
+    if alpha_first {
+        out[offset] = alpha;
+        offset += 1;
+    }
+
+    match color_type {
+        PngColorType::Grayscale | PngColorType::GrayscaleAlpha => {
+            let gray = encode_color(sample(0));
+            out[offset] = gray;
+            offset += 1;
+            if has_color {
+                out[offset] = gray;
+                out[offset + 1] = gray;
+                offset += 2;
+            }
+        }
+        PngColorType::Rgb | PngColorType::Rgba => {
+            let r = encode_color(sample(0));
+            let g = encode_color(sample(1));
+            let b = encode_color(sample(2));
+            let ordered = if bgr { [b, g, r] } else { [r, g, b] };
+            out[offset] = ordered[0];
+            out[offset + 1] = ordered[1];
+            out[offset + 2] = ordered[2];
+            offset += 3;
+        }
+        PngColorType::Indexed => unreachable!(),
+    }
+
+    if target_has_alpha && !alpha_first {
+        out[offset] = alpha;
+    }
+}
+
+fn finish_direct_read_raw_16bit_default_gamma(
+    image: &png_image,
+    source_format: png_uint_32,
+    decoded: &DecodedImage,
+    background: png_const_colorp,
+    buffer: png_voidp,
+    row_stride: png_int_32,
+) -> bool {
+    let target_format = image.format;
+    let target_has_alpha = (target_format & PNG_FORMAT_FLAG_ALPHA) != 0;
+    let target_linear = (target_format & PNG_FORMAT_FLAG_LINEAR) != 0;
+    let target_has_color = (target_format & PNG_FORMAT_FLAG_COLOR) != 0;
+    let target_pixel_size = direct_pixel_size(target_format);
+    let source_has_color = (source_format & PNG_FORMAT_FLAG_COLOR) != 0;
+    let source_has_alpha = (source_format & PNG_FORMAT_FLAG_ALPHA) != 0;
+    let gamma_fixed = match compat_default_gamma_from_transfer(decoded.direct_transfer) {
+        Some(gamma_fixed) => gamma_fixed,
+        None => return false,
+    };
+
+    if decoded.bit_depth != PngBitDepth::Sixteen
+        || !background.is_null()
+        || target_linear
+        || !is_default_gamma(decoded.direct_nonlinear_encode)
+        || (target_format & PNG_FORMAT_FLAG_COLORMAP) != 0
+        || target_has_color != source_has_color
+        || (source_has_alpha && !target_has_alpha)
+        || matches!(decoded.color_type, PngColorType::Indexed)
+    {
+        return false;
+    }
+
+    let compat_table = compat_16_to_8_table(gamma_fixed);
+    let source_channels = match decoded.color_type {
+        PngColorType::Grayscale => 1,
+        PngColorType::GrayscaleAlpha => 2,
+        PngColorType::Rgb => 3,
+        PngColorType::Rgba => 4,
+        PngColorType::Indexed => 0,
+    };
+
+    for y in 0..decoded.height {
+        let row = target_row(image, buffer, row_stride, y);
+        let source_row = &decoded.data[y * decoded.line_size..(y + 1) * decoded.line_size];
+        for x in 0..decoded.width {
+            let source_start = x * source_channels * 2;
+            let source_end = source_start + source_channels * 2;
+            let start = x * target_pixel_size;
+            let end = start + target_pixel_size;
+            write_direct_raw_16bit_default_gamma_pixel(
+                target_format,
+                source_has_alpha,
+                target_has_alpha,
+                &source_row[source_start..source_end],
+                decoded.color_type,
+                &compat_table,
+                &mut row[start..end],
+            );
+        }
+    }
+
+    true
+}
+
+fn write_direct_pixel_default_gamma_from_linear(
+    format: png_uint_32,
+    pixel: CanonicalPixel,
+    out: &mut [u8],
+) {
+    let has_alpha = (format & PNG_FORMAT_FLAG_ALPHA) != 0;
+    let has_color = (format & PNG_FORMAT_FLAG_COLOR) != 0;
+    let bgr = (format & PNG_FORMAT_FLAG_BGR) != 0;
+    let alpha_first = has_alpha && (format & PNG_FORMAT_FLAG_AFIRST) != 0;
+    let mut offset = 0usize;
+
+    if alpha_first {
+        out[offset] = sample_to_u8(encode_u16(pixel.a), 2);
+        offset += 1;
+    }
+
+    if has_color {
+        let ordered = if bgr {
+            [pixel.b, pixel.g, pixel.r]
+        } else {
+            [pixel.r, pixel.g, pixel.b]
+        };
+        for component in ordered {
+            out[offset] = encode_default_gamma_8bit_from_linear(component);
+            offset += 1;
+        }
+    } else {
+        out[offset] = encode_default_gamma_8bit_from_linear(luminance(pixel));
+        offset += 1;
+    }
+
+    if has_alpha && !alpha_first {
+        out[offset] = sample_to_u8(encode_u16(pixel.a), 2);
+    }
+}
+
 fn sample_to_u8(sample: u16, sample_bytes: usize) -> u8 {
     if sample_bytes == 1 {
         sample as u8
@@ -671,9 +1142,9 @@ fn decoded_direct_gray_linear_pixel(decoded: &DecodedImage, x: usize, y: usize) 
         return None;
     }
 
-    let source = decoded_pixel(decoded, x, y);
-    let gray = f64::from(encode_nonlinear_byte(decoded.nonlinear_encode, source.g)) / 255.0;
-    let linear = clamp01(gray).powf(1.0 / (45_455.0 / 100_000.0));
+    let source = decoded_direct_pixel(decoded, x, y);
+    let gray = f64::from(encode_nonlinear_byte(decoded.direct_nonlinear_encode, source.g)) / 255.0;
+    let linear = clamp01(gray).powf(1.0 / PNG_DEFAULT_SRGB_GAMMA);
     Some(CanonicalPixel {
         r: linear,
         g: linear,
@@ -1168,6 +1639,60 @@ fn finish_direct_read(
     let target_pixel_size = direct_pixel_size(target_format);
     let source_has_alpha = (source_format & PNG_FORMAT_FLAG_ALPHA) != 0;
 
+    if finish_direct_read_scaled_linear_8bit(image, source_format, decoded, background, buffer, row_stride) {
+        return Ok(());
+    }
+
+    if finish_direct_read_nonlinear_8bit(image, source_format, decoded, background, buffer, row_stride) {
+        return Ok(());
+    }
+
+    if finish_direct_read_raw_16bit_default_gamma(
+        image,
+        source_format,
+        decoded,
+        background,
+        buffer,
+        row_stride,
+    ) {
+        return Ok(());
+    }
+
+    let can_passthrough_direct = background.is_null()
+        && !target_has_alpha
+        && !source_has_alpha
+        && !target_linear
+        && (target_format & PNG_FORMAT_FLAG_COLOR) == 0
+        && (target_format & (PNG_FORMAT_FLAG_BGR | PNG_FORMAT_FLAG_AFIRST | PNG_FORMAT_FLAG_COLORMAP)) == 0
+        && decoded.bit_depth == PngBitDepth::Eight
+        && match (decoded.color_type, target_format & (PNG_FORMAT_FLAG_COLOR | PNG_FORMAT_FLAG_ALPHA)) {
+            (PngColorType::Grayscale, 0) => true,
+            (PngColorType::GrayscaleAlpha, 0) => true,
+            _ => false,
+        };
+
+    if can_passthrough_direct {
+        for y in 0..decoded.height {
+            let row = target_row(image, buffer, row_stride, y);
+            let source_row = &decoded.data[y * decoded.line_size..(y + 1) * decoded.line_size];
+            let width = image.width as usize;
+
+            match (decoded.color_type, target_format & (PNG_FORMAT_FLAG_COLOR | PNG_FORMAT_FLAG_ALPHA)) {
+                (PngColorType::Grayscale, 0) => {
+                    row[..width].copy_from_slice(&source_row[..width]);
+                }
+                (PngColorType::GrayscaleAlpha, 0) => {
+                    for (index, chunk) in source_row.chunks_exact(2).enumerate() {
+                        row[index] = chunk[0];
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        return Ok(());
+    }
+
     for y in 0..decoded.height {
         let row = target_row(image, buffer, row_stride, y);
         for x in 0..decoded.width {
@@ -1179,9 +1704,10 @@ fn finish_direct_read(
                         | PNG_FORMAT_FLAG_COLORMAP))
                     == 0;
             let source = if use_direct_gray_linear {
-                decoded_direct_gray_linear_pixel(decoded, x, y).unwrap_or_else(|| decoded_pixel(decoded, x, y))
+                decoded_direct_gray_linear_pixel(decoded, x, y)
+                    .unwrap_or_else(|| decoded_direct_pixel(decoded, x, y))
             } else {
-                decoded_pixel(decoded, x, y)
+                decoded_direct_pixel(decoded, x, y)
             };
             let start = x * target_pixel_size;
             let end = start + target_pixel_size;
@@ -1212,12 +1738,19 @@ fn finish_direct_read(
                 composite(source, buffer_background(target_format, pixel_out))
             };
 
-            write_direct_pixel_with_transfer(
-                target_format,
-                rendered,
-                decoded.nonlinear_encode,
-                pixel_out,
-            );
+            if decoded.bit_depth == PngBitDepth::Sixteen
+                && !target_linear
+                && is_default_gamma(decoded.direct_nonlinear_encode)
+            {
+                write_direct_pixel_default_gamma_from_linear(target_format, rendered, pixel_out);
+            } else {
+                write_direct_pixel_with_transfer(
+                    target_format,
+                    rendered,
+                    decoded.direct_nonlinear_encode,
+                    pixel_out,
+                );
+            }
         }
     }
 
@@ -1664,6 +2197,7 @@ fn canonical_to_png_direct(
     color: PngColorType,
     depth: PngBitDepth,
     pixel: CanonicalPixel,
+    nonlinear_encode: Transfer,
 ) -> Vec<u8> {
     let mut out = Vec::new();
     let gray = luminance(pixel);
@@ -1671,8 +2205,8 @@ fn canonical_to_png_direct(
     let push_linear16 = |out: &mut Vec<u8>, value: f64| {
         out.extend_from_slice(&encode_u16(value).to_be_bytes());
     };
-    let push_srgb8 = |out: &mut Vec<u8>, value: f64| {
-        out.push(encode_u8(linear_to_srgb(value)));
+    let push_nonlinear8 = |out: &mut Vec<u8>, value: f64| {
+        out.push(encode_nonlinear_byte(nonlinear_encode, value));
     };
     let push_alpha16 = |out: &mut Vec<u8>, value: f64| {
         out.extend_from_slice(&encode_u16(value).to_be_bytes());
@@ -1682,20 +2216,20 @@ fn canonical_to_png_direct(
     };
 
     match (color, depth) {
-        (PngColorType::Grayscale, PngBitDepth::Eight) => push_srgb8(&mut out, gray),
+        (PngColorType::Grayscale, PngBitDepth::Eight) => push_nonlinear8(&mut out, gray),
         (PngColorType::GrayscaleAlpha, PngBitDepth::Eight) => {
-            push_srgb8(&mut out, gray);
+            push_nonlinear8(&mut out, gray);
             push_alpha8(&mut out, pixel.a);
         }
         (PngColorType::Rgb, PngBitDepth::Eight) => {
-            push_srgb8(&mut out, pixel.r);
-            push_srgb8(&mut out, pixel.g);
-            push_srgb8(&mut out, pixel.b);
+            push_nonlinear8(&mut out, pixel.r);
+            push_nonlinear8(&mut out, pixel.g);
+            push_nonlinear8(&mut out, pixel.b);
         }
         (PngColorType::Rgba, PngBitDepth::Eight) => {
-            push_srgb8(&mut out, pixel.r);
-            push_srgb8(&mut out, pixel.g);
-            push_srgb8(&mut out, pixel.b);
+            push_nonlinear8(&mut out, pixel.r);
+            push_nonlinear8(&mut out, pixel.g);
+            push_nonlinear8(&mut out, pixel.b);
             push_alpha8(&mut out, pixel.a);
         }
         (PngColorType::Grayscale, PngBitDepth::Sixteen) => push_linear16(&mut out, gray),
@@ -1779,7 +2313,12 @@ fn encode_png_bytes(
         for index in 0..image.colormap_entries as usize {
             let start = index * entry_size;
             let pixel = read_direct_pixel(entry_format, &entries[start..start + entry_size]);
-            let rgb = canonical_to_png_direct(PngColorType::Rgb, PngBitDepth::Eight, pixel);
+            let rgb = canonical_to_png_direct(
+                PngColorType::Rgb,
+                PngBitDepth::Eight,
+                pixel,
+                Transfer::Srgb,
+            );
             palette.extend_from_slice(&rgb);
             if has_alpha {
                 trns.push(encode_u8(pixel.a));
@@ -1797,13 +2336,39 @@ fn encode_png_bytes(
         extract_index_rows(image, buffer, row_stride)
     } else {
         let rows = extract_direct_input(image, buffer, row_stride);
+        let can_passthrough_direct = png_depth == PngBitDepth::Eight
+            && (image.format & PNG_FORMAT_FLAG_LINEAR) == 0
+            && (image.format & (PNG_FORMAT_FLAG_BGR | PNG_FORMAT_FLAG_AFIRST)) == 0;
+
+        if can_passthrough_direct {
+            return {
+                let mut writer = encoder.write_header().map_err(|err| err.to_string())?;
+                let total_size = rows.iter().map(Vec::len).sum();
+                let mut image_bytes = Vec::with_capacity(total_size);
+                for row in rows {
+                    image_bytes.extend_from_slice(&row);
+                }
+                writer
+                    .write_image_data(&image_bytes)
+                    .and_then(|_| writer.finish())
+                    .map_err(|err| err.to_string())?;
+                Ok(bytes)
+            };
+        }
+
         let mut encoded = Vec::with_capacity(image.height as usize);
+        let direct_output_encode = if png_depth == PngBitDepth::Eight {
+            Transfer::Srgb
+        } else {
+            Transfer::Srgb
+        };
         for row in rows {
             let mut out_row = Vec::new();
             let pixel_size = direct_pixel_size(image.format);
             for pixel_bytes in row.chunks_exact(pixel_size) {
-                let pixel = read_direct_pixel(image.format, pixel_bytes);
-                let png_pixel = canonical_to_png_direct(png_color, png_depth, pixel);
+                let pixel = read_write_direct_pixel(image.format, pixel_bytes);
+                let png_pixel =
+                    canonical_to_png_direct(png_color, png_depth, pixel, direct_output_encode);
                 out_row.extend_from_slice(&png_pixel);
             }
             encoded.push(out_row);

@@ -44,6 +44,7 @@ for required_path in \
 done
 readonly profile="${PROFILE:-release}"
 readonly target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
+readonly profile_dir="$target_root/$profile"
 readonly stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
 
 libpng_stage_shared_lib=""
@@ -141,15 +142,33 @@ locate_safe_stage() {
 }
 
 ensure_safe_stage() {
+  local current_shared="$profile_dir/libpng16.so"
+  local current_static="$profile_dir/libpng16.a"
+  local staged_shared=""
+  local staged_static=""
+  local staged_header_dir="$stage_root/usr/include/libpng16"
+
   if [[ -n "$libpng_stage_shared_lib" && -e "$libpng_stage_shared_lib" ]]; then
+    staged_shared="$libpng_stage_shared_lib"
+    staged_static="$libpng_stage_lib_dir/libpng16.a"
+  elif [[ -d "$stage_root/usr" ]]; then
+    staged_shared="$(find "$stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
+    if [[ -n "$staged_shared" ]]; then
+      staged_static="$(dirname "$staged_shared")/libpng16.a"
+    fi
+  fi
+
+  if [[ -n "$staged_shared" && -e "$staged_shared" && -e "$staged_static" && -e "$current_shared" && -e "$current_static" ]] \
+    && [[ ! "$current_shared" -nt "$staged_shared" ]] \
+    && [[ ! "$current_static" -nt "$staged_static" ]] \
+    && [[ ! "$safe_dir/include/png.h" -nt "$staged_header_dir/png.h" ]] \
+    && [[ ! "$safe_dir/include/pngconf.h" -nt "$staged_header_dir/pngconf.h" ]] \
+    && [[ ! "$safe_dir/include/pnglibconf.h" -nt "$staged_header_dir/pnglibconf.h" ]]; then
+    locate_safe_stage
     return 0
   fi
 
-  if [[ -d "$stage_root/usr" ]]; then
-    locate_safe_stage
-  else
-    build_safe_stage
-  fi
+  build_safe_stage
 }
 
 ensure_original_stage() {
