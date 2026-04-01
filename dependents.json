@@ -157,8 +157,8 @@
           "libpng_dependency": "libpng16-16t64"
         }
       ],
-      "runtime_functionality": "Saving scanned images as PNG among the supported output formats.",
-      "runtime_evidence_level": "inferred"
+      "runtime_functionality": "Launching XSane in PNG save mode against the SANE test backend and verifying that the device window comes up and stays alive under Xvfb.",
+      "runtime_evidence_level": "explicit"
     },
     {
       "name": "R png package",
