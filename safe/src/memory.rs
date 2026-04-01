@@ -1,5 +1,6 @@
 use crate::common::{
-    PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_MUL, PNG_FREE_ROWS, PNG_USER_WILL_FREE_DATA,
+    PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_MUL, PNG_FREE_ROWS, PNG_FREE_SCAL, PNG_INFO_sCAL,
+    PNG_USER_WILL_FREE_DATA,
 };
 use crate::state::{self, PngStructState};
 use crate::types::*;
@@ -393,6 +394,13 @@ pub unsafe extern "C" fn png_free_data(
         state::update_info(info_ptr, |info_state| {
             if (mask & PNG_FREE_ROWS) != 0 && (info_state.core.free_me & PNG_FREE_ROWS) != 0 {
                 info_state.core.row_pointers = ptr::null_mut();
+            }
+
+            if (mask & PNG_FREE_SCAL) != 0 && (info_state.core.free_me & PNG_FREE_SCAL) != 0 {
+                info_state.scal_unit = 0;
+                info_state.scal_width.clear();
+                info_state.scal_height.clear();
+                info_state.core.valid &= !PNG_INFO_sCAL;
             }
 
             let mut cleared_mask = mask;

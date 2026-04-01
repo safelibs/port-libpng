@@ -71,7 +71,7 @@ pub unsafe extern "C" fn png_benign_error(
         if benign {
             invoke_warning_callback(png_ptr, error_message);
         } else {
-            invoke_error_callback(png_ptr, error_message);
+            png_error(png_ptr, error_message);
         }
     });
 }

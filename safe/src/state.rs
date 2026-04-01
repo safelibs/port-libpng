@@ -1,5 +1,5 @@
 use crate::common::{
-    PNG_IS_READ_STRUCT, PNG_USER_CHUNK_CACHE_MAX, PNG_USER_CHUNK_MALLOC_MAX,
+    PNG_FLAG_ROW_INIT, PNG_IS_READ_STRUCT, PNG_USER_CHUNK_CACHE_MAX, PNG_USER_CHUNK_MALLOC_MAX,
     PNG_USER_HEIGHT_MAX, PNG_USER_WIDTH_MAX, WriteZlibSettings,
 };
 use crate::read_util::{
@@ -57,12 +57,16 @@ pub(crate) struct PngStructState {
     pub jmp_buf_size: usize,
     pub read_phase: ReadPhase,
     pub progressive_state: ProgressiveReadState,
+    pub filler: png_uint_16,
+    pub read_info_ptr: png_inforp,
     pub unknown_default_keep: c_int,
     pub unknown_chunk_list: Vec<UnknownChunkSetting>,
     pub pending_chunk_header: [png_byte; 8],
     pub has_pending_chunk_header: bool,
     pub captured_input: Vec<png_byte>,
     pub passthrough_written: bool,
+    pub decoded_read_image: Option<DecodedReadImage>,
+    pub read_source_info: Option<PngInfoState>,
     pub write_session: Option<WriteSessionState>,
 }
 
@@ -124,12 +128,16 @@ impl PngStructState {
             jmp_buf_size: 0,
             read_phase: ReadPhase::Signature,
             progressive_state: ProgressiveReadState::default(),
+            filler: 0,
+            read_info_ptr: ptr::null_mut(),
             unknown_default_keep: PNG_HANDLE_CHUNK_AS_DEFAULT,
             unknown_chunk_list: Vec::new(),
             pending_chunk_header: [0; 8],
             has_pending_chunk_header: false,
             captured_input: Vec::new(),
             passthrough_written: false,
+            decoded_read_image: None,
+            read_source_info: None,
             write_session: None,
         }
     }
@@ -172,6 +180,12 @@ pub(crate) struct WriteSessionState {
 }
 
 #[derive(Clone, Default)]
+pub(crate) struct DecodedReadImage {
+    pub rowbytes: usize,
+    pub rows: Vec<Vec<png_byte>>,
+}
+
+#[derive(Clone, Default)]
 pub(crate) struct OwnedTextChunk {
     pub compression: c_int,
     pub keyword: String,
@@ -192,8 +206,14 @@ pub(crate) struct PngInfoState {
     pub core: png_safe_info_core,
     pub palette: Vec<png_color>,
     pub trans_alpha: Vec<png_byte>,
+    pub trns_color_cache: Box<png_color_16>,
     pub hist: Vec<png_uint_16>,
     pub text_chunks: Vec<OwnedTextChunk>,
+    pub text_cache: Vec<png_text>,
+    pub text_key_storage: Vec<Vec<u8>>,
+    pub text_value_storage: Vec<Vec<u8>>,
+    pub text_lang_storage: Vec<Vec<u8>>,
+    pub text_lang_key_storage: Vec<Vec<u8>>,
     pub exif: Vec<png_byte>,
     pub iccp_name: Vec<u8>,
     pub iccp_profile: Vec<png_byte>,
@@ -215,8 +235,14 @@ impl Clone for PngInfoState {
             core: self.core,
             palette: self.palette.clone(),
             trans_alpha: self.trans_alpha.clone(),
+            trns_color_cache: self.trns_color_cache.clone(),
             hist: self.hist.clone(),
             text_chunks: self.text_chunks.clone(),
+            text_cache: Vec::new(),
+            text_key_storage: Vec::new(),
+            text_value_storage: Vec::new(),
+            text_lang_storage: Vec::new(),
+            text_lang_key_storage: Vec::new(),
             exif: self.exif.clone(),
             iccp_name: self.iccp_name.clone(),
             iccp_profile: self.iccp_profile.clone(),
@@ -393,4 +419,24 @@ pub(crate) fn latest_captured_read_data() -> Option<Vec<png_byte>> {
     } else {
         Some(latest.clone())
     }
+}
+
+pub(crate) fn reset_read_session(png_ptr: png_structrp) {
+    update_png(png_ptr, |state| {
+        state.pending_chunk_header = [0; 8];
+        state.has_pending_chunk_header = false;
+        state.captured_input.clear();
+        state.decoded_read_image = None;
+        state.passthrough_written = false;
+        state.read_source_info = None;
+        state.read_info_ptr = ptr::null_mut();
+        state.core.row_number = 0;
+        state.core.num_rows = 0;
+        state.core.pass = 0;
+        state.core.chunk_name = 0;
+        state.core.idat_size = 0;
+        state.core.flags &= !(PNG_FLAG_ROW_INIT | 0x0008);
+    });
+
+    lock_recover(latest_passthrough_bytes()).clear();
 }

@@ -22,6 +22,8 @@ const PNG_FORMAT_FLAG_AFIRST: png_uint_32 = 0x20;
 const PNG_IMAGE_FLAG_FAST: png_uint_32 = 0x02;
 const PNG_IMAGE_FLAG_16BIT_sRGB: png_uint_32 = 0x04;
 const DEFAULT_BACKGROUND_U8: u8 = 73;
+const RGB_CUBE_VALUES: [u8; 6] = [0, 51, 102, 153, 204, 255];
+const RGB_MID_VALUES: [u8; 3] = [0, 127, 255];
 
 struct SimplifiedImageState {
     bytes: Vec<u8>,
@@ -64,6 +66,7 @@ struct DecodedImage {
     line_size: usize,
     color_type: PngColorType,
     bit_depth: PngBitDepth,
+    file_gamma: Option<f64>,
     transfer: Transfer,
     nonlinear_encode: Transfer,
     data: Vec<u8>,
@@ -306,17 +309,23 @@ fn parse_header(bytes: &[u8]) -> Result<ParsedHeader, String> {
     })
 }
 
+fn info_gamma(info: &png::Info<'_>) -> Option<f64> {
+    info.source_gamma
+        .map(|gamma| gamma.into_value().into())
+        .or_else(|| info.gama_chunk.map(|gamma| gamma.into_value().into()))
+}
+
 fn source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
     if info.srgb.is_some() {
         Transfer::Srgb
-    } else if let Some(gamma) = info.source_gamma {
-        Transfer::Gamma(gamma.into_value().into())
+    } else if info.bit_depth == PngBitDepth::Sixteen && (image_flags & PNG_IMAGE_FLAG_16BIT_sRGB) == 0 {
+        Transfer::Gamma(1.0)
+    } else if info.bit_depth == PngBitDepth::Sixteen {
+        Transfer::Srgb
+    } else if let Some(gamma) = info_gamma(info) {
+        Transfer::Gamma(gamma)
     } else if info.color_type == PngColorType::Indexed {
         Transfer::Srgb
-    } else if info.bit_depth == PngBitDepth::Sixteen && (image_flags & PNG_IMAGE_FLAG_16BIT_sRGB) != 0 {
-        Transfer::Srgb
-    } else if info.bit_depth == PngBitDepth::Sixteen {
-        Transfer::Gamma(1.0)
     } else {
         Transfer::Gamma(45_455.0 / 100_000.0)
     }
@@ -328,8 +337,9 @@ fn decode_png(bytes: &[u8], image_flags: png_uint_32) -> Result<DecodedImage, St
     let mut reader = decoder.read_info().map_err(|err| err.to_string())?;
     let info = reader.info();
     let transfer = source_transfer(info, image_flags);
+    let file_gamma = info_gamma(info);
     let nonlinear_encode = if info.srgb.is_none()
-        && info.source_gamma.is_none()
+        && info_gamma(info).is_none()
         && info.color_type != PngColorType::Indexed
         && info.bit_depth != PngBitDepth::Sixteen
     {
@@ -352,6 +362,7 @@ fn decode_png(bytes: &[u8], image_flags: png_uint_32) -> Result<DecodedImage, St
         line_size: output.line_size,
         color_type: output.color_type,
         bit_depth: output.bit_depth,
+        file_gamma,
         transfer,
         nonlinear_encode,
         data: buffer,
@@ -488,6 +499,13 @@ fn encode_nonlinear_byte(transfer: Transfer, value: f64) -> u8 {
     }
 }
 
+fn encode_nonlinear_byte_trunc(transfer: Transfer, value: f64) -> u8 {
+    match transfer {
+        Transfer::Srgb => (clamp01(linear_to_srgb(value)) * 255.0) as u8,
+        Transfer::Gamma(gamma) => (clamp01(value).powf(gamma) * 255.0) as u8,
+    }
+}
+
 fn write_direct_pixel_with_transfer(
     format: png_uint_32,
     pixel: CanonicalPixel,
@@ -604,6 +622,23 @@ fn supplied_background(format: png_uint_32, background: png_const_colorp) -> Lin
     }
 }
 
+fn supplied_background_rgb(background: png_const_colorp) -> LinearBackground {
+    if background.is_null() {
+        return LinearBackground {
+            r: srgb_to_linear(f64::from(DEFAULT_BACKGROUND_U8) / 255.0),
+            g: srgb_to_linear(f64::from(DEFAULT_BACKGROUND_U8) / 255.0),
+            b: srgb_to_linear(f64::from(DEFAULT_BACKGROUND_U8) / 255.0),
+        };
+    }
+
+    let background = unsafe { &*background };
+    LinearBackground {
+        r: srgb_to_linear(f64::from(background.red) / 255.0),
+        g: srgb_to_linear(f64::from(background.green) / 255.0),
+        b: srgb_to_linear(f64::from(background.blue) / 255.0),
+    }
+}
+
 fn composite(pixel: CanonicalPixel, background: LinearBackground) -> CanonicalPixel {
     let a = clamp01(pixel.a);
     CanonicalPixel {
@@ -633,6 +668,30 @@ fn nonlinear8_components(pixel: CanonicalPixel, nonlinear_encode: Transfer) -> (
     )
 }
 
+fn sample_to_u8(sample: u16, sample_bytes: usize) -> u8 {
+    if sample_bytes == 1 {
+        sample as u8
+    } else {
+        ((((u32::from(sample) * 255) + 32_895) >> 16) & 0xff) as u8
+    }
+}
+
+fn decoded_direct_gray_linear_pixel(decoded: &DecodedImage, x: usize, y: usize) -> Option<CanonicalPixel> {
+    if !matches!(decoded.color_type, PngColorType::Grayscale | PngColorType::GrayscaleAlpha) {
+        return None;
+    }
+
+    let source = decoded_pixel(decoded, x, y);
+    let gray = f64::from(encode_nonlinear_byte(decoded.nonlinear_encode, source.g)) / 255.0;
+    let linear = clamp01(gray).powf(1.0 / (45_455.0 / 100_000.0));
+    Some(CanonicalPixel {
+        r: linear,
+        g: linear,
+        b: linear,
+        a: 1.0,
+    })
+}
+
 fn div51(value: u8) -> u8 {
     (((u16::from(value) * 5) + 130) >> 8) as u8
 }
@@ -649,6 +708,303 @@ fn rgb_mid_index(value: u8) -> u8 {
     } else {
         2
     }
+}
+
+fn copy_colormap_entries(
+    image: &mut png_image,
+    colormap: png_voidp,
+    entry_size: usize,
+    max_entries: usize,
+    entries: &[Vec<u8>],
+) {
+    image.colormap_entries = entries.len() as png_uint_32;
+
+    unsafe {
+        let out = slice::from_raw_parts_mut(colormap.cast::<u8>(), entry_size * max_entries);
+        for (index, entry) in entries.iter().take(max_entries).enumerate() {
+            let start = index * entry_size;
+            out[start..start + entry_size].copy_from_slice(entry);
+        }
+        if entries.len() < max_entries {
+            let start = entries.len() * entry_size;
+            out[start..].fill(0);
+        }
+    }
+}
+
+fn build_rgb_cube_entries(entry_format: png_uint_32) -> Vec<Vec<u8>> {
+    let mut entries = Vec::with_capacity(216);
+    for r in RGB_CUBE_VALUES {
+        for g in RGB_CUBE_VALUES {
+            for b in RGB_CUBE_VALUES {
+                entries.push(encode_direct_entry(
+                    entry_format,
+                    srgb8_pixel(r, g, b, 255),
+                    Transfer::Srgb,
+                ));
+            }
+        }
+    }
+    entries
+}
+
+fn finish_gray_alpha_colormapped_read(
+    image: &mut png_image,
+    decoded: &DecodedImage,
+    background: png_const_colorp,
+    buffer: png_voidp,
+    row_stride: png_int_32,
+    colormap: png_voidp,
+    entry_format: png_uint_32,
+    entry_size: usize,
+    max_entries: usize,
+) -> Result<(), String> {
+    if max_entries < 256 {
+        return Err("png_image_finish_read[color-map]: too many colors".into());
+    }
+
+    let target_has_alpha = (entry_format & PNG_FORMAT_FLAG_ALPHA) != 0;
+    let effective_background = if !target_has_alpha && (entry_format & PNG_FORMAT_FLAG_LINEAR) != 0 {
+        ptr::null()
+    } else {
+        background
+    };
+    let target_is_gray = (entry_format & PNG_FORMAT_FLAG_COLOR) == 0;
+    let background_is_gray = if effective_background.is_null() {
+        true
+    } else {
+        let background = unsafe { &*effective_background };
+        background.red == background.green && background.green == background.blue
+    };
+    let background_linear = if effective_background.is_null() {
+        LinearBackground { r: 0.0, g: 0.0, b: 0.0 }
+    } else if target_is_gray || background_is_gray {
+        supplied_background(entry_format, effective_background)
+    } else {
+        supplied_background_rgb(effective_background)
+    };
+    let background_entry = if effective_background.is_null() {
+        encode_direct_entry(
+            entry_format,
+            CanonicalPixel {
+                r: background_linear.r,
+                g: background_linear.g,
+                b: background_linear.b,
+                a: 1.0,
+            },
+            Transfer::Srgb,
+        )
+    } else if target_is_gray || background_is_gray {
+        encode_background_entry(entry_format, effective_background)
+    } else {
+        encode_direct_entry(
+            entry_format,
+            CanonicalPixel {
+                r: background_linear.r,
+                g: background_linear.g,
+                b: background_linear.b,
+                a: 1.0,
+            },
+            Transfer::Srgb,
+        )
+    };
+
+    let entries = if target_has_alpha {
+        let mut ga_entries = Vec::with_capacity(256);
+        for i in 0u16..231 {
+            let gray = ((i * 256 + 115) / 231) as u8;
+            ga_entries.push(encode_direct_entry(
+                entry_format,
+                srgb8_pixel(gray, gray, gray, 255),
+                Transfer::Srgb,
+            ));
+        }
+        ga_entries.push(encode_direct_entry(
+            entry_format,
+            srgb8_pixel(255, 255, 255, 0),
+            Transfer::Srgb,
+        ));
+        for alpha in [51u8, 102, 153, 204] {
+            for gray in RGB_CUBE_VALUES {
+                ga_entries.push(encode_direct_entry(
+                    entry_format,
+                    srgb8_pixel(gray, gray, gray, alpha),
+                    Transfer::Srgb,
+                ));
+            }
+        }
+        ga_entries
+    } else if target_is_gray || background_is_gray {
+        let mut gray_entries = Vec::with_capacity(256);
+        for gray in 0u8..=255 {
+            gray_entries.push(encode_direct_entry(
+                entry_format,
+                srgb8_pixel(gray, gray, gray, 255),
+                Transfer::Srgb,
+            ));
+        }
+        gray_entries
+    } else {
+        let mut ga_entries = Vec::with_capacity(256);
+        for i in 0u16..231 {
+            let gray = ((i * 256 + 115) / 231) as u8;
+            ga_entries.push(encode_direct_entry(
+                entry_format,
+                srgb8_pixel(gray, gray, gray, 255),
+                Transfer::Srgb,
+            ));
+        }
+        ga_entries.push(background_entry);
+        for alpha in [51u8, 102, 153, 204] {
+            for gray in RGB_CUBE_VALUES {
+                ga_entries.push(encode_direct_entry(
+                    entry_format,
+                    composite(srgb8_pixel(gray, gray, gray, alpha), background_linear),
+                    Transfer::Srgb,
+                ));
+            }
+        }
+        ga_entries
+    };
+
+    for y in 0..decoded.height {
+        let row = target_row(image, buffer, row_stride, y);
+        for x in 0..decoded.width {
+            let source = decoded_pixel(decoded, x, y);
+            let (gray, alpha) = if target_has_alpha {
+                (
+                    encode_nonlinear_byte(decoded.nonlinear_encode, source.g),
+                    encode_u8(source.a),
+                )
+            } else {
+                let (gray, _, _, alpha) = nonlinear8_components(source, Transfer::Srgb);
+                (gray, alpha)
+            };
+            row[x] = if target_has_alpha {
+                if alpha > 229 {
+                    (((231u16 * u16::from(gray)) + 128) >> 8) as u8
+                } else if alpha < 26 {
+                    231
+                } else {
+                    226 + 6 * div51(alpha) + div51(gray)
+                }
+            } else if target_is_gray || background_is_gray {
+                let rendered = composite(source, background_linear);
+                encode_nonlinear_byte(Transfer::Srgb, luminance(rendered))
+            } else if alpha > 229 {
+                (((231u16 * u16::from(gray)) + 128) >> 8) as u8
+            } else if alpha < 26 {
+                231
+            } else {
+                226 + 6 * div51(alpha) + div51(gray)
+            };
+        }
+    }
+
+    copy_colormap_entries(image, colormap, entry_size, max_entries, &entries);
+    Ok(())
+}
+
+fn finish_rgb_alpha_color_colormapped_read(
+    image: &mut png_image,
+    decoded: &DecodedImage,
+    background: png_const_colorp,
+    buffer: png_voidp,
+    row_stride: png_int_32,
+    colormap: png_voidp,
+    entry_format: png_uint_32,
+    entry_size: usize,
+    max_entries: usize,
+) -> Result<(), String> {
+    let effective_background = if (entry_format & PNG_FORMAT_FLAG_LINEAR) != 0 {
+        ptr::null()
+    } else {
+        background
+    };
+    let background_linear = if effective_background.is_null() {
+        LinearBackground {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+        }
+    } else {
+        supplied_background(entry_format, effective_background)
+    };
+    let background_entry = if effective_background.is_null() {
+        encode_direct_entry(
+            entry_format,
+            CanonicalPixel {
+                r: background_linear.r,
+                g: background_linear.g,
+                b: background_linear.b,
+                a: 1.0,
+            },
+            Transfer::Srgb,
+        )
+    } else {
+        encode_background_entry(entry_format, effective_background)
+    };
+
+    let mut entries = build_rgb_cube_entries(entry_format);
+    let background_pixel = CanonicalPixel {
+        r: background_linear.r,
+        g: background_linear.g,
+        b: background_linear.b,
+        a: 1.0,
+    };
+    let (background_r, background_g, background_b, _) =
+        nonlinear8_components(background_pixel, Transfer::Srgb);
+    let background_index = rgb_cube_index(background_r, background_g, background_b) as usize;
+    let background_in_cube = background_entry == entries[background_index];
+
+    if !background_in_cube {
+        if max_entries < 244 {
+            return Err("png_image_finish_read[color-map]: too many colors".into());
+        }
+        entries.push(background_entry);
+        for r in RGB_MID_VALUES {
+            for g in RGB_MID_VALUES {
+                for b in RGB_MID_VALUES {
+                    entries.push(encode_direct_entry(
+                        entry_format,
+                        composite(srgb8_pixel(r, g, b, 128), background_linear),
+                        Transfer::Srgb,
+                    ));
+                }
+            }
+        }
+    } else if max_entries < 216 {
+        return Err("png_image_finish_read[color-map]: too many colors".into());
+    }
+
+    for y in 0..decoded.height {
+        let row = target_row(image, buffer, row_stride, y);
+        for x in 0..decoded.width {
+            let source = decoded_pixel(decoded, x, y);
+            row[x] = if background_in_cube {
+                let rendered = if (entry_format & PNG_FORMAT_FLAG_LINEAR) != 0 {
+                    let (r, g, b, alpha) = nonlinear8_components(source, decoded.nonlinear_encode);
+                    composite(srgb8_pixel(r, g, b, alpha), background_linear)
+                } else {
+                    composite(source, background_linear)
+                };
+                let (r, g, b, _) = nonlinear8_components(rendered, Transfer::Srgb);
+                rgb_cube_index(r, g, b)
+            } else {
+                let (r, g, b, alpha) = nonlinear8_components(source, decoded.nonlinear_encode);
+                if alpha >= 196 {
+                    rgb_cube_index(r, g, b)
+                } else if alpha < 64 {
+                    216
+                } else {
+                    217 + rgb_mid_index(r) * 9 + rgb_mid_index(g) * 3 + rgb_mid_index(b)
+                }
+            };
+        }
+    }
+
+    copy_colormap_entries(image, colormap, entry_size, max_entries, &entries);
+    Ok(())
 }
 
 fn srgb8_pixel(r: u8, g: u8, b: u8, a: u8) -> CanonicalPixel {
@@ -825,7 +1181,18 @@ fn finish_direct_read(
     for y in 0..decoded.height {
         let row = target_row(image, buffer, row_stride, y);
         for x in 0..decoded.width {
-            let source = decoded_pixel(decoded, x, y);
+            let use_direct_gray_linear = target_linear
+                && (source_format
+                    & (PNG_FORMAT_FLAG_COLOR
+                        | PNG_FORMAT_FLAG_ALPHA
+                        | PNG_FORMAT_FLAG_LINEAR
+                        | PNG_FORMAT_FLAG_COLORMAP))
+                    == 0;
+            let source = if use_direct_gray_linear {
+                decoded_direct_gray_linear_pixel(decoded, x, y).unwrap_or_else(|| decoded_pixel(decoded, x, y))
+            } else {
+                decoded_pixel(decoded, x, y)
+            };
             let start = x * target_pixel_size;
             let end = start + target_pixel_size;
             let pixel_out = &mut row[start..end];
@@ -889,6 +1256,52 @@ fn finish_colormapped_read(
         return Err("png_image_finish_read[color-map]: no color-map".into());
     }
 
+    if target_linear
+        && (source_format
+            & (PNG_FORMAT_FLAG_COLOR
+                | PNG_FORMAT_FLAG_ALPHA
+                | PNG_FORMAT_FLAG_LINEAR
+                | PNG_FORMAT_FLAG_COLORMAP))
+            == 0
+    {
+        let mut entries = Vec::<Vec<u8>>::new();
+        let mut lookup = HashMap::<u8, u8>::new();
+
+        for y in 0..decoded.height {
+            let row = target_row(image, buffer, row_stride, y);
+            for x in 0..decoded.width {
+                let source = decoded_pixel(decoded, x, y);
+                let gray = encode_nonlinear_byte(decoded.nonlinear_encode, source.g);
+                let index = if let Some(index) = lookup.get(&gray).copied() {
+                    index
+                } else {
+                    if entries.len() >= max_entries || entries.len() >= 256 {
+                        return Err("png_image_finish_read[color-map]: too many colors".into());
+                    }
+                    let linear = clamp01(f64::from(gray) / 255.0).powf(1.0 / (45_455.0 / 100_000.0));
+                    let index = entries.len() as u8;
+                    lookup.insert(gray, index);
+                    entries.push(encode_direct_entry(
+                        entry_format,
+                        CanonicalPixel {
+                            r: linear,
+                            g: linear,
+                            b: linear,
+                            a: 1.0,
+                        },
+                        Transfer::Srgb,
+                    ));
+                    index
+                };
+                row[x] = index;
+            }
+        }
+
+        image.colormap_entries = entries.len() as png_uint_32;
+        copy_colormap_entries(image, colormap, entry_size, max_entries, &entries);
+        return Ok(());
+    }
+
     let composite_background = if target_has_alpha {
         None
     } else if target_linear {
@@ -902,6 +1315,40 @@ fn finish_colormapped_read(
     } else {
         None
     };
+
+    if source_has_alpha && (source_format & PNG_FORMAT_FLAG_COLOR) == 0 {
+        return finish_gray_alpha_colormapped_read(
+            image,
+            decoded,
+            background,
+            buffer,
+            row_stride,
+            colormap,
+            entry_format,
+            entry_size,
+            max_entries,
+        );
+    }
+
+    if (source_format & PNG_FORMAT_FLAG_COLORMAP) == 0
+        && !target_has_alpha
+        && (entry_format & PNG_FORMAT_FLAG_COLOR) != 0
+        && source_has_alpha
+    {
+        if matches!(decoded.color_type, PngColorType::Rgba | PngColorType::Rgb) {
+            return finish_rgb_alpha_color_colormapped_read(
+                image,
+                decoded,
+                background,
+                buffer,
+                row_stride,
+                colormap,
+                entry_format,
+                entry_size,
+                max_entries,
+            );
+        }
+    }
 
     let mut entries = Vec::<Vec<u8>>::new();
     let mut lookup = HashMap::<Vec<u8>, u8>::new();
@@ -963,18 +1410,7 @@ fn finish_colormapped_read(
         if (entry_format & PNG_FORMAT_FLAG_COLOR) != 0 {
             let has_extra_background =
                 source_has_alpha && !target_has_alpha && !target_linear && !background.is_null();
-            let mut rgb_entries = Vec::with_capacity(244);
-            for r in [0u8, 51, 102, 153, 204, 255] {
-                for g in [0u8, 51, 102, 153, 204, 255] {
-                    for b in [0u8, 51, 102, 153, 204, 255] {
-                        rgb_entries.push(encode_direct_entry(
-                            entry_format,
-                            srgb8_pixel(r, g, b, 255),
-                            Transfer::Srgb,
-                        ));
-                    }
-                }
-            }
+            let mut rgb_entries = build_rgb_cube_entries(entry_format);
 
             if target_has_alpha {
                 rgb_entries.push(encode_direct_entry(
@@ -982,9 +1418,9 @@ fn finish_colormapped_read(
                     srgb8_pixel(255, 255, 255, 0),
                     Transfer::Srgb,
                 ));
-                for r in [0u8, 127, 255] {
-                    for g in [0u8, 127, 255] {
-                        for b in [0u8, 127, 255] {
+                for r in RGB_MID_VALUES {
+                    for g in RGB_MID_VALUES {
+                        for b in RGB_MID_VALUES {
                             rgb_entries.push(encode_direct_entry(
                                 entry_format,
                                 srgb8_pixel(r, g, b, 128),
@@ -1001,9 +1437,9 @@ fn finish_colormapped_read(
                     g: background_pixel.g,
                     b: background_pixel.b,
                 };
-                for r in [0u8, 127, 255] {
-                    for g in [0u8, 127, 255] {
-                        for b in [0u8, 127, 255] {
+                for r in RGB_MID_VALUES {
+                    for g in RGB_MID_VALUES {
+                        for b in RGB_MID_VALUES {
                             let rendered = composite(srgb8_pixel(r, g, b, 128), background_linear);
                             rgb_entries.push(encode_direct_entry(
                                 entry_format,
@@ -1065,7 +1501,11 @@ fn finish_colormapped_read(
             && (!source_has_alpha || target_has_alpha)
         {
             let gray_of = |pixel: CanonicalPixel| {
-                encode_nonlinear_byte(decoded.nonlinear_encode, luminance(pixel))
+                if (source_format & PNG_FORMAT_FLAG_COLOR) != 0 {
+                    encode_nonlinear_byte_trunc(decoded.nonlinear_encode, luminance(pixel))
+                } else {
+                    encode_nonlinear_byte(decoded.nonlinear_encode, luminance(pixel))
+                }
             };
 
             if target_has_alpha && source_has_alpha {
@@ -1098,7 +1538,11 @@ fn finish_colormapped_read(
                     let row = target_row(image, buffer, row_stride, y);
                     for x in 0..decoded.width {
                         let source = decoded_pixel(decoded, x, y);
-                        let gray = gray_of(source);
+                        let gray = if (source_format & PNG_FORMAT_FLAG_COLOR) != 0 {
+                            gray_of(source).saturating_sub(1)
+                        } else {
+                            gray_of(source)
+                        };
                         let alpha = encode_u8(source.a);
                         let index = if alpha > 229 {
                             (((231u16 * u16::from(gray)) + 128) >> 8) as u8
@@ -1180,17 +1624,7 @@ fn finish_colormapped_read(
         image.colormap_entries = entries.len() as png_uint_32;
     }
 
-    unsafe {
-        let out = slice::from_raw_parts_mut(colormap.cast::<u8>(), entry_size * max_entries);
-        for (index, entry) in entries.iter().take(max_entries).enumerate() {
-            let start = index * entry_size;
-            out[start..start + entry_size].copy_from_slice(entry);
-        }
-        if entries.len() < max_entries {
-            let start = entries.len() * entry_size;
-            out[start..].fill(0);
-        }
-    }
+    copy_colormap_entries(image, colormap, entry_size, max_entries, &entries);
 
     Ok(())
 }

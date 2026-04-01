@@ -262,9 +262,11 @@ fn sync_struct_colorspace_from_info(png_ptr: png_structrp, info_ptr: png_inforp)
         return;
     }
 
-    let info = read_info_core(info_ptr);
+    let info_colorspace = state::get_info(info_ptr)
+        .map(|info| info.core.colorspace)
+        .unwrap_or_else(|| read_info_core(info_ptr).colorspace);
     let mut core = read_core(png_ptr);
-    core.colorspace = info.colorspace;
+    core.colorspace = info_colorspace;
     write_core(png_ptr, &core);
 }
 
@@ -1695,27 +1697,23 @@ pub(crate) unsafe fn read_info_impl(png_ptr: png_structrp, info_ptr: png_inforp)
         .map(|png_state| usize::try_from(png_state.sig_bytes).unwrap_or(0) < PNG_SIGNATURE.len())
         .unwrap_or(true)
     {
+        state::reset_read_session(png_ptr);
         let snapshot = snapshot_parse_state(png_ptr, info_ptr);
         read_signature_or_rethrow(png_ptr, info_ptr, &snapshot);
         free_parse_snapshot(&snapshot);
     }
 
     read_info_loop(png_ptr, info_ptr);
+    if !info_ptr.is_null() {
+        let source_info = state::get_info(info_ptr);
+        state::update_png(png_ptr, |png_state| {
+            png_state.read_info_ptr = info_ptr;
+            png_state.read_source_info = source_info;
+        });
+    }
 }
 
 pub(crate) unsafe fn read_end_impl(png_ptr: png_structrp, info_ptr: png_inforp) {
-    let finished_rows = state::with_png(png_ptr, |png_state| png_state.read_phase == ReadPhase::ImageRows)
-        .unwrap_or(false);
-    if finished_rows {
-        let mut core = read_core(png_ptr);
-        core.mode |= PNG_HAVE_IEND | PNG_AFTER_IDAT | PNG_HAVE_CHUNK_AFTER_IDAT;
-        core.idat_size = 0;
-        core.flags |= PNG_FLAG_ZSTREAM_ENDED;
-        write_core(png_ptr, &core);
-        set_read_phase(png_ptr, ReadPhase::Terminal);
-        return;
-    }
-
     read_end_loop(png_ptr, info_ptr);
     set_read_phase(png_ptr, ReadPhase::Terminal);
 }
@@ -1794,6 +1792,11 @@ pub unsafe extern "C" fn png_safe_rust_start_read_image(png_ptr: png_structrp) -
 
 pub(crate) unsafe fn read_row_impl(png_ptr: png_structrp, row: png_bytep, display_row: png_bytep) {
     unsafe {
+        if (read_core(png_ptr).flags & PNG_FLAG_ROW_INIT) == 0 {
+            if png_safe_call_read_start_row(png_ptr) == 0 {
+                raise_read_longjmp();
+            }
+        }
         if png_safe_call_read_row(png_ptr, row, display_row) == 0 {
             raise_read_longjmp();
         }

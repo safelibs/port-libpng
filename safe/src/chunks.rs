@@ -41,12 +41,12 @@ pub(crate) unsafe fn call_benign_error(png_ptr: png_structrp, message: &[u8]) ->
     if benign {
         unsafe { call_warning(png_ptr, message) }
     } else {
-        unsafe { call_error(png_ptr, message) }
+        unsafe { crate::error::png_error(png_ptr, message.as_ptr().cast::<c_char>()) }
     }
 }
 
 pub(crate) unsafe fn call_app_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
-    unsafe { call_error(png_ptr, message) }
+    unsafe { crate::error::png_error(png_ptr, message.as_ptr().cast::<c_char>()) }
 }
 
 pub(crate) unsafe fn call_error(png_ptr: png_structrp, message: &[u8]) -> c_int {

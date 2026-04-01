@@ -192,10 +192,23 @@ fn ppi_from_ppm(ppm: png_uint_32) -> png_uint_32 {
     (((ppm as u64) * 127 + 2_500) / 5_000) as png_uint_32
 }
 
+fn checked_fixed_point(value: i128) -> Option<png_fixed_point> {
+    if value < i128::from(i32::MIN) || value > i128::from(i32::MAX) {
+        return None;
+    }
+
+    Some(value as png_fixed_point)
+}
+
 fn fixed_inches_from_microns(microns: png_int_32) -> png_fixed_point {
-    let value = microns as i64;
-    let bias = if value >= 0 { 63 } else { -63 };
-    ((value * 500 + bias) / 127) as png_fixed_point
+    let value = i128::from(microns) * 500;
+    let rounded = if value < 0 {
+        (value - 63) / 127
+    } else {
+        (value + 63) / 127
+    };
+
+    checked_fixed_point(rounded).unwrap_or(0)
 }
 
 unsafe fn apply_read_png_transforms(
@@ -628,7 +641,16 @@ pub unsafe extern "C" fn png_progressive_combine_row(
 
         let rowbytes = read_core(png_ptr).rowbytes;
         if rowbytes != 0 {
-            ptr::copy_nonoverlapping(new_row, old_row, rowbytes);
+            let core = read_core(png_ptr);
+            let width = usize::try_from(core.width).unwrap_or(0);
+            let src = core::slice::from_raw_parts(new_row, rowbytes);
+            crate::bridge_ffi::copy_packed_row_preserving_padding(
+                old_row,
+                src,
+                rowbytes,
+                width,
+                usize::from(core.pixel_depth),
+            );
         }
     });
 }
@@ -693,7 +715,11 @@ pub unsafe extern "C" fn png_get_pixel_aspect_ratio_fixed(
     crate::abi_guard!(png_ptr.cast_mut(), {
         read_phys(png_ptr, info_ptr)
             .filter(|(x, y, _)| *x != 0 && *y != 0 && *x <= PNG_UINT_31_MAX && *y <= PNG_UINT_31_MAX)
-            .map(|(x, y, _)| (((y as i64) * (PNG_FP_1 as i64) + (x as i64 / 2)) / x as i64) as png_fixed_point)
+            .and_then(|(x, y, _)| {
+                let numerator = i128::from(y) * i128::from(PNG_FP_1);
+                let rounded = (numerator + i128::from(x) / 2) / i128::from(x);
+                checked_fixed_point(rounded)
+            })
             .unwrap_or(0)
     })
 }

@@ -6,6 +6,8 @@ use core::ffi::c_int;
 use core::ptr;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
+const PNG_INTERLACE_TRANSFORM: png_uint_32 = 0x0002;
+
 unsafe extern "C" {
     fn bridge_png_process_data_pause(png_ptr: png_structrp, save: c_int) -> usize;
     fn bridge_png_process_data_skip(png_ptr: png_structrp) -> png_uint_32;
@@ -111,6 +113,11 @@ fn note_progressive_pause_bytes(png_ptr: png_structrp, save: bool) -> usize {
 
 fn progressive_rowbytes(png_ptr: png_structrp, info_ptr: png_inforp) -> usize {
     let core = read_core(png_ptr);
+    if core.interlaced != 0 && (core.transformations & PNG_INTERLACE_TRANSFORM) == 0 {
+        if let Some(rowbytes) = crate::bridge_ffi::current_adam7_pass_rowbytes(&core) {
+            return rowbytes;
+        }
+    }
     if core.rowbytes != 0 {
         core.rowbytes
     } else {

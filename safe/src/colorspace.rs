@@ -273,6 +273,15 @@ fn set_background_fixed_impl(
     core.transformations &= !PNG_ENCODE_ALPHA;
     core.flags &= !PNG_FLAG_OPTIMIZE_ALPHA;
     core.background = unsafe { *background_color };
+    if core.background.red == 0 && core.background.green == 0 && core.background.blue == 0 {
+        core.background.red = core.background.gray;
+        core.background.green = core.background.gray;
+        core.background.blue = core.background.gray;
+    } else if core.background.red == core.background.green
+        && core.background.red == core.background.blue
+    {
+        core.background.gray = core.background.red;
+    }
     core.background_gamma = background_gamma;
     core.background_gamma_type = background_gamma_code as png_byte;
     if need_expand != 0 {
@@ -388,7 +397,9 @@ fn get_cHRM_xyz_fixed_impl(
         return 0;
     }
 
-    let info = read_info_core(info_ptr);
+    let info = crate::state::get_info(info_ptr.cast_mut())
+        .map(|info| info.core)
+        .unwrap_or_else(|| read_info_core(info_ptr));
     if (info.colorspace.flags & PNG_COLORSPACE_HAVE_ENDPOINTS) == 0 {
         return 0;
     }
