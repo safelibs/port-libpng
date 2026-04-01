@@ -7,6 +7,8 @@ libpng1.6 (1.6.43-5ubuntu0.5+safelibs1) noble; urgency=medium
     package png-fix-itxt separately against zlib only.
   * Refresh the binary and source package artifacts in place using the
     tracked upstream orig tarball and the current safe packaging tree.
+  * Keep the installer udeb in the refreshed artifact set without a noudeb
+    profile gate so the emitted binary and source metadata stay coherent.
 
  -- Safe Libraries Team <safelibs@example.invalid>  Tue, 31 Mar 2026 22:17:27 -0700
 

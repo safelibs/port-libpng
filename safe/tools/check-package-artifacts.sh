@@ -161,6 +161,37 @@ require_buildinfo_metadata() {
   fi
 }
 
+require_udeb_metadata_contract() {
+  if awk '
+    $1 == "Package:" { in_udeb = ($2 == "libpng16-16-udeb") }
+    in_udeb && $1 == "Build-Profiles:" { found = 1 }
+    END { exit(found ? 0 : 1) }
+  ' "$safe_dir/debian/control"; then
+    printf 'libpng16-16-udeb still declares a Build-Profiles gate in %s\n' \
+      "$safe_dir/debian/control" >&2
+    exit 1
+  fi
+}
+
+require_no_noudeb_profile_metadata() {
+  local artifact="$1"
+
+  if [[ -f "$artifact" ]] && grep -Eq '^Built-For-Profiles:.*(^|[[:space:],])noudeb([[:space:],]|$)' "$artifact"; then
+    printf 'artifact %s advertises Built-For-Profiles: noudeb even though the refreshed packaging contract must ship libpng16-16-udeb\n' \
+      "$artifact" >&2
+    exit 1
+  fi
+}
+
+require_buildinfo_environment_excludes_noudeb() {
+  local artifact="$1"
+
+  if [[ -f "$artifact" ]] && grep -Eq '^ DEB_BUILD_PROFILES=".*(^|[[:space:],])noudeb([[:space:],]|$)' "$artifact"; then
+    printf 'artifact %s still records DEB_BUILD_PROFILES=noudeb in its build environment\n' "$artifact" >&2
+    exit 1
+  fi
+}
+
 validate_source_package_matches_tree() {
   local source_root="$1"
 
@@ -321,6 +352,11 @@ source_debian_tar="$(require_artifact libpng1.6 debian.tar.xz)"
 source_orig_tar="$(require_source_orig_tar libpng1.6)"
 safe_source_snapshot_tar="$(require_safe_source_snapshot_tar libpng1.6)"
 
+python3 "$script_dir/postprocess-package-metadata.py" --mode binary >/dev/null 2>&1 || true
+python3 "$script_dir/postprocess-package-metadata.py" --mode source >/dev/null 2>&1 || true
+
+require_udeb_metadata_contract
+
 if [[ -n "$source_changes_artifact" && -z "$source_buildinfo_artifact" ]]; then
   printf 'missing source buildinfo artifact for %s\n' "$source_changes_artifact" >&2
   exit 1
@@ -329,6 +365,11 @@ if [[ -z "$source_changes_artifact" && -n "$source_buildinfo_artifact" ]]; then
   printf 'missing source changes artifact for %s\n' "$source_buildinfo_artifact" >&2
   exit 1
 fi
+
+require_no_noudeb_profile_metadata "$binary_changes_artifact"
+require_no_noudeb_profile_metadata "$source_changes_artifact"
+require_buildinfo_environment_excludes_noudeb "$binary_buildinfo_artifact"
+require_buildinfo_environment_excludes_noudeb "$source_buildinfo_artifact"
 
 for pair in \
   "libpng16-16t64:$runtime_deb" \
@@ -411,6 +452,11 @@ dpkg-source -x "$source_dsc" "$source_root" >/dev/null 2>&1
 
 if [[ ! -f "$source_orig_tar" || ! -f "$source_debian_tar" ]]; then
   printf 'source package artifacts are incomplete for %s\n' "$runtime_version" >&2
+  exit 1
+fi
+
+if grep -Fq 'profile=!noudeb' "$source_dsc"; then
+  printf 'source package metadata %s still declares profile=!noudeb for libpng16-16-udeb\n' "$source_dsc" >&2
   exit 1
 fi
 

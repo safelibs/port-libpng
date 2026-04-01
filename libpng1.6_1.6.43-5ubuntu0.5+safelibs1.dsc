@@ -13,15 +13,15 @@ Build-Depends: debhelper-compat (= 13), cargo, dpkg-dev (>= 1.22.5), gcc, mawk, 
 Package-List:
  libpng-dev deb libdevel optional arch=any
  libpng-tools deb libdevel optional arch=any
- libpng16-16-udeb udeb debian-installer optional arch=any profile=!noudeb
+ libpng16-16-udeb udeb debian-installer optional arch=any
  libpng16-16t64 deb libs optional arch=any
 Checksums-Sha1:
  7e8ad7c14b4aca0b860447e82cefd54331eeea37 190828 libpng1.6_1.6.43.orig.tar.xz
- ea27d29c06ff018252c4101c2e784279940b4766 431532 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ 7e10806177d306c293e93647e43294a24de10502 433356 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
 Checksums-Sha256:
  245573d767b5374b12e0d261b69d38c48236b15581c5cf3de8b46caa494e4ba5 190828 libpng1.6_1.6.43.orig.tar.xz
- 547a28dd35f6b031372688f2cdaf479b8d0c7ed3bfaf67f9e62d66e6315e0893 431532 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ ab2946f1e1162c9c4f17722a56600972bf37b7c8a2c4eb1dbd09e20005671ff2 433356 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
 Files:
  17d02fb01d828e0cdc9e25389aae22d4 190828 libpng1.6_1.6.43.orig.tar.xz
- cdf16497b64e3485136eb533ff2a26e5 431532 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ 124288c4477cad752e7b9eb73892340a 433356 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
 Original-Maintainer: Maintainers of libpng1.6 packages <libpng1.6@packages.debian.org>

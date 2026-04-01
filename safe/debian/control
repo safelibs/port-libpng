@@ -59,7 +59,6 @@ Description: PNG library - tools (version 1.6)
 
 Package: libpng16-16-udeb
 Package-Type: udeb
-Build-Profiles: <!noudeb>
 Section: debian-installer
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
