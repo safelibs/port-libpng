@@ -8,7 +8,7 @@ Checksums-Sha1:
  da4a12c54d3283e9aad3fabfb0936bc6581335c7 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
 Checksums-Sha256:
  f2e668a3290ab37c3cdeff227495f83a7cbe95223a55081640491e471271eb14 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
-Build-Origin: Debian
+Build-Origin: Ubuntu
 Build-Architecture: amd64
 Build-Date: Tue, 31 Mar 2026 22:17:27 -0700
 Build-Tainted-By:
@@ -245,6 +245,5 @@ Installed-Build-Depends:
 Environment:
  DEB_BUILD_OPTIONS="parallel=24"
  DEB_BUILD_PROFILES=""
- DEB_VENDOR="Debian"
- LANG="C.UTF-8"
+ LANG="en_US.UTF-8"
  SOURCE_DATE_EPOCH="1775020647"
