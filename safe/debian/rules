@@ -21,6 +21,8 @@ stage_libdir := $(stage_root)/usr/lib/$(multiarch)
 stage_includedir := $(stage_root)/usr/include
 tool_builddir := $(CURDIR)/debian/build-tools
 package_version := $(shell dpkg-parsechangelog -SVersion)
+upstream_root := $(if $(wildcard $(CURDIR)/pkg/upstream/contrib/tools/pngfix.c),$(CURDIR)/pkg/upstream,$(CURDIR)/../original)
+metadata_source_root := $(CURDIR)/debian/upstream-source-root
 runtime_lib = $(firstword $(wildcard debian/libpng16-16t64/usr/lib/$(multiarch)/libpng16.so.*.*.*))
 runtime_soname = $(notdir $(runtime_lib))
 
@@ -28,14 +30,26 @@ runtime_soname = $(notdir $(runtime_lib))
 	dh $@
 
 override_dh_auto_configure:
-	:
+	rm -rf $(metadata_source_root)
+	mkdir -p $(metadata_source_root)
+	cp -a $(upstream_root)/ANNOUNCE $(metadata_source_root)/ANNOUNCE
+	cp -a $(upstream_root)/CHANGES $(metadata_source_root)/CHANGES
+	cp -a $(upstream_root)/README $(metadata_source_root)/README
+	cp -a $(upstream_root)/TODO $(metadata_source_root)/TODO
+	cp -a $(upstream_root)/example.c $(metadata_source_root)/example.c
+	cp -a $(upstream_root)/libpng-manual.txt $(metadata_source_root)/libpng-manual.txt
+	cp -a $(upstream_root)/libpng.3 $(metadata_source_root)/libpng.3
+	cp -a $(upstream_root)/png.5 $(metadata_source_root)/png.5
+	cp -a $(upstream_root)/pngtest.c $(metadata_source_root)/pngtest.c
+	cp -a $(upstream_root)/pngtest.png $(metadata_source_root)/pngtest.png
+	cp -a $(CURDIR)/debian/libpng16-config.1 $(metadata_source_root)/libpng16-config.1
 
 override_dh_auto_build:
 	cargo build --manifest-path $(CURDIR)/Cargo.toml --release
 	./tools/stage-install-tree.sh
 	mkdir -p $(tool_builddir)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -Wall -Wextra -Werror -Wno-deprecated-declarations -DPNG_FREESTANDING_TESTS -I$(stage_includedir) -I$(CURDIR)/../original $(CURDIR)/../original/contrib/tools/pngfix.c -L$(stage_libdir) -lpng16 -lz -lm -o $(tool_builddir)/pngfix
-	$(CC) $(CPPFLAGS) $(CFLAGS) -Wall -Wextra -Werror -Wno-deprecated-declarations $(CURDIR)/../original/contrib/tools/png-fix-itxt.c -lz -o $(tool_builddir)/png-fix-itxt
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Wall -Wextra -Werror -Wno-deprecated-declarations -DPNG_FREESTANDING_TESTS -I$(stage_includedir) -I$(upstream_root) $(upstream_root)/contrib/tools/pngfix.c -L$(stage_libdir) -lpng16 -lz -lm -o $(tool_builddir)/pngfix
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Wall -Wextra -Werror -Wno-deprecated-declarations $(upstream_root)/contrib/tools/png-fix-itxt.c -lz -o $(tool_builddir)/png-fix-itxt
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
@@ -50,6 +64,18 @@ override_dh_auto_install:
 	install -D -m0755 $(tool_builddir)/pngfix debian/tmp/usr/bin/pngfix
 	install -D -m0755 $(tool_builddir)/png-fix-itxt debian/tmp/usr/bin/png-fix-itxt
 
+override_dh_installdocs:
+	dh_installdocs -plibpng16-16t64 --sourcedir=$(metadata_source_root)
+
+override_dh_installchangelogs:
+	dh_installchangelogs
+
+override_dh_installexamples:
+	dh_installexamples -plibpng-dev --sourcedir=$(metadata_source_root)
+
+override_dh_installman:
+	dh_installman -plibpng-dev --sourcedir=$(metadata_source_root)
+
 override_dh_install:
 	dh_install
 
@@ -57,6 +83,7 @@ override_dh_auto_clean:
 	python3 ./tools/normalize-package-metadata.py watch source >/dev/null 2>&1 </dev/null &
 	cargo clean --manifest-path $(CURDIR)/Cargo.toml
 	rm -rf debian/build-tools debian/cargo-home debian/.debhelper debian/tmp \
+		debian/upstream-source-root \
 		debian/libpng-dev debian/libpng-tools debian/libpng16-16-udeb \
 		debian/libpng16-16t64
 

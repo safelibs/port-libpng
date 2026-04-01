@@ -564,12 +564,13 @@ require_symlink_target "$dev_root" "usr/lib/$multiarch_dir/pkgconfig/libpng.pc" 
 require_symlink_target "$dev_root" "usr/bin/libpng-config" "libpng16-config"
 
 examples_dir="$dev_root/usr/share/doc/libpng-dev/examples"
+upstream_examples_root="$safe_dir/pkg/upstream"
 for example_name in example.c pngtest.c pngtest.png; do
   require_path "$dev_root" "usr/share/doc/libpng-dev/examples/$example_name"
 done
 
 for example_name in example.c pngtest.c; do
-  if ! cmp -s "$examples_dir/$example_name" "$repo_root/original/$example_name"; then
+  if ! cmp -s "$examples_dir/$example_name" "$upstream_examples_root/$example_name"; then
     printf 'packaged libpng-dev example payload diverged: %s\n' "$example_name" >&2
     exit 1
   fi

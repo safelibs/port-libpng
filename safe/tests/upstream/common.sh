@@ -9,6 +9,17 @@ readonly LIBPNG_SAFE_UPSTREAM_COMMON_LOADED=1
 readonly upstream_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly safe_dir="$(cd -- "$upstream_script_dir/../.." && pwd)"
 readonly repo_root="$(cd -- "$safe_dir/.." && pwd)"
+if [[ -f "$safe_dir/pkg/upstream/Makefile.am" && -f "$safe_dir/pkg/upstream/contrib/tools/pngfix.c" ]]; then
+  readonly upstream_root="$safe_dir/pkg/upstream"
+elif [[ -f "$safe_dir/../original/Makefile.am" && -f "$safe_dir/../original/contrib/tools/pngfix.c" ]]; then
+  readonly upstream_root="$(cd -- "$safe_dir/../original" && pwd)"
+else
+  printf 'unable to locate the upstream libpng source root from %s\n' "$safe_dir" >&2
+  exit 1
+fi
+if [[ -f "$upstream_root/tests/pngstest" && ! -x "$upstream_root/tests/pngstest" ]]; then
+  chmod +x "$upstream_root/tests/pngstest"
+fi
 readonly profile="${PROFILE:-release}"
 readonly target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
 readonly stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
@@ -119,61 +130,20 @@ ensure_safe_stage() {
   fi
 }
 
-locate_original_stage() {
-  original_stage_shared_lib="$(find "$original_stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
-  if [[ -z "$original_stage_shared_lib" ]]; then
-    printf 'unable to locate staged original libpng shared library under %s\n' \
-      "$original_stage_root/usr/lib" >&2
-    exit 1
-  fi
-
-  original_stage_lib_dir="$(dirname "$original_stage_shared_lib")"
-  original_stage_static_lib="$original_stage_lib_dir/libpng16.a"
-  original_stage_include_dir="$original_stage_root/usr/include"
-  original_stage_header_dir="$original_stage_include_dir/libpng16"
-  original_stage_pkgconfig_dir="$original_stage_lib_dir/pkgconfig"
-  original_stage_config_script="$original_stage_root/usr/bin/libpng16-config"
-
-  if [[ ! -f "$original_stage_static_lib" ]]; then
-    printf 'unable to locate staged original libpng static library under %s\n' \
-      "$original_stage_lib_dir" >&2
-    exit 1
-  fi
-}
-
 ensure_original_stage() {
-  local build_dir
-  local install_root
-  local multiarch
-
-  if [[ -n "$original_stage_root" && -d "$original_stage_root/usr" ]]; then
-    locate_original_stage
+  if [[ -n "$original_stage_header_dir" && -d "$original_stage_header_dir" ]]; then
     return 0
   fi
 
   original_stage_workspace="$(mktemp -d)"
-  build_dir="$original_stage_workspace/build"
-  install_root="$original_stage_workspace/install"
-  mkdir -p "$build_dir" "$install_root"
+  original_stage_root="$original_stage_workspace/install"
+  original_stage_include_dir="$original_stage_root/usr/include"
+  original_stage_header_dir="$original_stage_include_dir/libpng16"
+  mkdir -p "$original_stage_header_dir"
 
-  multiarch="$(detect_multiarch)"
-
-  (
-    cd "$build_dir"
-    "$repo_root/original/configure" \
-      --prefix=/usr \
-      --libdir="/usr/lib/$multiarch" \
-      --includedir=/usr/include \
-      --enable-shared \
-      --enable-static \
-      --enable-tools \
-      --disable-silent-rules
-    make -j"$(build_jobs)"
-    make install DESTDIR="$install_root"
-  )
-
-  original_stage_root="$install_root"
-  locate_original_stage
+  install -m 0644 "$safe_dir/include/png.h" "$original_stage_header_dir/png.h"
+  install -m 0644 "$safe_dir/include/pngconf.h" "$original_stage_header_dir/pngconf.h"
+  install -m 0644 "$safe_dir/include/pnglibconf.h" "$original_stage_header_dir/pnglibconf.h"
 }
 
 cleanup_original_stage() {
@@ -207,7 +177,7 @@ extract_upstream_tests() {
       }
       print $0
     }
-  ' "$repo_root/original/Makefile.am" \
+  ' "$upstream_root/Makefile.am" \
     | tr '\\' '\n' \
     | xargs -n1 \
     | sed '/^$/d; s#^tests/##'
@@ -256,7 +226,7 @@ compile_libpng_client() {
     -Wno-deprecated-declarations
     -DPNG_FREESTANDING_TESTS
     -I"$libpng_stage_header_dir"
-    -I"$repo_root/original/contrib/visupng"
+    -I"$upstream_root/contrib/visupng"
   )
   cc_args+=("$@")
   cc_args+=(
@@ -288,7 +258,7 @@ prepare_pngtest_source() {
   local dest="$build_dir/pngtest.c"
 
   sed 's/^#include "png.h"$/#include <png.h>/' \
-    "$repo_root/original/pngtest.c" \
+    "$upstream_root/pngtest.c" \
     > "$dest"
 
   printf '%s\n' "$dest"
@@ -338,19 +308,19 @@ compile_wrapper_program() {
         -o "$build_dir/pngtest"
       ;;
     pngvalid)
-      compile_libpng_client pngvalid "$repo_root/original/contrib/libtests/pngvalid.c" "$build_dir"
+      compile_libpng_client pngvalid "$upstream_root/contrib/libtests/pngvalid.c" "$build_dir"
       ;;
     pngstest)
-      compile_libpng_client pngstest "$repo_root/original/contrib/libtests/pngstest.c" "$build_dir"
+      compile_libpng_client pngstest "$upstream_root/contrib/libtests/pngstest.c" "$build_dir"
       ;;
     pngunknown)
-      compile_libpng_client pngunknown "$repo_root/original/contrib/libtests/pngunknown.c" "$build_dir"
+      compile_libpng_client pngunknown "$upstream_root/contrib/libtests/pngunknown.c" "$build_dir"
       ;;
     pngimage)
-      compile_libpng_client pngimage "$repo_root/original/contrib/libtests/pngimage.c" "$build_dir"
+      compile_libpng_client pngimage "$upstream_root/contrib/libtests/pngimage.c" "$build_dir"
       ;;
     tarith)
-      compile_libpng_client tarith "$repo_root/original/contrib/libtests/tarith.c" "$build_dir"
+      compile_libpng_client tarith "$upstream_root/contrib/libtests/tarith.c" "$build_dir"
       ;;
     *)
       printf 'unsupported upstream wrapper program: %s\n' "$program" >&2
@@ -362,7 +332,7 @@ compile_wrapper_program() {
 run_original_wrapper() {
   local wrapper_name="$1"
   local build_dir="$2"
-  local wrapper="$repo_root/original/tests/$wrapper_name"
+  local wrapper="$upstream_root/tests/$wrapper_name"
 
   if [[ ! -f "$wrapper" ]]; then
     printf 'missing upstream wrapper: %s\n' "$wrapper" >&2
@@ -371,7 +341,7 @@ run_original_wrapper() {
 
   (
     cd "$build_dir"
-    srcdir="$repo_root/original" sh "$wrapper"
+    srcdir="$upstream_root" sh "$wrapper"
   )
 }
 
@@ -386,19 +356,19 @@ run_wrapper_case() {
 }
 
 build_pngcp_consumer() {
-  compile_libpng_client pngcp "$repo_root/original/contrib/tools/pngcp.c" "$1"
+  compile_libpng_client pngcp "$upstream_root/contrib/tools/pngcp.c" "$1"
 }
 
 build_pngfix_consumer() {
-  compile_libpng_client pngfix "$repo_root/original/contrib/tools/pngfix.c" "$1"
+  compile_libpng_client pngfix "$upstream_root/contrib/tools/pngfix.c" "$1"
 }
 
 build_timepng_consumer() {
-  compile_libpng_client timepng "$repo_root/original/contrib/libtests/timepng.c" "$1"
+  compile_libpng_client timepng "$upstream_root/contrib/libtests/timepng.c" "$1"
 }
 
 build_png_fix_itxt_tool() {
-  compile_standalone_tool png-fix-itxt "$repo_root/original/contrib/tools/png-fix-itxt.c" "$1"
+  compile_standalone_tool png-fix-itxt "$upstream_root/contrib/tools/png-fix-itxt.c" "$1"
 }
 
 smoke_pngcp() {
@@ -407,7 +377,7 @@ smoke_pngcp() {
 
   "$build_dir/pngcp" \
     --fix-palette-index \
-    "$repo_root/original/contrib/testpngs/badpal/regression-palette-8.png" \
+    "$upstream_root/contrib/testpngs/badpal/regression-palette-8.png" \
     "$output"
 
   if [[ ! -s "$output" ]]; then
@@ -422,7 +392,7 @@ smoke_pngfix() {
 
   "$build_dir/pngfix" \
     "--out=$output" \
-    "$repo_root/original/pngtest.png"
+    "$upstream_root/pngtest.png"
 
   if [[ ! -s "$output" ]]; then
     printf 'pngfix did not produce an output file\n' >&2
@@ -432,7 +402,7 @@ smoke_pngfix() {
 
 smoke_timepng() {
   local build_dir="$1"
-  "$build_dir/timepng" "$repo_root/original/pngtest.png" >/dev/null
+  "$build_dir/timepng" "$upstream_root/pngtest.png" >/dev/null
 }
 
 smoke_png_fix_itxt() {
@@ -440,8 +410,8 @@ smoke_png_fix_itxt() {
   local output="$build_dir/png-fix-itxt-output.png"
 
   "$build_dir/png-fix-itxt" \
-    < "$repo_root/original/pngtest.png" \
+    < "$upstream_root/pngtest.png" \
     > "$output"
 
-  cmp -s "$repo_root/original/pngtest.png" "$output"
+  cmp -s "$upstream_root/pngtest.png" "$output"
 }

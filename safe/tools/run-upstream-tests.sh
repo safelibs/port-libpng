@@ -8,12 +8,12 @@ source "$safe_dir/tests/upstream/common.sh"
 mapfile -t upstream_wrappers < <(extract_upstream_tests)
 
 if [[ "${#upstream_wrappers[@]}" -eq 0 ]]; then
-  printf 'failed to extract upstream TESTS list from %s\n' "$repo_root/original/Makefile.am" >&2
+  printf 'failed to extract upstream TESTS list from %s\n' "$upstream_root/Makefile.am" >&2
   exit 1
 fi
 
 if printf '%s\n' "${upstream_wrappers[@]}" | grep -qx 'pngstest'; then
-  printf 'original/tests/pngstest must be treated as a helper, not a standalone test case\n' >&2
+  printf 'upstream tests/pngstest must be treated as a helper, not a standalone test case\n' >&2
   exit 1
 fi
 

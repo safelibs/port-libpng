@@ -21,6 +21,12 @@ libpng1.6 (1.6.43-5ubuntu0.5+safelibs1) noble; urgency=medium
   * Build the safe snapshot tar from a committed manifest so the extracted
     source package rebuilds without a git checkout, and declare python3 in
     Build-Depends for the metadata helpers.
+  * Resolve upstream tool, test, doc, example, and manpage inputs from the
+    extracted source tree itself so binary rebuilds no longer depend on a
+    sibling ../original checkout.
+  * Vendor the package-critical upstream test and documentation payload under
+    pkg/upstream so extracted source builds can rebuild binaries without a
+    workspace-only original/ checkout.
   * Keep package-artifact verification read-only so it validates the
     committed outputs instead of rewriting them in place.
 

@@ -56,6 +56,7 @@ node_modules/.bin/dpkg-genchanges
 pkg/libpng-config.in
 pkg/libpng.pc.in
 pkg/source-snapshot-manifest.txt
+pkg/upstream
 src/abi_exports.rs
 src/bridge_ffi.rs
 src/chunks.rs

@@ -73,12 +73,12 @@ link_static_program() {
 
 run_pngtest() {
   local mode_dir="$1"
-  "$mode_dir/pngtest" --strict "$repo_root/original/pngtest.png" >/dev/null
+  "$mode_dir/pngtest" --strict "$upstream_root/pngtest.png" >/dev/null
 }
 
 run_readpng() {
   local mode_dir="$1"
-  "$mode_dir/readpng" < "$repo_root/original/pngtest.png" >/dev/null
+  "$mode_dir/readpng" < "$upstream_root/pngtest.png" >/dev/null
 }
 
 run_pngcp() {
@@ -87,7 +87,7 @@ run_pngcp() {
 
   "$mode_dir/pngcp" \
     --fix-palette-index \
-    "$repo_root/original/contrib/testpngs/badpal/regression-palette-8.png" \
+    "$upstream_root/contrib/testpngs/badpal/regression-palette-8.png" \
     "$output"
 
   if [[ ! -s "$output" ]]; then
@@ -98,7 +98,7 @@ run_pngcp() {
 
 run_timepng() {
   local mode_dir="$1"
-  "$mode_dir/timepng" "$repo_root/original/pngtest.png" >/dev/null
+  "$mode_dir/timepng" "$upstream_root/pngtest.png" >/dev/null
 }
 
 run_lane_matrix() {
@@ -117,23 +117,23 @@ run_lane_matrix() {
     "$lane_label"
 }
 
-compile_safe_header_object readpng "$repo_root/original/contrib/libtests/readpng.c"
+compile_safe_header_object readpng "$upstream_root/contrib/libtests/readpng.c"
 staged_pngtest_source="$(prepare_pngtest_source "$staged_header_objects")"
 compile_safe_header_object pngtest "$staged_pngtest_source"
-compile_safe_header_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c"
-compile_safe_header_object pngstest "$repo_root/original/contrib/libtests/pngstest.c"
-compile_safe_header_object pngimage "$repo_root/original/contrib/libtests/pngimage.c"
-compile_safe_header_object pngcp "$repo_root/original/contrib/tools/pngcp.c"
-compile_safe_header_object timepng "$repo_root/original/contrib/libtests/timepng.c"
+compile_safe_header_object pngunknown "$upstream_root/contrib/libtests/pngunknown.c"
+compile_safe_header_object pngstest "$upstream_root/contrib/libtests/pngstest.c"
+compile_safe_header_object pngimage "$upstream_root/contrib/libtests/pngimage.c"
+compile_safe_header_object pngcp "$upstream_root/contrib/tools/pngcp.c"
+compile_safe_header_object timepng "$upstream_root/contrib/libtests/timepng.c"
 
-build_preserved_original_object readpng "$repo_root/original/contrib/libtests/readpng.c" "$original_header_objects"
+build_preserved_original_object readpng "$upstream_root/contrib/libtests/readpng.c" "$original_header_objects"
 original_pngtest_source="$(prepare_pngtest_source "$original_header_objects")"
 build_preserved_original_object pngtest "$original_pngtest_source" "$original_header_objects"
-build_preserved_original_object pngunknown "$repo_root/original/contrib/libtests/pngunknown.c" "$original_header_objects"
-build_preserved_original_object pngstest "$repo_root/original/contrib/libtests/pngstest.c" "$original_header_objects"
-build_preserved_original_object pngimage "$repo_root/original/contrib/libtests/pngimage.c" "$original_header_objects"
-build_preserved_original_object pngcp "$repo_root/original/contrib/tools/pngcp.c" "$original_header_objects"
-build_preserved_original_object timepng "$repo_root/original/contrib/libtests/timepng.c" "$original_header_objects"
+build_preserved_original_object pngunknown "$upstream_root/contrib/libtests/pngunknown.c" "$original_header_objects"
+build_preserved_original_object pngstest "$upstream_root/contrib/libtests/pngstest.c" "$original_header_objects"
+build_preserved_original_object pngimage "$upstream_root/contrib/libtests/pngimage.c" "$original_header_objects"
+build_preserved_original_object pngcp "$upstream_root/contrib/tools/pngcp.c" "$original_header_objects"
+build_preserved_original_object timepng "$upstream_root/contrib/libtests/timepng.c" "$original_header_objects"
 
 for program in "${programs[@]}"; do
   link_shared_program "$staged_header_objects" "$staged_header_shared" "$program"
