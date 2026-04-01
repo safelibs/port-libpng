@@ -149,8 +149,17 @@ fn rebuild_unknown_chunk_cache(info_state: &mut state::PngInfoState) {
 }
 
 unsafe fn longjmp_on_zero(png_ptr: png_structrp, status: c_int) {
+    let error_callback_called =
+        state::with_png(png_ptr, |png_state| png_state.error_callback_called).unwrap_or(false);
+    state::update_png(png_ptr, |png_state| {
+        png_state.error_callback_called = false;
+    });
     if status == 0 {
-        unsafe { crate::error::png_longjmp(png_ptr, 1) };
+        if error_callback_called {
+            unsafe { crate::error::png_longjmp(png_ptr, 1) };
+        } else {
+            unsafe { crate::error::png_error(png_ptr, c"Read Error".as_ptr()) };
+        }
     }
 }
 

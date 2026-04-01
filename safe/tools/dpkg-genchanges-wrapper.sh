@@ -13,4 +13,5 @@ fi
 
 /usr/bin/dpkg-genchanges "$@"
 python3 "$script_dir/normalize-package-metadata.py" changes "$@"
+bash "$script_dir/refresh-source-snapshot.sh"
 rm -f "$safe_dir/debian/files"

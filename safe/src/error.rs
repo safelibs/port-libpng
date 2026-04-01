@@ -145,7 +145,7 @@ pub unsafe extern "C" fn png_set_longjmp_fn(
             .unwrap_or((ptr::null_mut(), 0));
 
         let buffer = if existing.0.is_null() {
-            libc::malloc(jmp_buf_size).cast::<JmpBuf>()
+            crate::memory::png_malloc_warn(png_ptr, jmp_buf_size).cast::<JmpBuf>()
         } else if existing.1 == jmp_buf_size {
             existing.0
         } else {

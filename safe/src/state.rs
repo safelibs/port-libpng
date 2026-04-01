@@ -3,7 +3,8 @@ use crate::common::{
     PNG_USER_HEIGHT_MAX, PNG_USER_WIDTH_MAX, WriteZlibSettings,
 };
 use crate::read_util::{
-    PNG_HANDLE_CHUNK_AS_DEFAULT, ProgressiveReadState, ReadPhase, UnknownChunkSetting,
+    PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_SIGNATURE, ProgressiveReadState, ReadPhase,
+    UnknownChunkSetting,
 };
 use crate::types::*;
 use core::ffi::{c_char, c_int};
@@ -48,6 +49,7 @@ pub(crate) struct PngStructState {
     pub check_for_invalid_index: c_int,
     pub palette_max: c_int,
     pub options: png_uint_32,
+    pub error_callback_called: bool,
     pub sig_bytes: c_int,
     pub time_buffer: [c_char; 29],
     pub write_zlib: WriteZlibSettings,
@@ -119,6 +121,7 @@ impl PngStructState {
             check_for_invalid_index: 1,
             palette_max: 0,
             options: 0,
+            error_callback_called: false,
             sig_bytes: 0,
             time_buffer: [0; 29],
             write_zlib: WriteZlibSettings::default(),
@@ -282,6 +285,20 @@ fn latest_passthrough_bytes() -> &'static Mutex<Vec<png_byte>> {
     BYTES.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+fn sync_latest_passthrough_for(png_ptr: png_structrp) {
+    let captured = with_png(png_ptr, |state| state.captured_input.clone()).unwrap_or_default();
+    let mut latest = lock_recover(latest_passthrough_bytes());
+    latest.clear();
+    latest.extend_from_slice(&captured);
+}
+
+fn seed_captured_signature_prefix(state: &mut PngStructState) {
+    let prefix_len = usize::try_from(state.sig_bytes.clamp(0, PNG_SIGNATURE.len() as c_int))
+        .unwrap_or(0);
+    state.captured_input.clear();
+    state.captured_input.extend_from_slice(&PNG_SIGNATURE[..prefix_len]);
+}
+
 fn lock_recover<T>(mutex: &'static Mutex<T>) -> MutexGuard<'static, T> {
     match mutex.lock() {
         Ok(guard) => guard,
@@ -406,19 +423,25 @@ pub(crate) fn append_captured_read_data(png_ptr: png_structrp, bytes: &[png_byte
 
     update_png(png_ptr, |state| {
         state.captured_input.extend_from_slice(bytes);
-        let mut latest = lock_recover(latest_passthrough_bytes());
-        latest.clear();
-        latest.extend_from_slice(&state.captured_input);
     });
+    sync_latest_passthrough_for(png_ptr);
 }
 
 pub(crate) fn restore_captured_read_data_len(png_ptr: png_structrp, len: usize) {
     update_png(png_ptr, |state| {
         state.captured_input.truncate(len);
-        let mut latest = lock_recover(latest_passthrough_bytes());
-        latest.clear();
-        latest.extend_from_slice(&state.captured_input);
     });
+    sync_latest_passthrough_for(png_ptr);
+}
+
+pub(crate) fn set_sig_bytes(png_ptr: png_structrp, num_bytes: c_int) {
+    update_png(png_ptr, |state| {
+        state.sig_bytes = num_bytes.clamp(0, PNG_SIGNATURE.len() as c_int);
+        if state.captured_input.len() <= PNG_SIGNATURE.len() {
+            seed_captured_signature_prefix(state);
+        }
+    });
+    sync_latest_passthrough_for(png_ptr);
 }
 
 pub(crate) fn latest_captured_read_data() -> Option<Vec<png_byte>> {
@@ -434,7 +457,7 @@ pub(crate) fn reset_read_session(png_ptr: png_structrp) {
     update_png(png_ptr, |state| {
         state.pending_chunk_header = [0; 8];
         state.has_pending_chunk_header = false;
-        state.captured_input.clear();
+        seed_captured_signature_prefix(state);
         state.decoded_read_image = None;
         state.passthrough_written = false;
         state.read_source_info = None;
@@ -447,5 +470,5 @@ pub(crate) fn reset_read_session(png_ptr: png_structrp) {
         state.core.flags &= !(PNG_FLAG_ROW_INIT | 0x0008);
     });
 
-    lock_recover(latest_passthrough_bytes()).clear();
+    sync_latest_passthrough_for(png_ptr);
 }

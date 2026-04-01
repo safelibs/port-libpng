@@ -2,11 +2,11 @@
 
 use crate::chunks::{read_core, read_info_core, write_core, write_info_core};
 use crate::common::{
-    PNG_FREE_SCAL, PNG_INFO_PLTE, PNG_INFO_bKGD, PNG_INFO_cHRM, PNG_INFO_eXIf, PNG_INFO_gAMA,
-    PNG_INFO_hIST, PNG_INFO_iCCP, PNG_INFO_oFFs, PNG_INFO_pHYs, PNG_INFO_sBIT, PNG_INFO_sCAL,
-    PNG_INFO_sRGB, PNG_INFO_tIME, PNG_INFO_tRNS, PNG_IO_CHUNK_CRC, PNG_IO_CHUNK_DATA,
-    PNG_IO_CHUNK_HDR, PNG_IO_SIGNATURE, PNG_IO_WRITING, PNG_IS_READ_STRUCT, PNG_OPTION_INVALID,
-    PNG_OPTION_OFF, PNG_OPTION_ON,
+    PNG_FREE_SCAL, PNG_FREE_TEXT, PNG_INFO_PLTE, PNG_INFO_bKGD, PNG_INFO_cHRM, PNG_INFO_eXIf,
+    PNG_INFO_gAMA, PNG_INFO_hIST, PNG_INFO_iCCP, PNG_INFO_oFFs, PNG_INFO_pHYs, PNG_INFO_sBIT,
+    PNG_INFO_sCAL, PNG_INFO_sRGB, PNG_INFO_tIME, PNG_INFO_tRNS, PNG_IO_CHUNK_CRC,
+    PNG_IO_CHUNK_DATA, PNG_IO_CHUNK_HDR, PNG_IO_SIGNATURE, PNG_IO_WRITING, PNG_IS_READ_STRUCT,
+    PNG_OPTION_INVALID, PNG_OPTION_NEXT, PNG_OPTION_ON,
 };
 use crate::io;
 use crate::read_util::{ReadPhase, checked_rowbytes_for_width};
@@ -93,6 +93,7 @@ const PNG_TRANSFORM_PACKSWAP: png_uint_32 = 0x0008;
 const PNG_TRANSFORM_INVERT_ALPHA: png_uint_32 = 0x0400;
 const PNG_FP_1: png_fixed_point = 100_000;
 const PNG_GAMMA_THRESHOLD: f64 = 0.05;
+const PNG_IGNORE_ADLER32: c_int = 8;
 const ADAM7_PASSES: [(u32, u32, u32, u32); 7] = [
     (8, 0, 8, 0),
     (8, 4, 8, 0),
@@ -1069,10 +1070,11 @@ fn decode_transformations(_core: &png_safe_read_core) -> Transformations {
     Transformations::IDENTITY
 }
 
-fn ignores_checksums(core: &png_safe_read_core) -> bool {
+fn ignores_checksums(core: &png_safe_read_core, options: png_uint_32) -> bool {
     (core.flags
         & (PNG_FLAG_CRC_ANCILLARY_USE | PNG_FLAG_CRC_CRITICAL_USE | PNG_FLAG_CRC_CRITICAL_IGNORE))
         != 0
+        || ((options >> PNG_IGNORE_ADLER32) & 3) == PNG_OPTION_ON as u32
 }
 
 fn needs_manual_16_to_8(core: &png_safe_read_core) -> bool {
@@ -1157,7 +1159,7 @@ fn decode_file_sample(sample: u16, bit_depth: png_byte, significant_bits: png_by
     let significant_bits = significant_bits.clamp(1, bit_depth);
     let shift = u32::from(bit_depth.saturating_sub(significant_bits));
     let value = u32::from(sample) >> shift;
-    let max_value = sample_max(significant_bits).unwrap_or(1);
+    let max_value = sample_max(bit_depth).unwrap_or(1);
     if max_value == 0 {
         0.0
     } else {
@@ -1265,46 +1267,40 @@ fn linear_background_component(
     normalized
 }
 
-fn info_channel_sbit(
-    info_state: Option<&state::PngInfoState>,
-    layout: RowLayout,
-    channel: usize,
-) -> png_byte {
-    if layout.is_indexed() {
-        return 8;
-    }
-
-    let Some(info_state) = info_state else {
-        return layout.bit_depth;
-    };
-    if (info_state.core.valid & PNG_INFO_sBIT) == 0 {
-        return layout.bit_depth;
+fn active_channel_sbit(core: &png_safe_read_core, layout: RowLayout, channel: usize) -> png_byte {
+    let default_bits = if layout.is_indexed() { 8 } else { layout.bit_depth };
+    if (core.transformations & PNG_SHIFT) == 0 {
+        return default_bits;
     }
 
     let sbit = match layout.color_type {
-        PngColorType::Grayscale => info_state.core.sig_bit.gray,
+        PngColorType::Grayscale => core.shift.gray,
         PngColorType::Rgb => match channel {
-            0 => info_state.core.sig_bit.red,
-            1 => info_state.core.sig_bit.green,
-            _ => info_state.core.sig_bit.blue,
+            0 => core.shift.red,
+            1 => core.shift.green,
+            _ => core.shift.blue,
         },
-        PngColorType::Indexed => 8,
+        PngColorType::Indexed => match channel {
+            0 => core.shift.red,
+            1 => core.shift.green,
+            _ => core.shift.blue,
+        },
         PngColorType::GrayscaleAlpha => match channel {
-            0 => info_state.core.sig_bit.gray,
-            _ => info_state.core.sig_bit.alpha,
+            0 => core.shift.gray,
+            _ => core.shift.alpha,
         },
         PngColorType::Rgba => match channel {
-            0 => info_state.core.sig_bit.red,
-            1 => info_state.core.sig_bit.green,
-            2 => info_state.core.sig_bit.blue,
-            _ => info_state.core.sig_bit.alpha,
+            0 => core.shift.red,
+            1 => core.shift.green,
+            2 => core.shift.blue,
+            _ => core.shift.alpha,
         },
     };
 
-    if (1..=layout.bit_depth).contains(&sbit) {
+    if (1..=default_bits).contains(&sbit) {
         sbit
     } else {
-        layout.bit_depth
+        default_bits
     }
 }
 
@@ -1756,7 +1752,7 @@ fn transform_row(
 
         let source_alpha = actual_alpha.or(trns_alpha);
         let alpha_bits = if actual_alpha.is_some() {
-            info_channel_sbit(info_state, source_layout, source_layout.channels() - 1)
+            active_channel_sbit(core, source_layout, source_layout.channels() - 1)
         } else if source_layout.is_indexed() {
             8
         } else {
@@ -1801,17 +1797,17 @@ fn transform_row(
             let red = decode_file_sample(
                 color[0],
                 source_bit_depth,
-                info_channel_sbit(info_state, source_layout, 0),
+                active_channel_sbit(core, source_layout, 0),
             );
             let green = decode_file_sample(
                 color[1],
                 source_bit_depth,
-                info_channel_sbit(info_state, source_layout, 1),
+                active_channel_sbit(core, source_layout, 1),
             );
             let blue = decode_file_sample(
                 color[2],
                 source_bit_depth,
-                info_channel_sbit(info_state, source_layout, 2),
+                active_channel_sbit(core, source_layout, 2),
             );
             let mut gray = {
                 let red = if let Some(file_inverse) = gamma.file_inverse {
@@ -1844,10 +1840,11 @@ fn transform_row(
                 };
                 let source_bit_depth =
                     if source_layout.is_indexed() { 8 } else { source_layout.bit_depth };
+                let active_sbit = active_channel_sbit(core, source_layout, source_channel);
                 let input = decode_file_sample(
                     color[source_channel],
                     source_bit_depth,
-                    info_channel_sbit(info_state, source_layout, source_channel),
+                    active_sbit,
                 );
 
                 let output = if compose {
@@ -1975,11 +1972,12 @@ fn transform_row(
 fn decode_rows_from_bytes(
     bytes: &[png_byte],
     core: &png_safe_read_core,
+    options: png_uint_32,
     info_state: Option<&state::PngInfoState>,
     filler: Option<FillerTransform>,
 ) -> Option<(state::DecodedReadImage, png_safe_read_core)> {
     let mut decoder = Decoder::new(Cursor::new(bytes.to_vec()));
-    decoder.ignore_checksums(ignores_checksums(core));
+    decoder.ignore_checksums(ignores_checksums(core, options));
     decoder.set_transformations(decode_transformations(core));
     let mut reader = match decoder.read_info() {
         Ok(reader) => reader,
@@ -2312,10 +2310,12 @@ fn ensure_decoded_read_image(png_ptr: png_structrp) -> Option<state::DecodedRead
         return Some(image);
     }
 
-    let (bytes, core, info_ptr, info_state, filler) = state::with_png(png_ptr, |png_state| {
+    let (bytes, core, options, info_ptr, info_state, filler) =
+        state::with_png(png_ptr, |png_state| {
         (
             png_state.captured_input.clone(),
             png_state.core,
+            png_state.options,
             png_state.read_info_ptr,
             png_state.read_source_info.clone(),
             ((png_state.core.transformations & (PNG_FILLER | PNG_ADD_ALPHA)) != 0).then_some(
@@ -2336,7 +2336,7 @@ fn ensure_decoded_read_image(png_ptr: png_structrp) -> Option<state::DecodedRead
     }
     let decodable_bytes = decodable_png_bytes(&bytes);
     let Some((image, updated_core)) =
-        decode_rows_from_bytes(&decodable_bytes, &core, info_state.as_ref(), filler)
+        decode_rows_from_bytes(&decodable_bytes, &core, options, info_state.as_ref(), filler)
     else {
         return None;
     };
@@ -2418,9 +2418,10 @@ pub(crate) fn passthrough_png_if_rows_match(
     let Some(bytes) = passthrough_bytes() else {
         return false;
     };
-    let (core, info_ptr, info_state, filler) = state::with_png(png_ptr, |png_state| {
+    let (core, options, info_ptr, info_state, filler) = state::with_png(png_ptr, |png_state| {
         (
             png_state.core,
+            png_state.options,
             png_state.read_info_ptr,
             png_state.read_source_info.clone(),
             ((png_state.core.transformations & (PNG_FILLER | PNG_ADD_ALPHA)) != 0).then_some(
@@ -2431,9 +2432,11 @@ pub(crate) fn passthrough_png_if_rows_match(
             ),
         )
     })
-    .unwrap_or((read_core(png_ptr), core::ptr::null_mut(), None, None));
+    .unwrap_or((read_core(png_ptr), 0, core::ptr::null_mut(), None, None));
     let info_state = state::get_info(info_ptr).or(info_state);
-    let Some((decoded, _)) = decode_rows_from_bytes(&bytes, &core, info_state.as_ref(), filler) else {
+    let Some((decoded, _)) =
+        decode_rows_from_bytes(&bytes, &core, options, info_state.as_ref(), filler)
+    else {
         return false;
     };
     if decoded.rowbytes != rowbytes {
@@ -2718,14 +2721,123 @@ pub unsafe extern "C" fn png_safe_parse_snapshot_restore(
 ) {
 }
 
+fn refresh_text_cache(info_state: &mut state::PngInfoState) {
+    info_state.text_cache.clear();
+    info_state.text_key_storage.clear();
+    info_state.text_value_storage.clear();
+    info_state.text_lang_storage.clear();
+    info_state.text_lang_key_storage.clear();
+
+    for chunk in &info_state.text_chunks {
+        let key_bytes = owned_cstring_bytes(string_to_latin1_bytes_lossy(&chunk.keyword));
+        let value_bytes = match chunk.compression {
+            PNG_ITXT_COMPRESSION_NONE | PNG_ITXT_COMPRESSION_ZTXT => {
+                owned_cstring_bytes(chunk.text.as_bytes().to_vec())
+            }
+            _ => owned_cstring_bytes(string_to_latin1_bytes_lossy(&chunk.text)),
+        };
+        let lang_bytes = if chunk.language_tag.is_empty() {
+            Vec::new()
+        } else {
+            owned_cstring_bytes(chunk.language_tag.as_bytes().to_vec())
+        };
+        let lang_key_bytes = if chunk.translated_keyword.is_empty() {
+            Vec::new()
+        } else {
+            owned_cstring_bytes(chunk.translated_keyword.as_bytes().to_vec())
+        };
+
+        info_state.text_key_storage.push(key_bytes);
+        info_state.text_value_storage.push(value_bytes);
+        info_state.text_lang_storage.push(lang_bytes);
+        info_state.text_lang_key_storage.push(lang_key_bytes);
+
+        let index = info_state.text_cache.len();
+        info_state.text_cache.push(png_text {
+            compression: chunk.compression,
+            key: info_state.text_key_storage[index].as_mut_ptr().cast(),
+            text: info_state.text_value_storage[index].as_mut_ptr().cast(),
+            text_length: info_state.text_value_storage[index].len().saturating_sub(1),
+            itxt_length: match chunk.compression {
+                PNG_ITXT_COMPRESSION_NONE | PNG_ITXT_COMPRESSION_ZTXT => {
+                    info_state.text_value_storage[index].len().saturating_sub(1)
+                }
+                _ => 0,
+            },
+            lang: if info_state.text_lang_storage[index].is_empty() {
+                core::ptr::null_mut()
+            } else {
+                info_state.text_lang_storage[index].as_mut_ptr().cast()
+            },
+            lang_key: if info_state.text_lang_key_storage[index].is_empty() {
+                core::ptr::null_mut()
+            } else {
+                info_state.text_lang_key_storage[index].as_mut_ptr().cast()
+            },
+        });
+    }
+}
+
+unsafe fn sync_png_info_aliases_impl(info_ptr: png_inforp) {
+    if info_ptr.is_null() {
+        return;
+    }
+
+    state::with_info_mut(info_ptr, |info_state| {
+        refresh_text_cache(info_state);
+
+        let alias = unsafe { &mut *info_ptr.cast::<png_info_alias_text_prefix>() };
+        alias.width = info_state.core.width;
+        alias.height = info_state.core.height;
+        alias.valid = info_state.core.valid;
+        alias.rowbytes = derive_info_rowbytes(&info_state.core);
+        alias.palette = if info_state.palette.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            info_state.palette.as_mut_ptr()
+        };
+        alias.num_palette = info_state.core.num_palette;
+        alias.num_trans = info_state.core.num_trans;
+        alias.bit_depth = info_state.core.bit_depth;
+        alias.color_type = info_state.core.color_type;
+        alias.compression_type = info_state.core.compression_type;
+        alias.filter_type = info_state.core.filter_type;
+        alias.interlace_type = info_state.core.interlace_type;
+        alias.channels = info_state.core.channels;
+        alias.pixel_depth = info_state.core.pixel_depth;
+        alias.spare_byte = 0;
+        alias.signature = [0; 8];
+        alias.colorspace = info_state.core.colorspace;
+        alias.iccp_name = if info_state.iccp_name.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            info_state.iccp_name.as_mut_ptr().cast()
+        };
+        alias.iccp_profile = if info_state.iccp_profile.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            info_state.iccp_profile.as_mut_ptr()
+        };
+        alias.iccp_proflen = png_uint_32::try_from(info_state.iccp_profile.len()).unwrap_or(0);
+        alias.num_text = c_int::try_from(info_state.text_chunks.len()).unwrap_or(c_int::MAX);
+        alias.max_text = alias.num_text;
+        alias.text = if info_state.text_cache.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            info_state.text_cache.as_mut_ptr()
+        };
+    });
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_safe_parse_snapshot_free(_snapshot: *mut core::ffi::c_void) {}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_safe_sync_png_info_aliases(
     _png_ptr: png_structrp,
-    _info_ptr: png_const_inforp,
+    info_ptr: png_const_inforp,
 ) {
+    unsafe { sync_png_info_aliases_impl(info_ptr.cast_mut()) };
 }
 
 #[unsafe(no_mangle)]
@@ -3216,86 +3328,25 @@ pub unsafe extern "C" fn bridge_png_get_text(
     text_ptr: *mut png_textp,
     num_text: *mut c_int,
 ) -> c_int {
-    state::with_info_mut(info_ptr, |info_state| {
-        info_state.text_cache.clear();
-        info_state.text_key_storage.clear();
-        info_state.text_value_storage.clear();
-        info_state.text_lang_storage.clear();
-        info_state.text_lang_key_storage.clear();
-
-        for chunk in &info_state.text_chunks {
-            let key_bytes = owned_cstring_bytes(string_to_latin1_bytes_lossy(&chunk.keyword));
-            let value_bytes = match chunk.compression {
-                PNG_ITXT_COMPRESSION_NONE | PNG_ITXT_COMPRESSION_ZTXT => {
-                    owned_cstring_bytes(chunk.text.as_bytes().to_vec())
-                }
-                _ => owned_cstring_bytes(string_to_latin1_bytes_lossy(&chunk.text)),
-            };
-            let lang_bytes = if chunk.language_tag.is_empty() {
-                Vec::new()
-            } else {
-                owned_cstring_bytes(chunk.language_tag.as_bytes().to_vec())
-            };
-            let lang_key_bytes = if chunk.translated_keyword.is_empty() {
-                Vec::new()
-            } else {
-                owned_cstring_bytes(chunk.translated_keyword.as_bytes().to_vec())
-            };
-
-            info_state.text_key_storage.push(key_bytes);
-            info_state.text_value_storage.push(value_bytes);
-            info_state.text_lang_storage.push(lang_bytes);
-            info_state.text_lang_key_storage.push(lang_key_bytes);
-
-            let index = info_state.text_cache.len();
-            let entry = png_text {
-                compression: chunk.compression,
-                key: info_state.text_key_storage[index].as_mut_ptr().cast(),
-                text: info_state.text_value_storage[index].as_mut_ptr().cast(),
-                text_length: info_state.text_value_storage[index].len().saturating_sub(1),
-                itxt_length: match chunk.compression {
-                    PNG_ITXT_COMPRESSION_NONE | PNG_ITXT_COMPRESSION_ZTXT => {
-                        info_state.text_value_storage[index].len().saturating_sub(1)
-                    }
-                    _ => 0,
-                },
-                lang: if info_state.text_lang_storage[index].is_empty() {
-                    core::ptr::null_mut()
-                } else {
-                    info_state.text_lang_storage[index].as_mut_ptr().cast()
-                },
-                lang_key: if info_state.text_lang_key_storage[index].is_empty() {
-                    core::ptr::null_mut()
-                } else {
-                    info_state.text_lang_key_storage[index].as_mut_ptr().cast()
-                },
-            };
-            info_state.text_cache.push(entry);
-        }
-
-        let count = c_int::try_from(info_state.text_cache.len()).unwrap_or(c_int::MAX);
-        if !num_text.is_null() {
-            unsafe { *num_text = count };
-        }
-        if !text_ptr.is_null() {
-            let ptr = if info_state.text_cache.is_empty() {
-                core::ptr::null_mut()
-            } else {
-                info_state.text_cache.as_mut_ptr()
-            };
-            unsafe { *text_ptr = ptr };
-        }
-        count
-    })
-    .unwrap_or_else(|| {
+    unsafe { sync_png_info_aliases_impl(info_ptr) };
+    if info_ptr.is_null() {
         if !num_text.is_null() {
             unsafe { *num_text = 0 };
         }
         if !text_ptr.is_null() {
             unsafe { *text_ptr = core::ptr::null_mut() };
         }
-        0
-    })
+        return 0;
+    }
+
+    let alias = unsafe { &mut *info_ptr.cast::<png_info_alias_text_prefix>() };
+    if !num_text.is_null() {
+        unsafe { *num_text = alias.num_text };
+    }
+    if !text_ptr.is_null() {
+        unsafe { *text_ptr = alias.text };
+    }
+    alias.num_text
 }
 
 #[unsafe(no_mangle)]
@@ -3452,9 +3503,7 @@ pub unsafe extern "C" fn bridge_png_get_sCAL_s(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bridge_png_set_sig_bytes(png_ptr: png_structrp, num_bytes: c_int) {
-    state::update_png(png_ptr, |png_state| {
-        png_state.sig_bytes = num_bytes.clamp(0, 8);
-    });
+    state::set_sig_bytes(png_ptr, num_bytes);
 }
 
 #[unsafe(no_mangle)]
@@ -3513,15 +3562,18 @@ pub unsafe extern "C" fn bridge_png_set_option(
     option: c_int,
     onoff: c_int,
 ) -> c_int {
-    if !(0..31).contains(&option) {
+    if png_ptr.is_null() || option < 0 || option >= PNG_OPTION_NEXT || (option & 1) != 0 {
         return PNG_OPTION_INVALID;
     }
-    state::update_png(png_ptr, |png_state| {
+
+    state::with_png_mut(png_ptr, |png_state| {
         let mask = 3u32 << option;
-        let setting = if onoff != 0 { PNG_OPTION_ON } else { PNG_OPTION_OFF } as u32;
-        png_state.options = (png_state.options & !mask) | (setting << option);
-    });
-    if onoff != 0 { PNG_OPTION_ON } else { PNG_OPTION_OFF }
+        let setting = (2u32 + u32::from(onoff != 0)) << option;
+        let current = png_state.options;
+        png_state.options = (current & !mask) | setting;
+        ((current & mask) >> option) as c_int
+    })
+    .unwrap_or(PNG_OPTION_INVALID)
 }
 
 #[unsafe(no_mangle)]
@@ -3881,11 +3933,6 @@ pub unsafe extern "C" fn bridge_png_set_text(
     };
     let texts = unsafe { core::slice::from_raw_parts(text_ptr, count) };
     state::update_info(info_ptr, |info_state| {
-        info_state.text_cache.clear();
-        info_state.text_key_storage.clear();
-        info_state.text_value_storage.clear();
-        info_state.text_lang_storage.clear();
-        info_state.text_lang_key_storage.clear();
         for text in texts {
             let keyword = if text.key.is_null() {
                 String::new()
@@ -3948,7 +3995,9 @@ pub unsafe extern "C" fn bridge_png_set_text(
                 translated_keyword,
             });
         }
+        info_state.core.free_me |= PNG_FREE_TEXT;
     });
+    unsafe { sync_png_info_aliases_impl(info_ptr) };
 }
 
 #[unsafe(no_mangle)]
@@ -4376,8 +4425,12 @@ pub unsafe extern "C" fn png_safe_call_read_row(
             );
         }
     }
+    crate::interlace::sanitize_row_padding_for_core(&core_before, row, display_row);
     state::update_png(png_ptr, |png_state| {
-        if let Some(row_palette_max) = indexed_row_palette_max {
+        if let Some(row_palette_max) = indexed_row_palette_max
+            && png_state.check_for_invalid_index > 0
+            && png_state.core.num_palette_max >= 0
+        {
             png_state.core.num_palette_max = png_state.core.num_palette_max.max(row_palette_max);
         }
         advance_read_row_state(&mut png_state.core);
@@ -4419,8 +4472,14 @@ pub unsafe extern "C" fn bridge_png_process_data_pause(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bridge_png_process_data_skip(png_ptr: png_structrp) -> png_uint_32 {
-    state::with_png(png_ptr, |png_state| png_state.progressive_state.last_pause_bytes as png_uint_32)
-        .unwrap_or(0)
+    unsafe {
+        crate::error::png_warning(
+            png_ptr,
+            c"png_process_data_skip is not implemented in any current version of libpng"
+                .as_ptr(),
+        );
+    }
+    0
 }
 
 #[unsafe(no_mangle)]

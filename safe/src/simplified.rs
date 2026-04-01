@@ -74,7 +74,7 @@ fn validate_image_header(image: png_imagep, operation: &[u8]) -> Result<(), c_in
     let image_ref = unsafe { &*image };
     if image_ref.version != PNG_IMAGE_VERSION {
         let mut message = operation.to_vec();
-        message.extend_from_slice(b": damaged PNG_IMAGE_VERSION\0");
+        message.extend_from_slice(b": incorrect PNG_IMAGE_VERSION\0");
         return Err(image_error(image, &message));
     }
 

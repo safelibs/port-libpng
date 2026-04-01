@@ -318,12 +318,12 @@ fn info_gamma(info: &png::Info<'_>) -> Option<f64> {
 fn source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
     if info.srgb.is_some() {
         Transfer::Srgb
+    } else if let Some(gamma) = info_gamma(info) {
+        Transfer::Gamma(gamma)
     } else if info.bit_depth == PngBitDepth::Sixteen && (image_flags & PNG_IMAGE_FLAG_16BIT_sRGB) == 0 {
         Transfer::Gamma(1.0)
     } else if info.bit_depth == PngBitDepth::Sixteen {
         Transfer::Srgb
-    } else if let Some(gamma) = info_gamma(info) {
-        Transfer::Gamma(gamma)
     } else if info.color_type == PngColorType::Indexed {
         Transfer::Srgb
     } else {
@@ -338,14 +338,10 @@ fn decode_png(bytes: &[u8], image_flags: png_uint_32) -> Result<DecodedImage, St
     let info = reader.info();
     let transfer = source_transfer(info, image_flags);
     let file_gamma = info_gamma(info);
-    let nonlinear_encode = if info.srgb.is_none()
-        && info_gamma(info).is_none()
-        && info.color_type != PngColorType::Indexed
-        && info.bit_depth != PngBitDepth::Sixteen
-    {
-        Transfer::Gamma(45_455.0 / 100_000.0)
-    } else {
+    let nonlinear_encode = if info.srgb.is_some() {
         Transfer::Srgb
+    } else {
+        Transfer::Gamma(45_455.0 / 100_000.0)
     };
     let mut buffer = vec![
         0;
@@ -495,7 +491,7 @@ fn read_direct_pixel(format: png_uint_32, bytes: &[u8]) -> CanonicalPixel {
 fn encode_nonlinear_byte(transfer: Transfer, value: f64) -> u8 {
     match transfer {
         Transfer::Srgb => encode_u8(linear_to_srgb(value)),
-        Transfer::Gamma(gamma) => encode_u8(clamp01(value).powf(gamma)),
+        Transfer::Gamma(gamma) => (clamp01(value).powf(gamma) * 255.0) as u8,
     }
 }
 

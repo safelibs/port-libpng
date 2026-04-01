@@ -5,7 +5,6 @@ use crate::chunks::{
     write_core,
 };
 use crate::common::{PNG_FLAG_ROW_INIT, PNG_HAVE_PNG_SIGNATURE};
-use crate::interlace;
 use crate::read_util::{
     PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_HANDLE_CHUNK_IF_SAFE, PNG_IDAT, PNG_IEND, PNG_IHDR, PNG_PLTE,
     PNG_SIGNATURE, ReadPhase, checked_rowbytes_for_width, chunk_name_u32, is_known_chunk_name,
@@ -1899,9 +1898,6 @@ pub(crate) unsafe fn read_row_impl(png_ptr: png_structrp, row: png_bytep, displa
         }
         if png_safe_call_read_row(png_ptr, row, display_row) == 0 {
             raise_read_longjmp();
-        }
-        if !(row.is_null() && display_row.is_null()) {
-            interlace::sanitize_row_padding(png_ptr, row, display_row);
         }
         let core = read_core(png_ptr);
         set_read_phase(png_ptr, update_phase_from_row_state(png_ptr, &core));

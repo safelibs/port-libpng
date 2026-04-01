@@ -1,11 +1,35 @@
 use crate::common::{
-    PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_MUL, PNG_FREE_ROWS, PNG_FREE_SCAL, PNG_INFO_sCAL,
-    PNG_USER_WILL_FREE_DATA,
+    PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_MUL, PNG_FREE_ROWS, PNG_FREE_SCAL, PNG_FREE_TEXT,
+    PNG_INFO_sCAL, PNG_USER_WILL_FREE_DATA,
 };
 use crate::state::{self, PngStructState};
 use crate::types::*;
 use core::ffi::c_int;
+use core::mem::{MaybeUninit, size_of};
 use core::ptr;
+
+#[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
+#[repr(C)]
+struct CreateJmpBufTag {
+    __jmpbuf: [libc::c_long; 8],
+    __mask_was_saved: c_int,
+    __saved_mask: libc::sigset_t,
+}
+
+#[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
+type CreateJmpBuf = [CreateJmpBufTag; 1];
+
+#[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
+unsafe extern "C" {
+    fn _setjmp(env: *mut CreateJmpBufTag) -> c_int;
+    fn longjmp(env: *mut CreateJmpBufTag, value: c_int) -> !;
+}
+
+#[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
+unsafe extern "C" fn create_longjmp(env: png_jmpbufp, value: c_int) {
+    let jump_value = if value == 0 { 1 } else { value };
+    unsafe { longjmp(env.cast::<CreateJmpBufTag>(), jump_value) }
+}
 
 unsafe fn alloc_raw(size: png_alloc_size_t, zeroed: bool) -> png_voidp {
     if size == 0 {
@@ -103,17 +127,17 @@ fn register_write_state(
 }
 
 unsafe fn create_png_handle() -> png_structp {
-    Box::into_raw(Box::new(png_struct { _private: 0 }))
+    unsafe { alloc_raw(size_of::<png_struct>(), true).cast() }
 }
 
 unsafe fn create_info_handle() -> png_infop {
-    Box::into_raw(Box::new(png_info { _private: 0 }))
+    unsafe { alloc_raw(size_of::<png_info_alias_text_prefix>(), true).cast() }
 }
 
 unsafe fn release_png_handle(png_ptr: png_structp) {
     if !png_ptr.is_null() {
         unsafe {
-            drop(Box::from_raw(png_ptr));
+            libc::free(png_ptr.cast());
         }
     }
 }
@@ -121,31 +145,120 @@ unsafe fn release_png_handle(png_ptr: png_structp) {
 unsafe fn release_info_handle(info_ptr: png_infop) {
     if !info_ptr.is_null() {
         unsafe {
-            drop(Box::from_raw(info_ptr));
+            libc::free(info_ptr.cast());
         }
     }
 }
 
-unsafe fn create_png_struct_with_state(
-    create: impl FnOnce() -> png_structp,
-    register: impl FnOnce(png_structrp),
+unsafe fn allocate_png_handle_with_callbacks(
+    error_ptr: png_voidp,
+    error_fn: png_error_ptr,
+    warn_fn: png_error_ptr,
+    mem_ptr: png_voidp,
+    malloc_fn: png_malloc_ptr,
+    free_fn: png_free_ptr,
 ) -> png_structp {
-    let mut png_ptr = ptr::null_mut();
+    if malloc_fn.is_none() {
+        return unsafe { create_png_handle() };
+    }
 
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        png_ptr = create();
-        if !png_ptr.is_null() {
-            register(png_ptr);
-        }
-        png_ptr
-    })) {
-        Ok(png_ptr) => png_ptr,
-        Err(_) => {
-            if !png_ptr.is_null() {
-                unsafe { crate::error::panic_to_png_error(png_ptr) };
+    #[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
+    {
+        let mut create_handle = png_struct { _private: 0 };
+        let create_ptr: png_structrp = &mut create_handle;
+        let mut create_state =
+            PngStructState::new_read(error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn);
+        let mut create_jmp = MaybeUninit::<CreateJmpBuf>::uninit();
+        let mut allocated: png_structp = ptr::null_mut();
+
+        create_state.longjmp_fn = Some(create_longjmp);
+        create_state.jmp_buf_ptr = create_jmp.as_mut_ptr().cast();
+        create_state.jmp_buf_size = 0;
+        state::register_png(create_ptr, create_state);
+
+        if unsafe { _setjmp(create_jmp.as_mut_ptr().cast::<CreateJmpBufTag>()) } == 0 {
+            allocated = unsafe {
+                alloc_impl(create_ptr, size_of::<png_struct>(), false, false, true).cast()
+            };
+            if !allocated.is_null() {
+                unsafe {
+                    ptr::write_bytes(allocated.cast::<u8>(), 0, size_of::<png_struct>());
+                }
             }
-            ptr::null_mut()
         }
+
+        state::remove_png(create_ptr);
+        return allocated;
+    }
+
+    #[cfg(not(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux")))]
+    {
+        let _ = (error_ptr, error_fn, warn_fn, mem_ptr, free_fn);
+        unsafe {
+            let png_ptr = alloc_impl(
+                ptr::null_mut(),
+                size_of::<png_struct>(),
+                false,
+                false,
+                true,
+            )
+            .cast::<png_struct>();
+            if !png_ptr.is_null() {
+                ptr::write_bytes(png_ptr.cast::<u8>(), 0, size_of::<png_struct>());
+            }
+            png_ptr
+        }
+    }
+}
+
+unsafe fn create_png_struct_with_state(mut png_state: PngStructState) -> png_structp {
+    let png_ptr = unsafe {
+        allocate_png_handle_with_callbacks(
+            png_state.error_ptr,
+            png_state.error_fn,
+            png_state.warning_fn,
+            png_state.mem_ptr,
+            png_state.malloc_fn,
+            png_state.free_fn,
+        )
+    };
+    if png_ptr.is_null() {
+        return ptr::null_mut();
+    }
+
+    if png_state.is_read_struct {
+        png_state.core.mode |= crate::common::PNG_IS_READ_STRUCT;
+    } else {
+        png_state.core.mode &= !crate::common::PNG_IS_READ_STRUCT;
+    }
+    state::register_png(png_ptr, png_state);
+    png_ptr
+}
+
+unsafe fn destroy_png_handle(png_ptr: png_structp) {
+    let Some(png_state) = state::get_png(png_ptr) else {
+        unsafe { release_png_handle(png_ptr) };
+        return;
+    };
+
+    let mut proxy_ptr = ptr::null_mut();
+    if png_state.free_fn.is_some() {
+        proxy_ptr = unsafe { create_png_handle() };
+        if !proxy_ptr.is_null() {
+            state::register_png(proxy_ptr, png_state.clone());
+        }
+    }
+
+    let free_context = if proxy_ptr.is_null() { png_ptr } else { proxy_ptr };
+    unsafe { free_impl(free_context, png_ptr.cast(), false) };
+    if !png_state.jmp_buf_ptr.is_null() {
+        unsafe { free_impl(free_context, png_state.jmp_buf_ptr.cast(), false) };
+    }
+    state::remove_png(png_ptr);
+
+    if !proxy_ptr.is_null() {
+        state::remove_png(proxy_ptr);
+        unsafe { release_png_handle(proxy_ptr) };
     }
 }
 
@@ -232,20 +345,14 @@ pub unsafe extern "C" fn png_create_read_struct(
     warn_fn: png_error_ptr,
 ) -> png_structp {
     unsafe {
-        create_png_struct_with_state(
-            || create_png_handle(),
-            |png_ptr| {
-                register_read_state(
-                    png_ptr,
-                    error_ptr,
-                    error_fn,
-                    warn_fn,
-                    ptr::null_mut(),
-                    None,
-                    None,
-                );
-            },
-        )
+        create_png_struct_with_state(PngStructState::new_read(
+            error_ptr,
+            error_fn,
+            warn_fn,
+            ptr::null_mut(),
+            None,
+            None,
+        ))
     }
 }
 
@@ -260,14 +367,9 @@ pub unsafe extern "C" fn png_create_read_struct_2(
     free_fn: png_free_ptr,
 ) -> png_structp {
     unsafe {
-        create_png_struct_with_state(
-            || create_png_handle(),
-            |png_ptr| {
-                register_read_state(
-                    png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
-                );
-            },
-        )
+        create_png_struct_with_state(PngStructState::new_read(
+            error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
+        ))
     }
 }
 
@@ -279,20 +381,14 @@ pub unsafe extern "C" fn png_create_write_struct(
     warn_fn: png_error_ptr,
 ) -> png_structp {
     unsafe {
-        create_png_struct_with_state(
-            || create_png_handle(),
-            |png_ptr| {
-                register_write_state(
-                    png_ptr,
-                    error_ptr,
-                    error_fn,
-                    warn_fn,
-                    ptr::null_mut(),
-                    None,
-                    None,
-                );
-            },
-        )
+        create_png_struct_with_state(PngStructState::new_write(
+            error_ptr,
+            error_fn,
+            warn_fn,
+            ptr::null_mut(),
+            None,
+            None,
+        ))
     }
 }
 
@@ -307,14 +403,9 @@ pub unsafe extern "C" fn png_create_write_struct_2(
     free_fn: png_free_ptr,
 ) -> png_structp {
     unsafe {
-        create_png_struct_with_state(
-            || create_png_handle(),
-            |png_ptr| {
-                register_write_state(
-                    png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
-                );
-            },
-        )
+        create_png_struct_with_state(PngStructState::new_write(
+            error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
+        ))
     }
 }
 
@@ -392,6 +483,17 @@ pub unsafe extern "C" fn png_free_data(
 ) {
     crate::abi_guard_no_png!({
         state::update_info(info_ptr, |info_state| {
+            if (mask & PNG_FREE_TEXT) != 0 && (info_state.core.free_me & PNG_FREE_TEXT) != 0 {
+                if num == -1 {
+                    info_state.text_chunks.clear();
+                    info_state.text_cache.clear();
+                    info_state.text_key_storage.clear();
+                    info_state.text_value_storage.clear();
+                    info_state.text_lang_storage.clear();
+                    info_state.text_lang_key_storage.clear();
+                }
+            }
+
             if (mask & PNG_FREE_ROWS) != 0 && (info_state.core.free_me & PNG_FREE_ROWS) != 0 {
                 info_state.core.row_pointers = ptr::null_mut();
             }
@@ -409,6 +511,7 @@ pub unsafe extern "C" fn png_free_data(
             }
             info_state.core.free_me &= !cleared_mask;
         });
+        unsafe { crate::bridge_ffi::png_safe_sync_png_info_aliases(ptr::null_mut(), info_ptr) };
     });
 }
 
@@ -426,13 +529,10 @@ pub unsafe extern "C" fn png_destroy_read_struct(
         };
 
         if !png_ptr.is_null() {
-            if let Some(mut png_state) = state::remove_png(png_ptr) {
-                unsafe { crate::error::release_longjmp_buffer(&mut png_state) };
-            }
-            unsafe { release_png_handle(png_ptr) };
             if !png_ptr_ptr.is_null() {
                 unsafe { *png_ptr_ptr = ptr::null_mut() };
             }
+            unsafe { destroy_png_handle(png_ptr) };
         }
 
         if !info_ptr_ptr.is_null() {
@@ -468,13 +568,10 @@ pub unsafe extern "C" fn png_destroy_write_struct(
         };
 
         if !png_ptr.is_null() {
-            if let Some(mut png_state) = state::remove_png(png_ptr) {
-                unsafe { crate::error::release_longjmp_buffer(&mut png_state) };
-            }
-            unsafe { release_png_handle(png_ptr) };
             if !png_ptr_ptr.is_null() {
                 unsafe { *png_ptr_ptr = ptr::null_mut() };
             }
+            unsafe { destroy_png_handle(png_ptr) };
         }
 
         if !info_ptr_ptr.is_null() {

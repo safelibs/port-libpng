@@ -152,8 +152,8 @@ ensure_original_stage() {
   original_stage_header_dir="$original_stage_include_dir/libpng16"
   mkdir -p "$original_stage_header_dir"
 
-  install -m 0644 "$safe_dir/include/png.h" "$original_stage_header_dir/png.h"
-  install -m 0644 "$safe_dir/include/pngconf.h" "$original_stage_header_dir/pngconf.h"
+  install -m 0644 "$repo_root/original/png.h" "$original_stage_header_dir/png.h"
+  install -m 0644 "$repo_root/original/pngconf.h" "$original_stage_header_dir/pngconf.h"
   install -m 0644 "$safe_dir/include/pnglibconf.h" "$original_stage_header_dir/pnglibconf.h"
 }
 

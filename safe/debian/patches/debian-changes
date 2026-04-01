@@ -14401,7 +14401,7 @@ Forwarded: not-needed
 +checksum = "703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214"
 --- /dev/null
 +++ libpng1.6-1.6.43/UNSAFE.md
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,54 @@
 +# Unsafe Boundary
 +
 +The exported `libpng16` ABI is implemented in Rust under `safe/src/`. Unsafe
@@ -14410,9 +14410,18 @@ Forwarded: not-needed
 +
 +## Checked-In C Boundary
 +
-+The checked-in C files under `safe/cshim/` are retained as documentation of the
-+final narrowed interop surface, but the phase no longer builds or ships a
-+hidden libpng runtime from vendor C translation units.
++The checked-in C files under `safe/cshim/` are limited to the final narrow
++interop boundary:
++
++- `safe/cshim/longjmp_bridge.c`
++  Documents the `jmp_buf` field ABI and the longjmp callback handoff.
++
++- `safe/cshim/read_phase_bridge.c`
++  Documents the remaining private-layout mirror types used for read-side field
++  synchronization.
++
++These bridge artifacts do not ship an alternate libpng runtime and do not
++reintroduce `original/png*.c` as packaged implementation code.
 +
 +## Unsafe Rust Surface
 +
@@ -14427,9 +14436,11 @@ Forwarded: not-needed
 +  Remaining internal bridge names are implemented in Rust instead of being
 +  generated from upstream C sources at build time.
 +
-+- Callback, file I/O, and longjmp interop in `safe/src/io.rs` and `safe/src/error.rs`
-+  These modules cross into application callbacks, stdio, and opaque jmp buffer
-+  storage.
++- Callback, file I/O, and longjmp interop in `safe/src/io.rs`, `safe/src/error.rs`,
++  and `safe/src/memory.rs`
++  These modules cross into application callbacks, stdio, opaque jmp buffer
++  storage, and the create-time `_setjmp` / `longjmp` trap needed to preserve
++  libpng's user-allocator failure semantics.
 +
 +- zlib interop in `safe/src/zlib.rs`
 +  The packaged library still links against the platform zlib ABI.
@@ -14439,9 +14450,10 @@ Forwarded: not-needed
 +- The build no longer compiles `original/png*.c`, wrapped vendor payloads, or
 +  generated vendor translation units as part of the shipped runtime.
 +- Rust owns the exported ABI entry points and the opaque handle lifetime.
-+- Any remaining C interop is limited to the narrow checked-in shim artifacts and
-+  does not implement public read, write, simplified, transform, getter, or
-+  setter semantics.
++- Any remaining C interop is limited to the narrow checked-in shim artifacts
++  needed for `jmp_buf`, callback, or private-layout bridge glue and does not
++  implement public read, write, simplified, transform, getter, or setter
++  semantics.
 +- APNG remains out of scope. The frozen
 +  `original/debian/patches/libpng-1.6.39-apng.patch` artifact stays unapplied.
 --- libpng1.6-1.6.43.orig/build.rs
@@ -14899,7 +14911,7 @@ Forwarded: not-needed
 +void png_safe_sync_png_info_aliases(png_structrp png_ptr, png_const_inforp info_ptr);
 --- libpng1.6-1.6.43.orig/src/chunks.rs
 +++ libpng1.6-1.6.43/src/chunks.rs
-@@ -1,84 +1,254 @@
+@@ -1,84 +1,257 @@
 +use crate::read_util::{
 +    PNG_HANDLE_CHUNK_ALWAYS, PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_HANDLE_CHUNK_IF_SAFE,
 +    PNG_HANDLE_CHUNK_NEVER, ReadPhase, UnknownChunkSetting, ancillary_chunk, checked_chunk_length,
@@ -14919,15 +14931,19 @@ Forwarded: not-needed
 +pub(crate) fn read_core(png_ptr: png_const_structrp) -> png_safe_read_core {
 +    state::with_png(png_ptr.cast_mut(), |png_state| png_state.core).unwrap_or_default()
 +}
++
++pub(crate) fn write_core(png_ptr: png_structrp, core: &png_safe_read_core) {
++    state::update_png(png_ptr, |png_state| {
++        png_state.core = *core;
++    });
++}
  
 -    fn png_safe_call_warning(png_ptr: png_structrp, message: png_const_charp) -> c_int;
 -    fn png_safe_call_benign_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
 -    fn png_safe_call_app_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
 -    fn png_safe_call_error(png_ptr: png_structrp, message: png_const_charp) -> c_int;
-+pub(crate) fn write_core(png_ptr: png_structrp, core: &png_safe_read_core) {
-+    state::update_png(png_ptr, |png_state| {
-+        png_state.core = *core;
-+    });
++pub(crate) fn read_info_core(info_ptr: png_const_inforp) -> png_safe_info_core {
++    state::with_info(info_ptr.cast_mut(), |info_state| info_state.core).unwrap_or_default()
  }
  
 -pub(crate) unsafe fn read_core(png_ptr: png_const_structrp) -> png_safe_read_core {
@@ -14935,20 +14951,12 @@ Forwarded: not-needed
 -    unsafe {
 -        png_safe_read_core_get(png_ptr, out.as_mut_ptr());
 -        out.assume_init()
--    }
-+pub(crate) fn read_info_core(info_ptr: png_const_inforp) -> png_safe_info_core {
-+    state::with_info(info_ptr.cast_mut(), |info_state| info_state.core).unwrap_or_default()
-+}
-+
 +pub(crate) fn write_info_core(info_ptr: png_inforp, core: &png_safe_info_core) {
 +    state::update_info(info_ptr, |info_state| {
 +        info_state.core = *core;
 +    });
- }
- 
--pub(crate) unsafe fn write_core(png_ptr: png_structrp, core: &png_safe_read_core) {
--    unsafe {
--        png_safe_read_core_set(png_ptr, core);
++}
++
 +pub(crate) unsafe fn call_warning(png_ptr: png_structrp, message: &[u8]) -> c_int {
 +    let callback = state::with_png(png_ptr, |png_state| png_state.warning_fn).flatten();
 +    if let Some(callback) = callback {
@@ -14957,11 +14965,9 @@ Forwarded: not-needed
 +    1
  }
  
--pub(crate) unsafe fn read_info_core(info_ptr: png_const_inforp) -> png_safe_info_core {
--    let mut out = MaybeUninit::<png_safe_info_core>::zeroed();
+-pub(crate) unsafe fn write_core(png_ptr: png_structrp, core: &png_safe_read_core) {
 -    unsafe {
--        png_safe_info_core_get(info_ptr, out.as_mut_ptr());
--        out.assume_init()
+-        png_safe_read_core_set(png_ptr, core);
 +pub(crate) unsafe fn call_benign_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
 +    let benign = state::with_png(png_ptr, |png_state| png_state.benign_errors != 0).unwrap_or(true);
 +    if benign {
@@ -14971,9 +14977,11 @@ Forwarded: not-needed
      }
  }
  
--pub(crate) unsafe fn write_info_core(info_ptr: png_inforp, core: &png_safe_info_core) {
+-pub(crate) unsafe fn read_info_core(info_ptr: png_const_inforp) -> png_safe_info_core {
+-    let mut out = MaybeUninit::<png_safe_info_core>::zeroed();
 -    unsafe {
--        png_safe_info_core_set(info_ptr, core);
+-        png_safe_info_core_get(info_ptr, out.as_mut_ptr());
+-        out.assume_init()
 +pub(crate) unsafe fn call_app_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
 +    unsafe { crate::error::png_error(png_ptr, message.as_ptr().cast::<c_char>()) }
 +}
@@ -14981,21 +14989,23 @@ Forwarded: not-needed
 +pub(crate) unsafe fn call_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
 +    let callback = state::with_png(png_ptr, |png_state| png_state.error_fn).flatten();
 +    if let Some(callback) = callback {
++        state::update_png(png_ptr, |png_state| {
++            png_state.error_callback_called = true;
++        });
 +        unsafe { callback(png_ptr, message.as_ptr().cast::<c_char>()) };
      }
 +    1
  }
  
--pub(crate) unsafe fn call_warning(png_ptr: png_structrp, message: &[u8]) -> c_int {
--    unsafe { png_safe_call_warning(png_ptr, message.as_ptr().cast::<c_char>()) }
+-pub(crate) unsafe fn write_info_core(info_ptr: png_inforp, core: &png_safe_info_core) {
+-    unsafe {
+-        png_safe_info_core_set(info_ptr, core);
 +pub(crate) fn set_read_phase(png_ptr: png_structrp, phase: ReadPhase) {
 +    state::update_png(png_ptr, |state| {
 +        state.read_phase = phase;
 +    });
- }
- 
--pub(crate) unsafe fn call_benign_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
--    unsafe { png_safe_call_benign_error(png_ptr, message.as_ptr().cast::<c_char>()) }
++}
++
 +fn apply_unknown_chunk_setting(
 +    list: &mut Vec<UnknownChunkSetting>,
 +    name: [png_byte; 4],
@@ -15005,11 +15015,11 @@ Forwarded: not-needed
 +        entry.keep = keep as png_byte;
 +    } else if keep != PNG_HANDLE_CHUNK_AS_DEFAULT {
 +        list.push(UnknownChunkSetting::new(name, keep as png_byte));
-+    }
+     }
  }
  
--pub(crate) unsafe fn call_app_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
--    unsafe { png_safe_call_app_error(png_ptr, message.as_ptr().cast::<c_char>()) }
+-pub(crate) unsafe fn call_warning(png_ptr: png_structrp, message: &[u8]) -> c_int {
+-    unsafe { png_safe_call_warning(png_ptr, message.as_ptr().cast::<c_char>()) }
 +pub(crate) fn apply_keep_unknown_chunks_state(
 +    png_ptr: png_structrp,
 +    keep: c_int,
@@ -15042,10 +15052,8 @@ Forwarded: not-needed
 +            .unknown_chunk_list
 +            .retain(|entry| c_int::from(entry.keep) != PNG_HANDLE_CHUNK_AS_DEFAULT);
 +    });
- }
- 
--pub(crate) unsafe fn call_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
--    unsafe { png_safe_call_error(png_ptr, message.as_ptr().cast::<c_char>()) }
++}
++
 +pub(crate) fn explicit_keep_for_chunk(
 +    png_ptr: png_const_structrp,
 +    name: [png_byte; 4],
@@ -15055,12 +15063,8 @@ Forwarded: not-needed
 +        .iter()
 +        .find(|entry| entry.name == name)
 +        .map(|entry| c_int::from(entry.keep))
- }
- 
--#[unsafe(no_mangle)]
--pub unsafe extern "C" fn png_set_check_for_invalid_index(png_ptr: png_structrp, allowed: c_int) {
--    if png_ptr.is_null() {
--        return;
++}
++
 +pub(crate) fn keep_for_chunk(png_ptr: png_const_structrp, name: [png_byte; 4]) -> c_int {
 +    if let Some(keep) = explicit_keep_for_chunk(png_ptr, name) {
 +        return keep;
@@ -15072,13 +15076,11 @@ Forwarded: not-needed
 +        state::get_png(png_ptr.cast_mut())
 +            .map(|state| state.unknown_default_keep)
 +            .unwrap_or(PNG_HANDLE_CHUNK_AS_DEFAULT)
-     }
-+}
++    }
+ }
  
--    let mut core = unsafe { read_core(png_ptr) };
--    core.num_palette_max = if allowed > 0 { 0 } else { -1 };
--    unsafe {
--        write_core(png_ptr, &core);
+-pub(crate) unsafe fn call_benign_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
+-    unsafe { png_safe_call_benign_error(png_ptr, message.as_ptr().cast::<c_char>()) }
 +pub(crate) fn dispatch_user_chunk_callback(
 +    png_ptr: png_structrp,
 +    chunk: &mut png_unknown_chunk,
@@ -15087,29 +15089,30 @@ Forwarded: not-needed
 +    let callback = png_state.read_user_chunk_fn?;
 +    if callback as usize == crate::io::png_safe_read_user_chunk_trampoline as usize {
 +        return Some(0);
-     }
++    }
 +    Some(unsafe { callback(png_ptr, chunk as *mut png_unknown_chunk) })
-+}
-+
+ }
+ 
+-pub(crate) unsafe fn call_app_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
+-    unsafe { png_safe_call_app_error(png_ptr, message.as_ptr().cast::<c_char>()) }
 +pub(crate) fn chunk_safe_to_copy(name: [png_byte; 4]) -> bool {
 +    safe_to_copy(name)
-+}
-+
+ }
+ 
+-pub(crate) unsafe fn call_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
+-    unsafe { png_safe_call_error(png_ptr, message.as_ptr().cast::<c_char>()) }
 +pub(crate) fn chunk_is_ancillary(name: [png_byte; 4]) -> bool {
 +    ancillary_chunk(name)
++}
++
++pub(crate) fn validate_chunk_length(length: png_uint_32) -> Option<usize> {
++    checked_chunk_length(length)
  }
  
 -#[unsafe(no_mangle)]
--pub unsafe extern "C" fn png_get_palette_max(
--    png_ptr: png_const_structp,
--    info_ptr: png_const_infop,
--) -> c_int {
--    if png_ptr.is_null() || info_ptr.is_null() {
--        return -1;
-+pub(crate) fn validate_chunk_length(length: png_uint_32) -> Option<usize> {
-+    checked_chunk_length(length)
-+}
-+
+-pub unsafe extern "C" fn png_set_check_for_invalid_index(png_ptr: png_structrp, allowed: c_int) {
+-    if png_ptr.is_null() {
+-        return;
 +pub(crate) fn validate_ancillary_chunk_limits(
 +    png_ptr: png_const_structrp,
 +    length: png_uint_32,
@@ -15145,8 +15148,12 @@ Forwarded: not-needed
 +    let mut limit = 0x7fff_ffffusize as png_alloc_size_t;
 +    if png_state.user_chunk_malloc_max != 0 {
 +        limit = limit.min(png_state.user_chunk_malloc_max);
-+    }
-+
+     }
+ 
+-    let mut core = unsafe { read_core(png_ptr) };
+-    core.num_palette_max = if allowed > 0 { 0 } else { -1 };
+-    unsafe {
+-        write_core(png_ptr, &core);
 +    if chunk_name == crate::read_util::PNG_IDAT {
 +        let idat_limit =
 +            checked_idat_limit(&read_core(png_ptr)).ok_or(b"chunk length overflow\0".as_slice())?;
@@ -15155,8 +15162,16 @@ Forwarded: not-needed
 +
 +    if (declared as png_alloc_size_t) > limit {
 +        return Err(b"chunk data is too large\0".as_slice());
-+    }
-+
+     }
+-}
+ 
+-#[unsafe(no_mangle)]
+-pub unsafe extern "C" fn png_get_palette_max(
+-    png_ptr: png_const_structp,
+-    info_ptr: png_const_infop,
+-) -> c_int {
+-    if png_ptr.is_null() || info_ptr.is_null() {
+-        return -1;
 +    if chunk_is_ancillary(name) {
 +        validate_ancillary_chunk_limits(png_ptr, length, declared)?;
      }
@@ -15943,7 +15958,7 @@ Forwarded: not-needed
  }
 --- libpng1.6-1.6.43.orig/src/interlace.rs
 +++ libpng1.6-1.6.43/src/interlace.rs
-@@ -1,46 +1,28 @@
+@@ -1,46 +1,99 @@
 -use crate::chunks::{read_core, write_core};
 +use crate::chunks::read_core;
  use crate::types::*;
@@ -15951,31 +15966,93 @@ Forwarded: not-needed
  
 -const PNG_INTERLACE: png_uint_32 = 0x0002;
 +const PNG_INTERLACE_TRANSFORM: png_uint_32 = 0x0002;
++const PNG_PACKSWAP: png_uint_32 = 0x10000;
++const ADAM7_PASSES: [(u32, u32, u32, u32); 7] = [
++    (8, 0, 8, 0),
++    (8, 4, 8, 0),
++    (4, 0, 8, 4),
++    (4, 2, 4, 0),
++    (2, 0, 4, 2),
++    (2, 1, 2, 0),
++    (1, 0, 2, 1),
++];
  
 -pub(crate) fn mask_packed_row_padding_for_width(
 -    row: &mut [u8],
 -    width: usize,
 -    pixel_depth: usize,
--) {
++fn uses_adam7_pass_rows(core: &png_safe_read_core) -> bool {
++    core.interlaced != 0 && (core.transformations & PNG_INTERLACE_TRANSFORM) == 0
++}
++
++fn adam7_pass_samples(width: u32, pass: usize) -> u32 {
++    let (x_sampling, x_offset, _, _) = ADAM7_PASSES[pass];
++    width.saturating_sub(x_offset).div_ceil(x_sampling)
++}
++
++fn sanitize_buffer_padding(buffer: png_bytep, full_bytes: usize, used_mask: u8) {
++    if buffer.is_null() {
++        return;
++    }
++
++    unsafe {
++        *buffer.add(full_bytes) &= used_mask;
++    }
++}
++
++pub(crate) fn sanitize_row_padding_for_core(
++    core: &png_safe_read_core,
++    row: png_bytep,
++    display_row: png_bytep,
+ ) {
 -    if width == 0 || pixel_depth >= 8 || row.is_empty() {
--        return;
--    }
--
++    let pixel_depth = usize::from(core.pixel_depth);
++    if pixel_depth >= 8 || pixel_depth == 0 {
+         return;
+     }
+ 
 -    let used_bits = match width.checked_mul(pixel_depth) {
 -        Some(bits) => bits,
 -        None => return,
--    };
++    let width = if uses_adam7_pass_rows(core) {
++        let Ok(pass) = usize::try_from(core.pass) else {
++            return;
++        };
++        if pass >= ADAM7_PASSES.len() {
++            return;
++        }
++        usize::try_from(adam7_pass_samples(core.width, pass)).unwrap_or(0)
++    } else {
++        usize::try_from(core.width).unwrap_or(0)
+     };
 -    let padding_bits = (8 - (used_bits % 8)) % 8;
 -    if padding_bits == 0 {
--        return;
--    }
--
++    if width == 0 {
+         return;
+     }
+ 
 -    let mask = !(((1u16 << padding_bits) - 1) as u8);
 -    if let Some(last) = row.last_mut() {
 -        *last &= mask;
--    }
-+pub(crate) fn sanitize_row_padding(_png_ptr: png_structrp, _row: png_bytep, _display_row: png_bytep) {
-+    // libpng preserves the caller's padding bits in packed rows.
++    let Some(used_bits) = width.checked_mul(pixel_depth) else {
++        return;
++    };
++    let full_bytes = used_bits / 8;
++    let tail_bits = used_bits % 8;
++    if tail_bits == 0 {
++        return;
++    }
++
++    let used_mask = if (core.transformations & PNG_PACKSWAP) != 0 {
++        (1u8 << tail_bits) - 1
++    } else {
++        !((1u8 << (8 - tail_bits)) - 1)
++    };
++
++    sanitize_buffer_padding(row, full_bytes, used_mask);
++    if display_row != row {
++        sanitize_buffer_padding(display_row, full_bytes, used_mask);
+     }
  }
 +
  #[unsafe(no_mangle)]
@@ -16038,7 +16115,7 @@ Forwarded: not-needed
  mod zlib;
 --- libpng1.6-1.6.43.orig/src/read.rs
 +++ libpng1.6-1.6.43/src/read.rs
-@@ -1,42 +1,2020 @@
+@@ -1,42 +1,2016 @@
 -use crate::read_util::KeepSymbol;
 -use crate::read_transform::clear_read_state;
 +use crate::chunks::{
@@ -16048,7 +16125,6 @@ Forwarded: not-needed
 +    write_core,
 +};
 +use crate::common::{PNG_FLAG_ROW_INIT, PNG_HAVE_PNG_SIGNATURE};
-+use crate::interlace;
 +use crate::read_util::{
 +    PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_HANDLE_CHUNK_IF_SAFE, PNG_IDAT, PNG_IEND, PNG_IHDR, PNG_PLTE,
 +    PNG_SIGNATURE, ReadPhase, checked_rowbytes_for_width, chunk_name_u32, is_known_chunk_name,
@@ -17963,9 +18039,6 @@ Forwarded: not-needed
 +        if png_safe_call_read_row(png_ptr, row, display_row) == 0 {
 +            raise_read_longjmp();
 +        }
-+        if !(row.is_null() && display_row.is_null()) {
-+            interlace::sanitize_row_padding(png_ptr, row, display_row);
-+        }
 +        let core = read_core(png_ptr);
 +        set_read_phase(png_ptr, update_phase_from_row_state(png_ptr, &core));
 +    }
@@ -19055,7 +19128,7 @@ Forwarded: not-needed
 +    let image_ref = unsafe { &*image };
 +    if image_ref.version != PNG_IMAGE_VERSION {
 +        let mut message = operation.to_vec();
-+        message.extend_from_slice(b": damaged PNG_IMAGE_VERSION\0");
++        message.extend_from_slice(b": incorrect PNG_IMAGE_VERSION\0");
 +        return Err(image_error(image, &message));
      }
  
@@ -21895,7 +21968,7 @@ Forwarded: not-needed
 +            .unwrap_or((ptr::null_mut(), 0));
 +
 +        let buffer = if existing.0.is_null() {
-+            libc::malloc(jmp_buf_size).cast::<JmpBuf>()
++            crate::memory::png_malloc_warn(png_ptr, jmp_buf_size).cast::<JmpBuf>()
 +        } else if existing.1 == jmp_buf_size {
 +            existing.0
          } else {
@@ -23292,7 +23365,7 @@ Forwarded: not-needed
 +}
 --- libpng1.6-1.6.43.orig/src/memory.rs
 +++ libpng1.6-1.6.43/src/memory.rs
-@@ -1,246 +1,152 @@
+@@ -1,245 +1,264 @@
  use crate::common::{
 -    PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_ALL, PNG_FREE_EXIF, PNG_FREE_HIST, PNG_FREE_ICCP,
 -    PNG_FREE_MUL, PNG_FREE_PCAL, PNG_FREE_PLTE, PNG_FREE_ROWS, PNG_FREE_SCAL, PNG_FREE_SPLT,
@@ -23304,38 +23377,65 @@ Forwarded: not-needed
 -use crate::io::{initialize_default_read_io, initialize_default_write_io};
 -use crate::state::{
 -    PngInfoState, PngStructState, alloc_longjmp_storage, info_ptr_state, png_ptr_state,
-+    PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_MUL, PNG_FREE_ROWS, PNG_FREE_SCAL, PNG_INFO_sCAL,
-+    PNG_USER_WILL_FREE_DATA,
++    PNG_DESTROY_WILL_FREE_DATA, PNG_FREE_MUL, PNG_FREE_ROWS, PNG_FREE_SCAL, PNG_FREE_TEXT,
++    PNG_INFO_sCAL, PNG_USER_WILL_FREE_DATA,
  };
 +use crate::state::{self, PngStructState};
  use crate::types::*;
  use core::ffi::c_int;
 -use core::mem;
++use core::mem::{MaybeUninit, size_of};
  use core::ptr;
  
 -pub(crate) unsafe fn malloc_base(png_ptr: png_const_structrp, size: png_alloc_size_t) -> png_voidp {
-+unsafe fn alloc_raw(size: png_alloc_size_t, zeroed: bool) -> png_voidp {
-     if size == 0 {
-         return ptr::null_mut();
-     }
+-    if size == 0 {
+-        return ptr::null_mut();
+-    }
++#[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
++#[repr(C)]
++struct CreateJmpBufTag {
++    __jmpbuf: [libc::c_long; 8],
++    __mask_was_saved: c_int,
++    __saved_mask: libc::sigset_t,
++}
  
 -    if let Some(state) = png_ptr_state(png_ptr.cast_mut()) {
 -        if let Some(malloc_fn) = state.malloc_fn {
 -            return malloc_fn(png_ptr.cast_mut(), size);
 -        }
+-    }
++#[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
++type CreateJmpBuf = [CreateJmpBufTag; 1];
++
++#[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
++unsafe extern "C" {
++    fn _setjmp(env: *mut CreateJmpBufTag) -> c_int;
++    fn longjmp(env: *mut CreateJmpBufTag, value: c_int) -> !;
++}
+ 
+-    libc::malloc(size)
++#[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
++unsafe extern "C" fn create_longjmp(env: png_jmpbufp, value: c_int) {
++    let jump_value = if value == 0 { 1 } else { value };
++    unsafe { longjmp(env.cast::<CreateJmpBufTag>(), jump_value) }
+ }
+ 
+-unsafe fn malloc_base_with_template(template: png_structrp, size: png_alloc_size_t) -> png_voidp {
++unsafe fn alloc_raw(size: png_alloc_size_t, zeroed: bool) -> png_voidp {
+     if size == 0 {
+         return ptr::null_mut();
+     }
+ 
+-    if let Some(state) = png_ptr_state(template) {
+-        if let Some(malloc_fn) = state.malloc_fn {
+-            return malloc_fn(template, size);
 +    if zeroed {
 +        unsafe { libc::calloc(1, size).cast() }
 +    } else {
 +        unsafe { libc::malloc(size).cast() }
-     }
--
--    libc::malloc(size)
- }
- 
--unsafe fn malloc_base_with_template(template: png_structrp, size: png_alloc_size_t) -> png_voidp {
--    if size == 0 {
--        return ptr::null_mut();
--    }
++    }
++}
++
 +unsafe fn alloc_impl(
 +    png_ptr: png_const_structrp,
 +    size: png_alloc_size_t,
@@ -23349,10 +23449,7 @@ Forwarded: not-needed
 +        state::with_png(png_ptr.cast_mut(), |png_state| (png_state.malloc_fn, png_state.mem_ptr))
 +            .unwrap_or((None, ptr::null_mut()))
 +    };
- 
--    if let Some(state) = png_ptr_state(template) {
--        if let Some(malloc_fn) = state.malloc_fn {
--            return malloc_fn(template, size);
++
 +    let allocation = if let Some(callback) = malloc_fn {
 +        let ptr = unsafe { callback(png_ptr.cast_mut(), size) };
 +        if !ptr.is_null() && zeroed {
@@ -23386,19 +23483,51 @@ Forwarded: not-needed
 -            free_fn(template, ptr_to_free);
 -            return;
 -        }
--    }
--
--    libc::free(ptr_to_free);
--}
--
--unsafe extern "C" fn internal_longjmp(jmp_buf_ptr: *mut JmpBuf, value: c_int) {
--    crate::state::png_safe_longjmp_state_jump(jmp_buf_ptr.cast(), value)
--}
 +    let free_fn = if use_default {
 +        None
 +    } else {
 +        state::with_png(png_ptr.cast_mut(), |png_state| png_state.free_fn).flatten()
 +    };
++
++    if let Some(callback) = free_fn {
++        unsafe { callback(png_ptr.cast_mut(), ptr_to_free) };
++    } else {
++        unsafe { libc::free(ptr_to_free.cast()) };
+     }
++}
+ 
+-    libc::free(ptr_to_free);
++fn register_read_state(
++    png_ptr: png_structrp,
++    error_ptr: png_voidp,
++    error_fn: png_error_ptr,
++    warn_fn: png_error_ptr,
++    mem_ptr: png_voidp,
++    malloc_fn: png_malloc_ptr,
++    free_fn: png_free_ptr,
++) {
++    state::register_png(
++        png_ptr,
++        PngStructState::new_read(error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn),
++    );
+ }
+ 
+-unsafe extern "C" fn internal_longjmp(jmp_buf_ptr: *mut JmpBuf, value: c_int) {
+-    crate::state::png_safe_longjmp_state_jump(jmp_buf_ptr.cast(), value)
++fn register_write_state(
++    png_ptr: png_structrp,
++    error_ptr: png_voidp,
++    error_fn: png_error_ptr,
++    warn_fn: png_error_ptr,
++    mem_ptr: png_voidp,
++    malloc_fn: png_malloc_ptr,
++    free_fn: png_free_ptr,
++) {
++    state::register_png(
++        png_ptr,
++        PngStructState::new_write(error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn),
++    );
+ }
  
 -#[repr(C)]
 -struct CreatePngStructContext {
@@ -23465,13 +23594,8 @@ Forwarded: not-needed
 -    ptr::write(raw, state);
 -    context.result = raw.cast::<png_struct>();
 -    1
-+    if let Some(callback) = free_fn {
-+        unsafe { callback(png_ptr.cast_mut(), ptr_to_free) };
-+    } else {
-+        unsafe { libc::free(ptr_to_free.cast()) };
-+    }
- }
- 
+-}
+-
 -unsafe extern "C" fn create_png_struct_attempt(context: png_voidp) -> c_int {
 -    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 -        create_png_struct_attempt_impl(context)
@@ -23480,27 +23604,33 @@ Forwarded: not-needed
 -        Err(_) => {
 -            let context = &mut *context.cast::<CreatePngStructContext>();
 -            crate::error::panic_to_png_error(context.template.cast::<png_struct>())
--        }
--    }
-+fn register_read_state(
-+    png_ptr: png_structrp,
-+    error_ptr: png_voidp,
-+    error_fn: png_error_ptr,
-+    warn_fn: png_error_ptr,
-+    mem_ptr: png_voidp,
-+    malloc_fn: png_malloc_ptr,
-+    free_fn: png_free_ptr,
-+) {
-+    state::register_png(
-+        png_ptr,
-+        PngStructState::new_read(error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn),
-+    );
++unsafe fn create_png_handle() -> png_structp {
++    unsafe { alloc_raw(size_of::<png_struct>(), true).cast() }
++}
++
++unsafe fn create_info_handle() -> png_infop {
++    unsafe { alloc_raw(size_of::<png_info_alias_text_prefix>(), true).cast() }
++}
++
++unsafe fn release_png_handle(png_ptr: png_structp) {
++    if !png_ptr.is_null() {
++        unsafe {
++            libc::free(png_ptr.cast());
++        }
++    }
++}
++
++unsafe fn release_info_handle(info_ptr: png_infop) {
++    if !info_ptr.is_null() {
++        unsafe {
++            libc::free(info_ptr.cast());
+         }
+     }
  }
  
 -unsafe fn create_png_struct(
 -    user_png_ver: png_const_charp,
-+fn register_write_state(
-+    png_ptr: png_structrp,
++unsafe fn allocate_png_handle_with_callbacks(
      error_ptr: png_voidp,
      error_fn: png_error_ptr,
      warn_fn: png_error_ptr,
@@ -23508,20 +23638,17 @@ Forwarded: not-needed
      malloc_fn: png_malloc_ptr,
      free_fn: png_free_ptr,
 -    is_read: bool,
--) -> png_structp {
+ ) -> png_structp {
 -    let mut template = PngStructState::defaults(
 -        is_read, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
-+) {
-+    state::register_png(
-+        png_ptr,
-+        PngStructState::new_write(error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn),
-     );
+-    );
 -    let (create_longjmp_storage, create_longjmp_storage_size, create_jmp_buf_ptr) =
 -        alloc_longjmp_storage();
 -    if create_longjmp_storage.is_null() {
 -        return ptr::null_mut();
--    }
-+}
++    if malloc_fn.is_none() {
++        return unsafe { create_png_handle() };
+     }
  
 -    template.longjmp_storage = create_longjmp_storage;
 -    template.longjmp_storage_size = create_longjmp_storage_size;
@@ -23534,9 +23661,34 @@ Forwarded: not-needed
 -        user_png_ver,
 -        result: ptr::null_mut(),
 -    };
-+unsafe fn create_png_handle() -> png_structp {
-+    Box::into_raw(Box::new(png_struct { _private: 0 }))
-+}
++    #[cfg(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux"))]
++    {
++        let mut create_handle = png_struct { _private: 0 };
++        let create_ptr: png_structrp = &mut create_handle;
++        let mut create_state =
++            PngStructState::new_read(error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn);
++        let mut create_jmp = MaybeUninit::<CreateJmpBuf>::uninit();
++        let mut allocated: png_structp = ptr::null_mut();
++
++        create_state.longjmp_fn = Some(create_longjmp);
++        create_state.jmp_buf_ptr = create_jmp.as_mut_ptr().cast();
++        create_state.jmp_buf_size = 0;
++        state::register_png(create_ptr, create_state);
++
++        if unsafe { _setjmp(create_jmp.as_mut_ptr().cast::<CreateJmpBufTag>()) } == 0 {
++            allocated = unsafe {
++                alloc_impl(create_ptr, size_of::<png_struct>(), false, false, true).cast()
++            };
++            if !allocated.is_null() {
++                unsafe {
++                    ptr::write_bytes(allocated.cast::<u8>(), 0, size_of::<png_struct>());
++                }
++            }
++        }
++
++        state::remove_png(create_ptr);
++        return allocated;
++    }
  
 -    // Match libpng's temporary create-time setjmp so allocator and callback
 -    // errors during construction unwind back to a NULL return.
@@ -23545,41 +23697,64 @@ Forwarded: not-needed
 -        Some(create_png_struct_attempt),
 -        (&mut context as *mut CreatePngStructContext).cast(),
 -    ) == 0
--    {
++    #[cfg(not(all(target_arch = "x86_64", target_env = "gnu", target_os = "linux")))]
+     {
 -        libc::free(create_longjmp_storage);
--        return ptr::null_mut();
--    }
-+unsafe fn create_info_handle() -> png_infop {
-+    Box::into_raw(Box::new(png_info { _private: 0 }))
++        let _ = (error_ptr, error_fn, warn_fn, mem_ptr, free_fn);
++        unsafe {
++            let png_ptr = alloc_impl(
++                ptr::null_mut(),
++                size_of::<png_struct>(),
++                false,
++                false,
++                true,
++            )
++            .cast::<png_struct>();
++            if !png_ptr.is_null() {
++                ptr::write_bytes(png_ptr.cast::<u8>(), 0, size_of::<png_struct>());
++            }
++            png_ptr
++        }
++    }
 +}
++
++unsafe fn create_png_struct_with_state(mut png_state: PngStructState) -> png_structp {
++    let png_ptr = unsafe {
++        allocate_png_handle_with_callbacks(
++            png_state.error_ptr,
++            png_state.error_fn,
++            png_state.warning_fn,
++            png_state.mem_ptr,
++            png_state.malloc_fn,
++            png_state.free_fn,
++        )
++    };
++    if png_ptr.is_null() {
+         return ptr::null_mut();
+     }
  
 -    libc::free(create_longjmp_storage);
 -    let png_ptr = context.result;
 -    if is_read {
 -        initialize_default_read_io(png_ptr);
--    } else {
++    if png_state.is_read_struct {
++        png_state.core.mode |= crate::common::PNG_IS_READ_STRUCT;
+     } else {
 -        initialize_default_write_io(png_ptr);
-+unsafe fn release_png_handle(png_ptr: png_structp) {
-+    if !png_ptr.is_null() {
-+        unsafe {
-+            drop(Box::from_raw(png_ptr));
-+        }
++        png_state.core.mode &= !crate::common::PNG_IS_READ_STRUCT;
      }
 -
--    png_ptr
++    state::register_png(png_ptr, png_state);
+     png_ptr
  }
  
 -unsafe fn destroy_png_struct(png_ptr: png_structrp) {
 -    let Some(state) = png_ptr_state(png_ptr) else {
--        return;
--    };
-+unsafe fn release_info_handle(info_ptr: png_infop) {
-+    if !info_ptr.is_null() {
-+        unsafe {
-+            drop(Box::from_raw(info_ptr));
-+        }
-+    }
-+}
++unsafe fn destroy_png_handle(png_ptr: png_structp) {
++    let Some(png_state) = state::get_png(png_ptr) else {
++        unsafe { release_png_handle(png_ptr) };
+         return;
+     };
  
 -    let mut destroy_dummy = *state;
 -    let destroy_dummy_png_ptr = (&mut destroy_dummy as *mut PngStructState).cast::<png_struct>();
@@ -23588,12 +23763,7 @@ Forwarded: not-needed
 -    } else {
 -        ptr::null_mut()
 -    };
-+unsafe fn create_png_struct_with_state(
-+    create: impl FnOnce() -> png_structp,
-+    register: impl FnOnce(png_structrp),
-+) -> png_structp {
-+    let mut png_ptr = ptr::null_mut();
- 
+-
 -    zero_bytes(png_ptr.cast(), mem::size_of::<PngStructState>());
 -    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 -        free_with_template(destroy_dummy_png_ptr, png_ptr.cast());
@@ -23601,8 +23771,14 @@ Forwarded: not-needed
 -    .is_err()
 -    {
 -        crate::error::panic_to_png_error(destroy_dummy_png_ptr);
--    }
--
++    let mut proxy_ptr = ptr::null_mut();
++    if png_state.free_fn.is_some() {
++        proxy_ptr = unsafe { create_png_handle() };
++        if !proxy_ptr.is_null() {
++            state::register_png(proxy_ptr, png_state.clone());
++        }
+     }
+ 
 -    if !heap_jmp_buf.is_null() && !destroy_dummy.longjmp_storage.is_null() {
 -        let mut cleanup_dummy = destroy_dummy;
 -        let cleanup_dummy_png_ptr =
@@ -23620,29 +23796,24 @@ Forwarded: not-needed
 -            .is_err()
 -            {
 -                crate::error::panic_to_png_error(cleanup_dummy_png_ptr);
-+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-+        png_ptr = create();
-+        if !png_ptr.is_null() {
-+            register(png_ptr);
-+        }
-+        png_ptr
-+    })) {
-+        Ok(png_ptr) => png_ptr,
-+        Err(_) => {
-+            if !png_ptr.is_null() {
-+                unsafe { crate::error::panic_to_png_error(png_ptr) };
-             }
-+            ptr::null_mut()
-         }
+-            }
+-        }
++    let free_context = if proxy_ptr.is_null() { png_ptr } else { proxy_ptr };
++    unsafe { free_impl(free_context, png_ptr.cast(), false) };
++    if !png_state.jmp_buf_ptr.is_null() {
++        unsafe { free_impl(free_context, png_state.jmp_buf_ptr.cast(), false) };
      }
--
++    state::remove_png(png_ptr);
+ 
 -    if !destroy_dummy.longjmp_storage.is_null() {
 -        libc::free(destroy_dummy.longjmp_storage);
--    }
++    if !proxy_ptr.is_null() {
++        state::remove_png(proxy_ptr);
++        unsafe { release_png_handle(proxy_ptr) };
+     }
  }
  
- #[unsafe(no_mangle)]
-@@ -248,13 +154,7 @@ pub unsafe extern "C" fn png_calloc(
+@@ -248,13 +267,7 @@ pub unsafe extern "C" fn png_calloc(
      png_ptr: png_const_structrp,
      size: png_alloc_size_t,
  ) -> png_voidp {
@@ -23657,7 +23828,7 @@ Forwarded: not-needed
  }
  
  #[unsafe(no_mangle)]
-@@ -262,16 +162,8 @@ pub unsafe extern "C" fn png_malloc(
+@@ -262,16 +275,8 @@ pub unsafe extern "C" fn png_malloc(
      png_ptr: png_const_structrp,
      size: png_alloc_size_t,
  ) -> png_voidp {
@@ -23676,7 +23847,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -280,22 +172,8 @@ pub unsafe extern "C" fn png_malloc_defa
+@@ -280,22 +285,8 @@ pub unsafe extern "C" fn png_malloc_defa
      png_ptr: png_const_structrp,
      size: png_alloc_size_t,
  ) -> png_voidp {
@@ -23701,7 +23872,7 @@ Forwarded: not-needed
      })
  }
  
-@@ -304,44 +182,22 @@ pub unsafe extern "C" fn png_malloc_warn
+@@ -304,44 +295,22 @@ pub unsafe extern "C" fn png_malloc_warn
      png_ptr: png_const_structrp,
      size: png_alloc_size_t,
  ) -> png_voidp {
@@ -23752,7 +23923,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -353,44 +209,49 @@ pub unsafe extern "C" fn png_set_mem_fn(
+@@ -353,44 +322,43 @@ pub unsafe extern "C" fn png_set_mem_fn(
      free_fn: png_free_ptr,
  ) {
      crate::abi_guard!(png_ptr, {
@@ -23797,20 +23968,14 @@ Forwarded: not-needed
 -        None,
 -    ))
 +    unsafe {
-+        create_png_struct_with_state(
-+            || create_png_handle(),
-+            |png_ptr| {
-+                register_read_state(
-+                    png_ptr,
-+                    error_ptr,
-+                    error_fn,
-+                    warn_fn,
-+                    ptr::null_mut(),
-+                    None,
-+                    None,
-+                );
-+            },
-+        )
++        create_png_struct_with_state(PngStructState::new_read(
++            error_ptr,
++            error_fn,
++            warn_fn,
++            ptr::null_mut(),
++            None,
++            None,
++        ))
 +    }
  }
  
@@ -23821,7 +23986,7 @@ Forwarded: not-needed
      error_ptr: png_voidp,
      error_fn: png_error_ptr,
      warn_fn: png_error_ptr,
-@@ -398,39 +259,46 @@ pub unsafe extern "C" fn png_create_read
+@@ -398,39 +366,35 @@ pub unsafe extern "C" fn png_create_read
      malloc_fn: png_malloc_ptr,
      free_fn: png_free_ptr,
  ) -> png_structp {
@@ -23836,14 +24001,9 @@ Forwarded: not-needed
 -        true,
 -    ))
 +    unsafe {
-+        create_png_struct_with_state(
-+            || create_png_handle(),
-+            |png_ptr| {
-+                register_read_state(
-+                    png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
-+                );
-+            },
-+        )
++        create_png_struct_with_state(PngStructState::new_read(
++            error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
++        ))
 +    }
  }
  
@@ -23865,20 +24025,14 @@ Forwarded: not-needed
 -        None,
 -    ))
 +    unsafe {
-+        create_png_struct_with_state(
-+            || create_png_handle(),
-+            |png_ptr| {
-+                register_write_state(
-+                    png_ptr,
-+                    error_ptr,
-+                    error_fn,
-+                    warn_fn,
-+                    ptr::null_mut(),
-+                    None,
-+                    None,
-+                );
-+            },
-+        )
++        create_png_struct_with_state(PngStructState::new_write(
++            error_ptr,
++            error_fn,
++            warn_fn,
++            ptr::null_mut(),
++            None,
++            None,
++        ))
 +    }
  }
  
@@ -23889,7 +24043,7 @@ Forwarded: not-needed
      error_ptr: png_voidp,
      error_fn: png_error_ptr,
      warn_fn: png_error_ptr,
-@@ -438,251 +306,109 @@ pub unsafe extern "C" fn png_create_writ
+@@ -438,251 +402,116 @@ pub unsafe extern "C" fn png_create_writ
      malloc_fn: png_malloc_ptr,
      free_fn: png_free_ptr,
  ) -> png_structp {
@@ -23904,14 +24058,9 @@ Forwarded: not-needed
 -        false,
 -    ))
 +    unsafe {
-+        create_png_struct_with_state(
-+            || create_png_handle(),
-+            |png_ptr| {
-+                register_write_state(
-+                    png_ptr, error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
-+                );
-+            },
-+        )
++        create_png_struct_with_state(PngStructState::new_write(
++            error_ptr, error_fn, warn_fn, mem_ptr, malloc_fn, free_fn,
++        ))
 +    }
  }
  
@@ -23920,17 +24069,17 @@ Forwarded: not-needed
 -    crate::abi_guard!(png_ptr.cast_mut(), {
 -        if png_ptr.is_null() {
 -            return ptr::null_mut();
--        }
--
--        let raw = malloc_base(png_ptr, mem::size_of::<PngInfoState>()).cast::<PngInfoState>();
--        if raw.is_null() {
--            return ptr::null_mut();
 +pub unsafe extern "C" fn png_create_info_struct(_png_ptr: png_const_structrp) -> png_infop {
 +    crate::abi_guard_no_png!(unsafe {
 +        let info_ptr = create_info_handle();
 +        if !info_ptr.is_null() {
 +            state::register_default_info(info_ptr);
          }
+-
+-        let raw = malloc_base(png_ptr, mem::size_of::<PngInfoState>()).cast::<PngInfoState>();
+-        if raw.is_null() {
+-            return ptr::null_mut();
+-        }
 -
 -        ptr::write(raw, PngInfoState::zeroed());
 -        raw.cast::<png_info>()
@@ -24063,15 +24212,21 @@ Forwarded: not-needed
 -            } else {
 -                for index in 0..info.num_text.max(0) as usize {
 -                    png_free(png_ptr, (*info.text.add(index)).key.cast());
--                }
++    crate::abi_guard_no_png!({
++        state::update_info(info_ptr, |info_state| {
++            if (mask & PNG_FREE_TEXT) != 0 && (info_state.core.free_me & PNG_FREE_TEXT) != 0 {
++                if num == -1 {
++                    info_state.text_chunks.clear();
++                    info_state.text_cache.clear();
++                    info_state.text_key_storage.clear();
++                    info_state.text_value_storage.clear();
++                    info_state.text_lang_storage.clear();
++                    info_state.text_lang_key_storage.clear();
+                 }
 -                png_free(png_ptr, info.text.cast());
 -                info.text = ptr::null_mut();
 -                info.num_text = 0;
 -                info.max_text = 0;
-+    crate::abi_guard_no_png!({
-+        state::update_info(info_ptr, |info_state| {
-+            if (mask & PNG_FREE_ROWS) != 0 && (info_state.core.free_me & PNG_FREE_ROWS) != 0 {
-+                info_state.core.row_pointers = ptr::null_mut();
              }
 -        }
  
@@ -24082,14 +24237,11 @@ Forwarded: not-needed
 -            info.num_trans = 0;
 -            if let Some(state) = png_ptr_state(png_ptr.cast_mut()) {
 -                state.num_trans = 0;
-+            if (mask & PNG_FREE_SCAL) != 0 && (info_state.core.free_me & PNG_FREE_SCAL) != 0 {
-+                info_state.scal_unit = 0;
-+                info_state.scal_width.clear();
-+                info_state.scal_height.clear();
-+                info_state.core.valid &= !PNG_INFO_sCAL;
++            if (mask & PNG_FREE_ROWS) != 0 && (info_state.core.free_me & PNG_FREE_ROWS) != 0 {
++                info_state.core.row_pointers = ptr::null_mut();
              }
 -        }
--
+ 
 -        if ((mask & PNG_FREE_SCAL) & info.free_me) != 0 {
 -            png_free(png_ptr, info.scal_s_width.cast());
 -            png_free(png_ptr, info.scal_s_height.cast());
@@ -24109,10 +24261,15 @@ Forwarded: not-needed
 -                }
 -                png_free(png_ptr, info.pcal_params.cast());
 -                info.pcal_params = ptr::null_mut();
--            }
++            if (mask & PNG_FREE_SCAL) != 0 && (info_state.core.free_me & PNG_FREE_SCAL) != 0 {
++                info_state.scal_unit = 0;
++                info_state.scal_width.clear();
++                info_state.scal_height.clear();
++                info_state.core.valid &= !PNG_INFO_sCAL;
+             }
 -            info.valid &= !PNG_INFO_pCAL;
 -        }
--
+ 
 -        if ((mask & PNG_FREE_ICCP) & info.free_me) != 0 {
 -            png_free(png_ptr, info.iccp_name.cast());
 -            png_free(png_ptr, info.iccp_profile.cast());
@@ -24120,7 +24277,7 @@ Forwarded: not-needed
 -            info.iccp_profile = ptr::null_mut();
 -            info.valid &= !PNG_INFO_iCCP;
 -        }
- 
+-
 -        if !info.splt_palettes.is_null() && ((mask & PNG_FREE_SPLT) & info.free_me) != 0 {
 +            let mut cleared_mask = mask;
              if num != -1 {
@@ -24139,8 +24296,7 @@ Forwarded: not-needed
 -                info.splt_palettes = ptr::null_mut();
 -                info.splt_palettes_num = 0;
 -                info.valid &= !PNG_INFO_sPLT;
-+                cleared_mask &= !PNG_FREE_MUL;
-             }
+-            }
 -        }
 -
 -        if !info.unknown_chunks.is_null() && ((mask & PNG_FREE_UNKN) & info.free_me) != 0 {
@@ -24186,7 +24342,8 @@ Forwarded: not-needed
 -                }
 -                png_free(png_ptr, info.row_pointers.cast());
 -                info.row_pointers = ptr::null_mut();
--            }
++                cleared_mask &= !PNG_FREE_MUL;
+             }
 -            info.valid &= !PNG_INFO_IDAT;
 -        }
 -
@@ -24196,10 +24353,11 @@ Forwarded: not-needed
 -        info.free_me &= !mask;
 +            info_state.core.free_me &= !cleared_mask;
 +        });
++        unsafe { crate::bridge_ffi::png_safe_sync_png_info_aliases(ptr::null_mut(), info_ptr) };
      });
  }
  
-@@ -692,17 +418,41 @@ pub unsafe extern "C" fn png_destroy_rea
+@@ -692,17 +521,38 @@ pub unsafe extern "C" fn png_destroy_rea
      info_ptr_ptr: png_infopp,
      end_info_ptr_ptr: png_infopp,
  ) {
@@ -24221,13 +24379,10 @@ Forwarded: not-needed
 -        destroy_png_struct(png_ptr);
 -    })
 +        if !png_ptr.is_null() {
-+            if let Some(mut png_state) = state::remove_png(png_ptr) {
-+                unsafe { crate::error::release_longjmp_buffer(&mut png_state) };
-+            }
-+            unsafe { release_png_handle(png_ptr) };
 +            if !png_ptr_ptr.is_null() {
 +                unsafe { *png_ptr_ptr = ptr::null_mut() };
 +            }
++            unsafe { destroy_png_handle(png_ptr) };
 +        }
 +
 +        if !info_ptr_ptr.is_null() {
@@ -24251,7 +24406,7 @@ Forwarded: not-needed
  }
  
  #[unsafe(no_mangle)]
-@@ -710,14 +460,30 @@ pub unsafe extern "C" fn png_destroy_wri
+@@ -710,14 +560,27 @@ pub unsafe extern "C" fn png_destroy_wri
      png_ptr_ptr: png_structpp,
      info_ptr_ptr: png_infopp,
  ) {
@@ -24272,13 +24427,10 @@ Forwarded: not-needed
 -        destroy_png_struct(png_ptr);
 -    })
 +        if !png_ptr.is_null() {
-+            if let Some(mut png_state) = state::remove_png(png_ptr) {
-+                unsafe { crate::error::release_longjmp_buffer(&mut png_state) };
-+            }
-+            unsafe { release_png_handle(png_ptr) };
 +            if !png_ptr_ptr.is_null() {
 +                unsafe { *png_ptr_ptr = ptr::null_mut() };
 +            }
++            unsafe { destroy_png_handle(png_ptr) };
 +        }
 +
 +        if !info_ptr_ptr.is_null() {
@@ -24293,7 +24445,7 @@ Forwarded: not-needed
  }
 --- libpng1.6-1.6.43.orig/src/read_progressive.rs
 +++ libpng1.6-1.6.43/src/read_progressive.rs
-@@ -1,10 +1,453 @@
+@@ -1,10 +1,451 @@
 -//! Force-link the upstream progressive read object into the final library.
 +use crate::chunks::{read_core, read_info_core};
 +use crate::common::PNG_FLAG_ROW_INIT;
@@ -24665,8 +24817,6 @@ Forwarded: not-needed
 +            let row_num = core.row_number;
 +            let pass = core.pass;
 +
-+            crate::interlace::sanitize_row_padding(png_ptr, row.as_mut_ptr(), ptr::null_mut());
-+
 +            let mut callback_core = core_after;
 +            callback_core.row_number = row_num;
 +            callback_core.pass = pass;
@@ -24994,7 +25144,7 @@ Forwarded: not-needed
 +}
 --- libpng1.6-1.6.43.orig/src/set.rs
 +++ libpng1.6-1.6.43/src/set.rs
-@@ -1,29 +1,226 @@
+@@ -1,29 +1,227 @@
 -use crate::common::{
 -    PNG_FLAG_APP_ERRORS_WARN, PNG_FLAG_APP_WARNINGS_WARN, PNG_FLAG_BENIGN_ERRORS_WARN,
 -    PNG_OPTION_INVALID, PNG_OPTION_NEXT,
@@ -25226,6 +25376,10 @@ Forwarded: not-needed
 +                crate::abi_guard!($png_ptr as png_structrp, unsafe {
 +                    $upstream($png_ptr, $info_ptr $(, $arg)*);
 +                    sync_info_registry($info_ptr);
++                    crate::bridge_ffi::png_safe_sync_png_info_aliases(
++                        ($png_ptr as png_const_structrp).cast_mut(),
++                        $info_ptr,
++                    );
 +                });
 +            }
 +        )+
@@ -25237,13 +25391,10 @@ Forwarded: not-needed
 +pub unsafe extern "C" fn png_set_sig_bytes(png_ptr: png_structrp, num_bytes: c_int) {
 +    crate::abi_guard!(png_ptr, unsafe {
 +        bridge_png_set_sig_bytes(png_ptr, num_bytes);
-+        state::update_png(png_ptr, |state| {
-+            state.sig_bytes = num_bytes.clamp(0, 8);
-+        });
      });
  }
  
-@@ -33,28 +230,192 @@ pub unsafe extern "C" fn png_set_rows(
+@@ -33,28 +231,192 @@ pub unsafe extern "C" fn png_set_rows(
      info_ptr: png_inforp,
      row_pointers: png_bytepp,
  ) {
@@ -25447,7 +25598,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -63,10 +424,11 @@ pub unsafe extern "C" fn png_set_chunk_c
+@@ -63,10 +425,11 @@ pub unsafe extern "C" fn png_set_chunk_c
      png_ptr: png_structrp,
      user_chunk_cache_max: png_uint_32,
  ) {
@@ -25462,7 +25613,7 @@ Forwarded: not-needed
      });
  }
  
-@@ -75,68 +437,105 @@ pub unsafe extern "C" fn png_set_chunk_m
+@@ -75,68 +438,105 @@ pub unsafe extern "C" fn png_set_chunk_m
      png_ptr: png_structrp,
      user_chunk_malloc_max: png_alloc_size_t,
  ) {
@@ -26398,7 +26549,7 @@ Forwarded: not-needed
 +}
 --- libpng1.6-1.6.43.orig/src/state.rs
 +++ libpng1.6-1.6.43/src/state.rs
-@@ -1,85 +1,148 @@
+@@ -1,85 +1,151 @@
  use crate::common::{
 -    PNG_FLAG_APP_WARNINGS_WARN, PNG_FLAG_BENIGN_ERRORS_WARN, PNG_IS_READ_STRUCT,
 -    PNG_USER_CHUNK_CACHE_MAX, PNG_USER_CHUNK_MALLOC_MAX, PNG_USER_HEIGHT_MAX, PNG_USER_WIDTH_MAX,
@@ -26406,7 +26557,8 @@ Forwarded: not-needed
 +    PNG_USER_HEIGHT_MAX, PNG_USER_WIDTH_MAX, WriteZlibSettings,
 +};
 +use crate::read_util::{
-+    PNG_HANDLE_CHUNK_AS_DEFAULT, ProgressiveReadState, ReadPhase, UnknownChunkSetting,
++    PNG_HANDLE_CHUNK_AS_DEFAULT, PNG_SIGNATURE, ProgressiveReadState, ReadPhase,
++    UnknownChunkSetting,
  };
  use crate::types::*;
 -use core::ffi::{c_char, c_int, c_void};
@@ -26506,6 +26658,7 @@ Forwarded: not-needed
 +    pub check_for_invalid_index: c_int,
 +    pub palette_max: c_int,
 +    pub options: png_uint_32,
++    pub error_callback_called: bool,
 +    pub sig_bytes: c_int,
 +    pub time_buffer: [c_char; 29],
 +    pub write_zlib: WriteZlibSettings,
@@ -26579,6 +26732,7 @@ Forwarded: not-needed
 +            check_for_invalid_index: 1,
 +            palette_max: 0,
 +            options: 0,
++            error_callback_called: false,
 +            sig_bytes: 0,
 +            time_buffer: [0; 29],
 +            write_zlib: WriteZlibSettings::default(),
@@ -26608,7 +26762,7 @@ Forwarded: not-needed
          error_ptr: png_voidp,
          error_fn: png_error_ptr,
          warning_fn: png_error_ptr,
-@@ -87,118 +150,302 @@ impl PngStructState {
+@@ -87,118 +153,322 @@ impl PngStructState {
          malloc_fn: png_malloc_ptr,
          free_fn: png_free_ptr,
      ) -> Self {
@@ -26819,7 +26973,7 @@ Forwarded: not-needed
 +            unknown_chunks: self.unknown_chunks.clone(),
 +            unknown_chunk_cache: Vec::new(),
 +        }
-+    }
+     }
 +}
 +
 +// Rust owns the runtime registry behind the exported opaque handle values.
@@ -26840,10 +26994,26 @@ Forwarded: not-needed
 +    static STATES: OnceLock<Mutex<HashMap<InfoHandleKey, PngInfoState>>> = OnceLock::new();
 +    STATES.get_or_init(|| Mutex::new(HashMap::new()))
 +}
-+
+ 
+-    unsafe {
+-        libc::memset(storage, 0, size);
 +fn latest_passthrough_bytes() -> &'static Mutex<Vec<png_byte>> {
 +    static BYTES: OnceLock<Mutex<Vec<png_byte>>> = OnceLock::new();
 +    BYTES.get_or_init(|| Mutex::new(Vec::new()))
++}
++
++fn sync_latest_passthrough_for(png_ptr: png_structrp) {
++    let captured = with_png(png_ptr, |state| state.captured_input.clone()).unwrap_or_default();
++    let mut latest = lock_recover(latest_passthrough_bytes());
++    latest.clear();
++    latest.extend_from_slice(&captured);
++}
++
++fn seed_captured_signature_prefix(state: &mut PngStructState) {
++    let prefix_len = usize::try_from(state.sig_bytes.clamp(0, PNG_SIGNATURE.len() as c_int))
++        .unwrap_or(0);
++    state.captured_input.clear();
++    state.captured_input.extend_from_slice(&PNG_SIGNATURE[..prefix_len]);
 +}
 +
 +fn lock_recover<T>(mutex: &'static Mutex<T>) -> MutexGuard<'static, T> {
@@ -26906,6 +27076,8 @@ Forwarded: not-needed
 +    if let Some(key) = info_key(info_ptr) {
 +        lock_recover(png_info_states()).insert(key, state);
      }
+-    let jmp_buf_ptr = unsafe { png_safe_longjmp_state_buf(storage) }.cast::<JmpBuf>();
+-    (storage, size, jmp_buf_ptr)
 +}
 +
 +pub(crate) fn register_default_info(info_ptr: png_infop) {
@@ -26946,9 +27118,7 @@ Forwarded: not-needed
 +    let key = info_key(info_ptr)?;
 +    lock_recover(png_info_states()).remove(&key)
 +}
- 
--    unsafe {
--        libc::memset(storage, 0, size);
++
 +pub(crate) fn move_info(old_info_ptr: png_infop, new_info_ptr: png_infop) {
 +    let Some(old_key) = info_key(old_info_ptr) else {
 +        if !new_info_ptr.is_null() {
@@ -26968,25 +27138,29 @@ Forwarded: not-needed
 +pub(crate) fn append_captured_read_data(png_ptr: png_structrp, bytes: &[png_byte]) {
 +    if bytes.is_empty() {
 +        return;
-     }
--    let jmp_buf_ptr = unsafe { png_safe_longjmp_state_buf(storage) }.cast::<JmpBuf>();
--    (storage, size, jmp_buf_ptr)
++    }
 +
 +    update_png(png_ptr, |state| {
 +        state.captured_input.extend_from_slice(bytes);
-+        let mut latest = lock_recover(latest_passthrough_bytes());
-+        latest.clear();
-+        latest.extend_from_slice(&state.captured_input);
 +    });
++    sync_latest_passthrough_for(png_ptr);
 +}
 +
 +pub(crate) fn restore_captured_read_data_len(png_ptr: png_structrp, len: usize) {
 +    update_png(png_ptr, |state| {
 +        state.captured_input.truncate(len);
-+        let mut latest = lock_recover(latest_passthrough_bytes());
-+        latest.clear();
-+        latest.extend_from_slice(&state.captured_input);
 +    });
++    sync_latest_passthrough_for(png_ptr);
++}
++
++pub(crate) fn set_sig_bytes(png_ptr: png_structrp, num_bytes: c_int) {
++    update_png(png_ptr, |state| {
++        state.sig_bytes = num_bytes.clamp(0, PNG_SIGNATURE.len() as c_int);
++        if state.captured_input.len() <= PNG_SIGNATURE.len() {
++            seed_captured_signature_prefix(state);
++        }
++    });
++    sync_latest_passthrough_for(png_ptr);
 +}
 +
 +pub(crate) fn latest_captured_read_data() -> Option<Vec<png_byte>> {
@@ -27002,7 +27176,7 @@ Forwarded: not-needed
 +    update_png(png_ptr, |state| {
 +        state.pending_chunk_header = [0; 8];
 +        state.has_pending_chunk_header = false;
-+        state.captured_input.clear();
++        seed_captured_signature_prefix(state);
 +        state.decoded_read_image = None;
 +        state.passthrough_written = false;
 +        state.read_source_info = None;
@@ -27015,7 +27189,7 @@ Forwarded: not-needed
 +        state.core.flags &= !(PNG_FLAG_ROW_INIT | 0x0008);
 +    });
 +
-+    lock_recover(latest_passthrough_bytes()).clear();
++    sync_latest_passthrough_for(png_ptr);
  }
 --- libpng1.6-1.6.43.orig/cshim/longjmp_bridge.c
 +++ libpng1.6-1.6.43/cshim/longjmp_bridge.c
@@ -27138,7 +27312,42 @@ Forwarded: not-needed
  pub type png_structp = *mut png_struct;
  pub type png_const_structp = *const png_struct;
  pub type png_structpp = *mut png_structp;
-@@ -145,6 +151,8 @@ pub struct png_sPLT_t {
+@@ -51,6 +57,34 @@ pub type png_const_inforp = png_const_in
+ 
+ #[repr(C)]
+ #[derive(Clone, Copy, Default)]
++pub(crate) struct png_info_alias_text_prefix {
++    pub width: png_uint_32,
++    pub height: png_uint_32,
++    pub valid: png_uint_32,
++    pub rowbytes: usize,
++    pub palette: png_colorp,
++    pub num_palette: png_uint_16,
++    pub num_trans: png_uint_16,
++    pub bit_depth: png_byte,
++    pub color_type: png_byte,
++    pub compression_type: png_byte,
++    pub filter_type: png_byte,
++    pub interlace_type: png_byte,
++    pub channels: png_byte,
++    pub pixel_depth: png_byte,
++    pub spare_byte: png_byte,
++    pub signature: [png_byte; 8],
++    pub colorspace: png_colorspace,
++    pub iccp_name: png_charp,
++    pub iccp_profile: png_bytep,
++    pub iccp_proflen: png_uint_32,
++    pub num_text: c_int,
++    pub max_text: c_int,
++    pub text: png_textp,
++}
++
++#[repr(C)]
++#[derive(Clone, Copy, Default)]
+ pub struct png_color {
+     pub red: png_byte,
+     pub green: png_byte,
+@@ -145,6 +179,8 @@ pub struct png_sPLT_t {
  }
  
  pub type png_sPLT_tp = *mut png_sPLT_t;
@@ -27147,7 +27356,7 @@ Forwarded: not-needed
  
  #[repr(C)]
  #[derive(Clone, Copy, Default)]
-@@ -159,6 +167,7 @@ pub struct png_text {
+@@ -159,6 +195,7 @@ pub struct png_text {
  }
  
  pub type png_textp = *mut png_text;
@@ -27155,7 +27364,7 @@ Forwarded: not-needed
  
  #[repr(C)]
  #[derive(Clone, Copy, Default)]
-@@ -195,6 +204,8 @@ impl Default for png_unknown_chunk {
+@@ -195,6 +232,8 @@ impl Default for png_unknown_chunk {
  }
  
  pub type png_unknown_chunkp = *mut png_unknown_chunk;
@@ -27164,7 +27373,7 @@ Forwarded: not-needed
  
  #[repr(C)]
  #[derive(Clone, Copy, Default)]
-@@ -222,7 +233,7 @@ pub type png_user_transform_ptr =
+@@ -222,7 +261,7 @@ pub type png_user_transform_ptr =
      Option<unsafe extern "C" fn(png_structp, png_row_infop, png_bytep)>;
  pub type png_user_chunk_ptr =
      Option<unsafe extern "C" fn(png_structp, png_unknown_chunkp) -> c_int>;
@@ -27173,7 +27382,7 @@ Forwarded: not-needed
  pub type png_malloc_ptr = Option<unsafe extern "C" fn(png_structp, png_alloc_size_t) -> png_voidp>;
  pub type png_free_ptr = Option<unsafe extern "C" fn(png_structp, png_voidp)>;
  
-@@ -232,7 +243,6 @@ pub type png_time_t = time_t;
+@@ -232,7 +271,6 @@ pub type png_time_t = time_t;
  pub type png_uchar = c_uchar;
  pub type png_uint = c_uint;
  pub type png_controlp = *mut c_void;
@@ -27181,7 +27390,7 @@ Forwarded: not-needed
  
  #[repr(C)]
  #[derive(Clone, Copy, Default)]
-@@ -242,13 +252,26 @@ pub struct png_safe_read_core {
+@@ -242,13 +280,26 @@ pub struct png_safe_read_core {
      pub transformations: png_uint_32,
      pub width: png_uint_32,
      pub height: png_uint_32,
@@ -27208,7 +27417,7 @@ Forwarded: not-needed
      pub background_gamma_type: png_byte,
      pub background_gamma: png_fixed_point,
      pub screen_gamma: png_fixed_point,
-@@ -259,7 +282,11 @@ pub struct png_safe_read_core {
+@@ -259,7 +310,11 @@ pub struct png_safe_read_core {
      pub rgb_to_gray_coefficients_set: png_byte,
      pub rgb_to_gray_red_coeff: png_uint_16,
      pub rgb_to_gray_green_coeff: png_uint_16,
@@ -27408,8 +27617,8 @@ Forwarded: not-needed
 +  original_stage_header_dir="$original_stage_include_dir/libpng16"
 +  mkdir -p "$original_stage_header_dir"
 +
-+  install -m 0644 "$safe_dir/include/png.h" "$original_stage_header_dir/png.h"
-+  install -m 0644 "$safe_dir/include/pngconf.h" "$original_stage_header_dir/pngconf.h"
++  install -m 0644 "$repo_root/original/png.h" "$original_stage_header_dir/png.h"
++  install -m 0644 "$repo_root/original/pngconf.h" "$original_stage_header_dir/pngconf.h"
 +  install -m 0644 "$safe_dir/include/pnglibconf.h" "$original_stage_header_dir/pnglibconf.h"
 +}
 +
@@ -28588,16 +28797,16 @@ Forwarded: not-needed
 -include!(concat!(env!("OUT_DIR"), "/abi_export_stubs.rs"));
 --- /dev/null
 +++ libpng1.6-1.6.43/src/bridge_ffi.rs
-@@ -0,0 +1,5152 @@
+@@ -0,0 +1,5211 @@
 +#![allow(dead_code)]
 +
 +use crate::chunks::{read_core, read_info_core, write_core, write_info_core};
 +use crate::common::{
-+    PNG_FREE_SCAL, PNG_INFO_PLTE, PNG_INFO_bKGD, PNG_INFO_cHRM, PNG_INFO_eXIf, PNG_INFO_gAMA,
-+    PNG_INFO_hIST, PNG_INFO_iCCP, PNG_INFO_oFFs, PNG_INFO_pHYs, PNG_INFO_sBIT, PNG_INFO_sCAL,
-+    PNG_INFO_sRGB, PNG_INFO_tIME, PNG_INFO_tRNS, PNG_IO_CHUNK_CRC, PNG_IO_CHUNK_DATA,
-+    PNG_IO_CHUNK_HDR, PNG_IO_SIGNATURE, PNG_IO_WRITING, PNG_IS_READ_STRUCT, PNG_OPTION_INVALID,
-+    PNG_OPTION_OFF, PNG_OPTION_ON,
++    PNG_FREE_SCAL, PNG_FREE_TEXT, PNG_INFO_PLTE, PNG_INFO_bKGD, PNG_INFO_cHRM, PNG_INFO_eXIf,
++    PNG_INFO_gAMA, PNG_INFO_hIST, PNG_INFO_iCCP, PNG_INFO_oFFs, PNG_INFO_pHYs, PNG_INFO_sBIT,
++    PNG_INFO_sCAL, PNG_INFO_sRGB, PNG_INFO_tIME, PNG_INFO_tRNS, PNG_IO_CHUNK_CRC,
++    PNG_IO_CHUNK_DATA, PNG_IO_CHUNK_HDR, PNG_IO_SIGNATURE, PNG_IO_WRITING, PNG_IS_READ_STRUCT,
++    PNG_OPTION_INVALID, PNG_OPTION_NEXT, PNG_OPTION_ON,
 +};
 +use crate::io;
 +use crate::read_util::{ReadPhase, checked_rowbytes_for_width};
@@ -28684,6 +28893,7 @@ Forwarded: not-needed
 +const PNG_TRANSFORM_INVERT_ALPHA: png_uint_32 = 0x0400;
 +const PNG_FP_1: png_fixed_point = 100_000;
 +const PNG_GAMMA_THRESHOLD: f64 = 0.05;
++const PNG_IGNORE_ADLER32: c_int = 8;
 +const ADAM7_PASSES: [(u32, u32, u32, u32); 7] = [
 +    (8, 0, 8, 0),
 +    (8, 4, 8, 0),
@@ -29660,10 +29870,11 @@ Forwarded: not-needed
 +    Transformations::IDENTITY
 +}
 +
-+fn ignores_checksums(core: &png_safe_read_core) -> bool {
++fn ignores_checksums(core: &png_safe_read_core, options: png_uint_32) -> bool {
 +    (core.flags
 +        & (PNG_FLAG_CRC_ANCILLARY_USE | PNG_FLAG_CRC_CRITICAL_USE | PNG_FLAG_CRC_CRITICAL_IGNORE))
 +        != 0
++        || ((options >> PNG_IGNORE_ADLER32) & 3) == PNG_OPTION_ON as u32
 +}
 +
 +fn needs_manual_16_to_8(core: &png_safe_read_core) -> bool {
@@ -29748,7 +29959,7 @@ Forwarded: not-needed
 +    let significant_bits = significant_bits.clamp(1, bit_depth);
 +    let shift = u32::from(bit_depth.saturating_sub(significant_bits));
 +    let value = u32::from(sample) >> shift;
-+    let max_value = sample_max(significant_bits).unwrap_or(1);
++    let max_value = sample_max(bit_depth).unwrap_or(1);
 +    if max_value == 0 {
 +        0.0
 +    } else {
@@ -29856,46 +30067,40 @@ Forwarded: not-needed
 +    normalized
 +}
 +
-+fn info_channel_sbit(
-+    info_state: Option<&state::PngInfoState>,
-+    layout: RowLayout,
-+    channel: usize,
-+) -> png_byte {
-+    if layout.is_indexed() {
-+        return 8;
-+    }
-+
-+    let Some(info_state) = info_state else {
-+        return layout.bit_depth;
-+    };
-+    if (info_state.core.valid & PNG_INFO_sBIT) == 0 {
-+        return layout.bit_depth;
++fn active_channel_sbit(core: &png_safe_read_core, layout: RowLayout, channel: usize) -> png_byte {
++    let default_bits = if layout.is_indexed() { 8 } else { layout.bit_depth };
++    if (core.transformations & PNG_SHIFT) == 0 {
++        return default_bits;
 +    }
 +
 +    let sbit = match layout.color_type {
-+        PngColorType::Grayscale => info_state.core.sig_bit.gray,
++        PngColorType::Grayscale => core.shift.gray,
 +        PngColorType::Rgb => match channel {
-+            0 => info_state.core.sig_bit.red,
-+            1 => info_state.core.sig_bit.green,
-+            _ => info_state.core.sig_bit.blue,
++            0 => core.shift.red,
++            1 => core.shift.green,
++            _ => core.shift.blue,
 +        },
-+        PngColorType::Indexed => 8,
++        PngColorType::Indexed => match channel {
++            0 => core.shift.red,
++            1 => core.shift.green,
++            _ => core.shift.blue,
++        },
 +        PngColorType::GrayscaleAlpha => match channel {
-+            0 => info_state.core.sig_bit.gray,
-+            _ => info_state.core.sig_bit.alpha,
++            0 => core.shift.gray,
++            _ => core.shift.alpha,
 +        },
 +        PngColorType::Rgba => match channel {
-+            0 => info_state.core.sig_bit.red,
-+            1 => info_state.core.sig_bit.green,
-+            2 => info_state.core.sig_bit.blue,
-+            _ => info_state.core.sig_bit.alpha,
++            0 => core.shift.red,
++            1 => core.shift.green,
++            2 => core.shift.blue,
++            _ => core.shift.alpha,
 +        },
 +    };
 +
-+    if (1..=layout.bit_depth).contains(&sbit) {
++    if (1..=default_bits).contains(&sbit) {
 +        sbit
 +    } else {
-+        layout.bit_depth
++        default_bits
 +    }
 +}
 +
@@ -30347,7 +30552,7 @@ Forwarded: not-needed
 +
 +        let source_alpha = actual_alpha.or(trns_alpha);
 +        let alpha_bits = if actual_alpha.is_some() {
-+            info_channel_sbit(info_state, source_layout, source_layout.channels() - 1)
++            active_channel_sbit(core, source_layout, source_layout.channels() - 1)
 +        } else if source_layout.is_indexed() {
 +            8
 +        } else {
@@ -30392,17 +30597,17 @@ Forwarded: not-needed
 +            let red = decode_file_sample(
 +                color[0],
 +                source_bit_depth,
-+                info_channel_sbit(info_state, source_layout, 0),
++                active_channel_sbit(core, source_layout, 0),
 +            );
 +            let green = decode_file_sample(
 +                color[1],
 +                source_bit_depth,
-+                info_channel_sbit(info_state, source_layout, 1),
++                active_channel_sbit(core, source_layout, 1),
 +            );
 +            let blue = decode_file_sample(
 +                color[2],
 +                source_bit_depth,
-+                info_channel_sbit(info_state, source_layout, 2),
++                active_channel_sbit(core, source_layout, 2),
 +            );
 +            let mut gray = {
 +                let red = if let Some(file_inverse) = gamma.file_inverse {
@@ -30435,10 +30640,11 @@ Forwarded: not-needed
 +                };
 +                let source_bit_depth =
 +                    if source_layout.is_indexed() { 8 } else { source_layout.bit_depth };
++                let active_sbit = active_channel_sbit(core, source_layout, source_channel);
 +                let input = decode_file_sample(
 +                    color[source_channel],
 +                    source_bit_depth,
-+                    info_channel_sbit(info_state, source_layout, source_channel),
++                    active_sbit,
 +                );
 +
 +                let output = if compose {
@@ -30566,11 +30772,12 @@ Forwarded: not-needed
 +fn decode_rows_from_bytes(
 +    bytes: &[png_byte],
 +    core: &png_safe_read_core,
++    options: png_uint_32,
 +    info_state: Option<&state::PngInfoState>,
 +    filler: Option<FillerTransform>,
 +) -> Option<(state::DecodedReadImage, png_safe_read_core)> {
 +    let mut decoder = Decoder::new(Cursor::new(bytes.to_vec()));
-+    decoder.ignore_checksums(ignores_checksums(core));
++    decoder.ignore_checksums(ignores_checksums(core, options));
 +    decoder.set_transformations(decode_transformations(core));
 +    let mut reader = match decoder.read_info() {
 +        Ok(reader) => reader,
@@ -30903,10 +31110,12 @@ Forwarded: not-needed
 +        return Some(image);
 +    }
 +
-+    let (bytes, core, info_ptr, info_state, filler) = state::with_png(png_ptr, |png_state| {
++    let (bytes, core, options, info_ptr, info_state, filler) =
++        state::with_png(png_ptr, |png_state| {
 +        (
 +            png_state.captured_input.clone(),
 +            png_state.core,
++            png_state.options,
 +            png_state.read_info_ptr,
 +            png_state.read_source_info.clone(),
 +            ((png_state.core.transformations & (PNG_FILLER | PNG_ADD_ALPHA)) != 0).then_some(
@@ -30927,7 +31136,7 @@ Forwarded: not-needed
 +    }
 +    let decodable_bytes = decodable_png_bytes(&bytes);
 +    let Some((image, updated_core)) =
-+        decode_rows_from_bytes(&decodable_bytes, &core, info_state.as_ref(), filler)
++        decode_rows_from_bytes(&decodable_bytes, &core, options, info_state.as_ref(), filler)
 +    else {
 +        return None;
 +    };
@@ -31009,9 +31218,10 @@ Forwarded: not-needed
 +    let Some(bytes) = passthrough_bytes() else {
 +        return false;
 +    };
-+    let (core, info_ptr, info_state, filler) = state::with_png(png_ptr, |png_state| {
++    let (core, options, info_ptr, info_state, filler) = state::with_png(png_ptr, |png_state| {
 +        (
 +            png_state.core,
++            png_state.options,
 +            png_state.read_info_ptr,
 +            png_state.read_source_info.clone(),
 +            ((png_state.core.transformations & (PNG_FILLER | PNG_ADD_ALPHA)) != 0).then_some(
@@ -31022,9 +31232,11 @@ Forwarded: not-needed
 +            ),
 +        )
 +    })
-+    .unwrap_or((read_core(png_ptr), core::ptr::null_mut(), None, None));
++    .unwrap_or((read_core(png_ptr), 0, core::ptr::null_mut(), None, None));
 +    let info_state = state::get_info(info_ptr).or(info_state);
-+    let Some((decoded, _)) = decode_rows_from_bytes(&bytes, &core, info_state.as_ref(), filler) else {
++    let Some((decoded, _)) =
++        decode_rows_from_bytes(&bytes, &core, options, info_state.as_ref(), filler)
++    else {
 +        return false;
 +    };
 +    if decoded.rowbytes != rowbytes {
@@ -31309,14 +31521,123 @@ Forwarded: not-needed
 +) {
 +}
 +
++fn refresh_text_cache(info_state: &mut state::PngInfoState) {
++    info_state.text_cache.clear();
++    info_state.text_key_storage.clear();
++    info_state.text_value_storage.clear();
++    info_state.text_lang_storage.clear();
++    info_state.text_lang_key_storage.clear();
++
++    for chunk in &info_state.text_chunks {
++        let key_bytes = owned_cstring_bytes(string_to_latin1_bytes_lossy(&chunk.keyword));
++        let value_bytes = match chunk.compression {
++            PNG_ITXT_COMPRESSION_NONE | PNG_ITXT_COMPRESSION_ZTXT => {
++                owned_cstring_bytes(chunk.text.as_bytes().to_vec())
++            }
++            _ => owned_cstring_bytes(string_to_latin1_bytes_lossy(&chunk.text)),
++        };
++        let lang_bytes = if chunk.language_tag.is_empty() {
++            Vec::new()
++        } else {
++            owned_cstring_bytes(chunk.language_tag.as_bytes().to_vec())
++        };
++        let lang_key_bytes = if chunk.translated_keyword.is_empty() {
++            Vec::new()
++        } else {
++            owned_cstring_bytes(chunk.translated_keyword.as_bytes().to_vec())
++        };
++
++        info_state.text_key_storage.push(key_bytes);
++        info_state.text_value_storage.push(value_bytes);
++        info_state.text_lang_storage.push(lang_bytes);
++        info_state.text_lang_key_storage.push(lang_key_bytes);
++
++        let index = info_state.text_cache.len();
++        info_state.text_cache.push(png_text {
++            compression: chunk.compression,
++            key: info_state.text_key_storage[index].as_mut_ptr().cast(),
++            text: info_state.text_value_storage[index].as_mut_ptr().cast(),
++            text_length: info_state.text_value_storage[index].len().saturating_sub(1),
++            itxt_length: match chunk.compression {
++                PNG_ITXT_COMPRESSION_NONE | PNG_ITXT_COMPRESSION_ZTXT => {
++                    info_state.text_value_storage[index].len().saturating_sub(1)
++                }
++                _ => 0,
++            },
++            lang: if info_state.text_lang_storage[index].is_empty() {
++                core::ptr::null_mut()
++            } else {
++                info_state.text_lang_storage[index].as_mut_ptr().cast()
++            },
++            lang_key: if info_state.text_lang_key_storage[index].is_empty() {
++                core::ptr::null_mut()
++            } else {
++                info_state.text_lang_key_storage[index].as_mut_ptr().cast()
++            },
++        });
++    }
++}
++
++unsafe fn sync_png_info_aliases_impl(info_ptr: png_inforp) {
++    if info_ptr.is_null() {
++        return;
++    }
++
++    state::with_info_mut(info_ptr, |info_state| {
++        refresh_text_cache(info_state);
++
++        let alias = unsafe { &mut *info_ptr.cast::<png_info_alias_text_prefix>() };
++        alias.width = info_state.core.width;
++        alias.height = info_state.core.height;
++        alias.valid = info_state.core.valid;
++        alias.rowbytes = derive_info_rowbytes(&info_state.core);
++        alias.palette = if info_state.palette.is_empty() {
++            core::ptr::null_mut()
++        } else {
++            info_state.palette.as_mut_ptr()
++        };
++        alias.num_palette = info_state.core.num_palette;
++        alias.num_trans = info_state.core.num_trans;
++        alias.bit_depth = info_state.core.bit_depth;
++        alias.color_type = info_state.core.color_type;
++        alias.compression_type = info_state.core.compression_type;
++        alias.filter_type = info_state.core.filter_type;
++        alias.interlace_type = info_state.core.interlace_type;
++        alias.channels = info_state.core.channels;
++        alias.pixel_depth = info_state.core.pixel_depth;
++        alias.spare_byte = 0;
++        alias.signature = [0; 8];
++        alias.colorspace = info_state.core.colorspace;
++        alias.iccp_name = if info_state.iccp_name.is_empty() {
++            core::ptr::null_mut()
++        } else {
++            info_state.iccp_name.as_mut_ptr().cast()
++        };
++        alias.iccp_profile = if info_state.iccp_profile.is_empty() {
++            core::ptr::null_mut()
++        } else {
++            info_state.iccp_profile.as_mut_ptr()
++        };
++        alias.iccp_proflen = png_uint_32::try_from(info_state.iccp_profile.len()).unwrap_or(0);
++        alias.num_text = c_int::try_from(info_state.text_chunks.len()).unwrap_or(c_int::MAX);
++        alias.max_text = alias.num_text;
++        alias.text = if info_state.text_cache.is_empty() {
++            core::ptr::null_mut()
++        } else {
++            info_state.text_cache.as_mut_ptr()
++        };
++    });
++}
++
 +#[unsafe(no_mangle)]
 +pub unsafe extern "C" fn png_safe_parse_snapshot_free(_snapshot: *mut core::ffi::c_void) {}
 +
 +#[unsafe(no_mangle)]
 +pub unsafe extern "C" fn png_safe_sync_png_info_aliases(
 +    _png_ptr: png_structrp,
-+    _info_ptr: png_const_inforp,
++    info_ptr: png_const_inforp,
 +) {
++    unsafe { sync_png_info_aliases_impl(info_ptr.cast_mut()) };
 +}
 +
 +#[unsafe(no_mangle)]
@@ -31807,86 +32128,25 @@ Forwarded: not-needed
 +    text_ptr: *mut png_textp,
 +    num_text: *mut c_int,
 +) -> c_int {
-+    state::with_info_mut(info_ptr, |info_state| {
-+        info_state.text_cache.clear();
-+        info_state.text_key_storage.clear();
-+        info_state.text_value_storage.clear();
-+        info_state.text_lang_storage.clear();
-+        info_state.text_lang_key_storage.clear();
-+
-+        for chunk in &info_state.text_chunks {
-+            let key_bytes = owned_cstring_bytes(string_to_latin1_bytes_lossy(&chunk.keyword));
-+            let value_bytes = match chunk.compression {
-+                PNG_ITXT_COMPRESSION_NONE | PNG_ITXT_COMPRESSION_ZTXT => {
-+                    owned_cstring_bytes(chunk.text.as_bytes().to_vec())
-+                }
-+                _ => owned_cstring_bytes(string_to_latin1_bytes_lossy(&chunk.text)),
-+            };
-+            let lang_bytes = if chunk.language_tag.is_empty() {
-+                Vec::new()
-+            } else {
-+                owned_cstring_bytes(chunk.language_tag.as_bytes().to_vec())
-+            };
-+            let lang_key_bytes = if chunk.translated_keyword.is_empty() {
-+                Vec::new()
-+            } else {
-+                owned_cstring_bytes(chunk.translated_keyword.as_bytes().to_vec())
-+            };
-+
-+            info_state.text_key_storage.push(key_bytes);
-+            info_state.text_value_storage.push(value_bytes);
-+            info_state.text_lang_storage.push(lang_bytes);
-+            info_state.text_lang_key_storage.push(lang_key_bytes);
-+
-+            let index = info_state.text_cache.len();
-+            let entry = png_text {
-+                compression: chunk.compression,
-+                key: info_state.text_key_storage[index].as_mut_ptr().cast(),
-+                text: info_state.text_value_storage[index].as_mut_ptr().cast(),
-+                text_length: info_state.text_value_storage[index].len().saturating_sub(1),
-+                itxt_length: match chunk.compression {
-+                    PNG_ITXT_COMPRESSION_NONE | PNG_ITXT_COMPRESSION_ZTXT => {
-+                        info_state.text_value_storage[index].len().saturating_sub(1)
-+                    }
-+                    _ => 0,
-+                },
-+                lang: if info_state.text_lang_storage[index].is_empty() {
-+                    core::ptr::null_mut()
-+                } else {
-+                    info_state.text_lang_storage[index].as_mut_ptr().cast()
-+                },
-+                lang_key: if info_state.text_lang_key_storage[index].is_empty() {
-+                    core::ptr::null_mut()
-+                } else {
-+                    info_state.text_lang_key_storage[index].as_mut_ptr().cast()
-+                },
-+            };
-+            info_state.text_cache.push(entry);
-+        }
-+
-+        let count = c_int::try_from(info_state.text_cache.len()).unwrap_or(c_int::MAX);
-+        if !num_text.is_null() {
-+            unsafe { *num_text = count };
-+        }
-+        if !text_ptr.is_null() {
-+            let ptr = if info_state.text_cache.is_empty() {
-+                core::ptr::null_mut()
-+            } else {
-+                info_state.text_cache.as_mut_ptr()
-+            };
-+            unsafe { *text_ptr = ptr };
-+        }
-+        count
-+    })
-+    .unwrap_or_else(|| {
++    unsafe { sync_png_info_aliases_impl(info_ptr) };
++    if info_ptr.is_null() {
 +        if !num_text.is_null() {
 +            unsafe { *num_text = 0 };
 +        }
 +        if !text_ptr.is_null() {
 +            unsafe { *text_ptr = core::ptr::null_mut() };
 +        }
-+        0
-+    })
++        return 0;
++    }
++
++    let alias = unsafe { &mut *info_ptr.cast::<png_info_alias_text_prefix>() };
++    if !num_text.is_null() {
++        unsafe { *num_text = alias.num_text };
++    }
++    if !text_ptr.is_null() {
++        unsafe { *text_ptr = alias.text };
++    }
++    alias.num_text
 +}
 +
 +#[unsafe(no_mangle)]
@@ -32043,9 +32303,7 @@ Forwarded: not-needed
 +
 +#[unsafe(no_mangle)]
 +pub unsafe extern "C" fn bridge_png_set_sig_bytes(png_ptr: png_structrp, num_bytes: c_int) {
-+    state::update_png(png_ptr, |png_state| {
-+        png_state.sig_bytes = num_bytes.clamp(0, 8);
-+    });
++    state::set_sig_bytes(png_ptr, num_bytes);
 +}
 +
 +#[unsafe(no_mangle)]
@@ -32104,15 +32362,18 @@ Forwarded: not-needed
 +    option: c_int,
 +    onoff: c_int,
 +) -> c_int {
-+    if !(0..31).contains(&option) {
++    if png_ptr.is_null() || option < 0 || option >= PNG_OPTION_NEXT || (option & 1) != 0 {
 +        return PNG_OPTION_INVALID;
 +    }
-+    state::update_png(png_ptr, |png_state| {
++
++    state::with_png_mut(png_ptr, |png_state| {
 +        let mask = 3u32 << option;
-+        let setting = if onoff != 0 { PNG_OPTION_ON } else { PNG_OPTION_OFF } as u32;
-+        png_state.options = (png_state.options & !mask) | (setting << option);
-+    });
-+    if onoff != 0 { PNG_OPTION_ON } else { PNG_OPTION_OFF }
++        let setting = (2u32 + u32::from(onoff != 0)) << option;
++        let current = png_state.options;
++        png_state.options = (current & !mask) | setting;
++        ((current & mask) >> option) as c_int
++    })
++    .unwrap_or(PNG_OPTION_INVALID)
 +}
 +
 +#[unsafe(no_mangle)]
@@ -32472,11 +32733,6 @@ Forwarded: not-needed
 +    };
 +    let texts = unsafe { core::slice::from_raw_parts(text_ptr, count) };
 +    state::update_info(info_ptr, |info_state| {
-+        info_state.text_cache.clear();
-+        info_state.text_key_storage.clear();
-+        info_state.text_value_storage.clear();
-+        info_state.text_lang_storage.clear();
-+        info_state.text_lang_key_storage.clear();
 +        for text in texts {
 +            let keyword = if text.key.is_null() {
 +                String::new()
@@ -32539,7 +32795,9 @@ Forwarded: not-needed
 +                translated_keyword,
 +            });
 +        }
++        info_state.core.free_me |= PNG_FREE_TEXT;
 +    });
++    unsafe { sync_png_info_aliases_impl(info_ptr) };
 +}
 +
 +#[unsafe(no_mangle)]
@@ -32967,8 +33225,12 @@ Forwarded: not-needed
 +            );
 +        }
 +    }
++    crate::interlace::sanitize_row_padding_for_core(&core_before, row, display_row);
 +    state::update_png(png_ptr, |png_state| {
-+        if let Some(row_palette_max) = indexed_row_palette_max {
++        if let Some(row_palette_max) = indexed_row_palette_max
++            && png_state.check_for_invalid_index > 0
++            && png_state.core.num_palette_max >= 0
++        {
 +            png_state.core.num_palette_max = png_state.core.num_palette_max.max(row_palette_max);
 +        }
 +        advance_read_row_state(&mut png_state.core);
@@ -33010,8 +33272,14 @@ Forwarded: not-needed
 +
 +#[unsafe(no_mangle)]
 +pub unsafe extern "C" fn bridge_png_process_data_skip(png_ptr: png_structrp) -> png_uint_32 {
-+    state::with_png(png_ptr, |png_state| png_state.progressive_state.last_pause_bytes as png_uint_32)
-+        .unwrap_or(0)
++    unsafe {
++        crate::error::png_warning(
++            png_ptr,
++            c"png_process_data_skip is not implemented in any current version of libpng"
++                .as_ptr(),
++        );
++    }
++    0
 +}
 +
 +#[unsafe(no_mangle)]
@@ -33743,7 +34011,7 @@ Forwarded: not-needed
 +}
 --- /dev/null
 +++ libpng1.6-1.6.43/src/compat_exports.rs
-@@ -0,0 +1,1092 @@
+@@ -0,0 +1,1101 @@
 +use crate::chunks::{call_app_error, call_warning, read_core, write_core};
 +use crate::common::{
 +    PNG_FREE_ROWS, PNG_FREE_UNKN, PNG_INFO_IDAT, PNG_INFO_pHYs, PNG_INFO_sBIT, PNG_UINT_31_MAX,
@@ -33895,8 +34163,17 @@ Forwarded: not-needed
 +}
 +
 +unsafe fn longjmp_on_zero(png_ptr: png_structrp, status: c_int) {
++    let error_callback_called =
++        state::with_png(png_ptr, |png_state| png_state.error_callback_called).unwrap_or(false);
++    state::update_png(png_ptr, |png_state| {
++        png_state.error_callback_called = false;
++    });
 +    if status == 0 {
-+        unsafe { crate::error::png_longjmp(png_ptr, 1) };
++        if error_callback_called {
++            unsafe { crate::error::png_longjmp(png_ptr, 1) };
++        } else {
++            unsafe { crate::error::png_error(png_ptr, c"Read Error".as_ptr()) };
++        }
 +    }
 +}
 +
@@ -34838,7 +35115,7 @@ Forwarded: not-needed
 +}
 --- /dev/null
 +++ libpng1.6-1.6.43/src/simplified_runtime.rs
-@@ -0,0 +1,2038 @@
+@@ -0,0 +1,2034 @@
 +use crate::types::*;
 +use core::ffi::{c_char, c_int};
 +use core::ptr;
@@ -35159,12 +35436,12 @@ Forwarded: not-needed
 +fn source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
 +    if info.srgb.is_some() {
 +        Transfer::Srgb
++    } else if let Some(gamma) = info_gamma(info) {
++        Transfer::Gamma(gamma)
 +    } else if info.bit_depth == PngBitDepth::Sixteen && (image_flags & PNG_IMAGE_FLAG_16BIT_sRGB) == 0 {
 +        Transfer::Gamma(1.0)
 +    } else if info.bit_depth == PngBitDepth::Sixteen {
 +        Transfer::Srgb
-+    } else if let Some(gamma) = info_gamma(info) {
-+        Transfer::Gamma(gamma)
 +    } else if info.color_type == PngColorType::Indexed {
 +        Transfer::Srgb
 +    } else {
@@ -35179,14 +35456,10 @@ Forwarded: not-needed
 +    let info = reader.info();
 +    let transfer = source_transfer(info, image_flags);
 +    let file_gamma = info_gamma(info);
-+    let nonlinear_encode = if info.srgb.is_none()
-+        && info_gamma(info).is_none()
-+        && info.color_type != PngColorType::Indexed
-+        && info.bit_depth != PngBitDepth::Sixteen
-+    {
-+        Transfer::Gamma(45_455.0 / 100_000.0)
-+    } else {
++    let nonlinear_encode = if info.srgb.is_some() {
 +        Transfer::Srgb
++    } else {
++        Transfer::Gamma(45_455.0 / 100_000.0)
 +    };
 +    let mut buffer = vec![
 +        0;
@@ -35336,7 +35609,7 @@ Forwarded: not-needed
 +fn encode_nonlinear_byte(transfer: Transfer, value: f64) -> u8 {
 +    match transfer {
 +        Transfer::Srgb => encode_u8(linear_to_srgb(value)),
-+        Transfer::Gamma(gamma) => encode_u8(clamp01(value).powf(gamma)),
++        Transfer::Gamma(gamma) => (clamp01(value).powf(gamma) * 255.0) as u8,
 +    }
 +}
 +
@@ -39309,7 +39582,7 @@ Forwarded: not-needed
 +python3 "$script_dir/normalize-package-metadata.py" buildinfo "$@"
 --- /dev/null
 +++ libpng1.6-1.6.43/tools/dpkg-genchanges-wrapper.sh
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,17 @@
 +#!/usr/bin/env bash
 +set -euo pipefail
 +
@@ -39325,6 +39598,7 @@ Forwarded: not-needed
 +
 +/usr/bin/dpkg-genchanges "$@"
 +python3 "$script_dir/normalize-package-metadata.py" changes "$@"
++bash "$script_dir/refresh-source-snapshot.sh"
 +rm -f "$safe_dir/debian/files"
 --- /dev/null
 +++ libpng1.6-1.6.43/tools/normalize-package-metadata.py
@@ -39600,7 +39874,7 @@ Forwarded: not-needed
 +exec "$safe_dir/tools/dpkg-genchanges-wrapper.sh" "$@"
 --- /dev/null
 +++ libpng1.6-1.6.43/pkg/source-snapshot-manifest.txt
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,147 @@
 +.gitignore
 +ANNOUNCE
 +CHANGES
@@ -39706,6 +39980,7 @@ Forwarded: not-needed
 +tests/cve-regressions/read/simplified_regressions.c
 +tests/cve-regressions/write/cve_2016_10087_text_remove_readd.c
 +tests/cve-regressions/write/simplified_write_negative_stride_large_stride.c
++tests/dependents/png_set_sig_bytes_custom_error.c
 +tests/read-core/limit_rejects.c
 +tests/read-core/progressive_read.c
 +tests/read-core/sequential_read.c
@@ -39742,6 +40017,7 @@ Forwarded: not-needed
 +tools/normalize-package-metadata.py
 +tools/refresh-source-snapshot.sh
 +tools/run-cve-regressions.sh
++tools/run-dependent-regressions.sh
 +tools/run-read-tests.sh
 +tools/run-upstream-tests.sh
 +tools/run-write-tests.sh
@@ -83775,3 +84051,330 @@ Forwarded: not-needed
 +   return SKIP;
 +}
 +#endif
+--- /dev/null
++++ libpng1.6-1.6.43/tests/dependents/png_set_sig_bytes_custom_error.c
+@@ -0,0 +1,103 @@
++#include <png.h>
++#include <setjmp.h>
++#include <stdio.h>
++#include <stdlib.h>
++
++static jmp_buf app_jmpbuf;
++
++static void app_error(png_structp png_ptr, png_const_charp message) {
++    (void)png_ptr;
++    fprintf(stderr, "custom error callback: %s\n", message ? message : "(null)");
++    longjmp(app_jmpbuf, 1);
++}
++
++int main(int argc, char **argv) {
++    if (argc != 2) {
++        fprintf(stderr, "usage: %s <png>\n", argv[0]);
++        return 2;
++    }
++
++    FILE *fp = fopen(argv[1], "rb");
++    if (fp == NULL) {
++        perror("fopen");
++        return 1;
++    }
++
++    png_structp png_ptr =
++        png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, app_error, NULL);
++    if (png_ptr == NULL) {
++        fprintf(stderr, "png_create_read_struct failed\n");
++        fclose(fp);
++        return 1;
++    }
++
++    png_infop info_ptr = png_create_info_struct(png_ptr);
++    if (info_ptr == NULL) {
++        fprintf(stderr, "png_create_info_struct failed\n");
++        png_destroy_read_struct(&png_ptr, NULL, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    if (setjmp(app_jmpbuf) != 0) {
++        fprintf(stderr, "unexpected application longjmp while reading image\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    unsigned char signature[8];
++    if (fread(signature, 1, sizeof(signature), fp) != sizeof(signature)) {
++        fprintf(stderr, "failed to read PNG signature bytes\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    png_set_sig_bytes(png_ptr, (int)sizeof(signature));
++    png_init_io(png_ptr, fp);
++    png_read_info(png_ptr, info_ptr);
++
++    png_uint_32 width = png_get_image_width(png_ptr, info_ptr);
++    png_uint_32 height = png_get_image_height(png_ptr, info_ptr);
++    png_size_t rowbytes = png_get_rowbytes(png_ptr, info_ptr);
++
++    png_bytepp rows = malloc(sizeof(*rows) * height);
++    if (rows == NULL) {
++        fprintf(stderr, "failed to allocate row pointer table\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    for (png_uint_32 y = 0; y < height; ++y) {
++        rows[y] = malloc(rowbytes);
++        if (rows[y] == NULL) {
++            fprintf(stderr, "failed to allocate row %u\n", y);
++            for (png_uint_32 i = 0; i < y; ++i) {
++                free(rows[i]);
++            }
++            free(rows);
++            png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++            fclose(fp);
++            return 1;
++        }
++    }
++
++    png_read_image(png_ptr, rows);
++    png_read_end(png_ptr, NULL);
++
++    for (png_uint_32 y = 0; y < height; ++y) {
++        free(rows[y]);
++    }
++    free(rows);
++    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++    fclose(fp);
++
++    if (width == 0 || height == 0 || rowbytes == 0) {
++        fprintf(stderr, "unexpected decoded geometry\n");
++        return 1;
++    }
++
++    return 0;
++}
+--- /dev/null
++++ libpng1.6-1.6.43/tools/run-dependent-regressions.sh
+@@ -0,0 +1,57 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
++safe_dir="$(cd -- "$script_dir/.." && pwd)"
++repo_root="$(cd -- "$safe_dir/.." && pwd)"
++tests_dir="$safe_dir/tests/dependents"
++profile="${PROFILE:-release}"
++target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
++stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
++
++shopt -s nullglob
++dependent_sources=("$tests_dir"/*.c)
++
++if [[ "${#dependent_sources[@]}" -eq 0 ]]; then
++  printf 'no dependent regressions are present on this revision\n'
++  exit 0
++fi
++
++build_args=(build --manifest-path "$safe_dir/Cargo.toml")
++if [[ "$profile" == "release" ]]; then
++  build_args+=(--release)
++else
++  build_args+=(--profile "$profile")
++fi
++
++cargo "${build_args[@]}"
++"$safe_dir/tools/stage-install-tree.sh"
++
++lib_path="$(find "$stage_root/usr/lib" -name 'libpng16.so.16.43.0' -print -quit)"
++if [[ -z "$lib_path" ]]; then
++  printf 'unable to locate staged libpng shared library under %s\n' "$stage_root/usr/lib" >&2
++  exit 1
++fi
++
++lib_dir="$(dirname "$lib_path")"
++include_dir="$stage_root/usr/include"
++build_dir="$(mktemp -d)"
++trap 'rm -rf "$build_dir"' EXIT
++
++for src in "${dependent_sources[@]}"; do
++  name="$(basename "${src%.c}")"
++  exe="$build_dir/$name"
++
++  cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
++    -I"$include_dir" \
++    "$src" \
++    -L"$lib_dir" \
++    -Wl,-rpath,"$lib_dir" \
++    -lpng16 -lz -lm \
++    -o "$exe"
++
++  "$exe" "$repo_root/original/pngtest.png"
++  printf 'dependent regression passed: %s\n' "$name"
++done
++
++printf 'dependent regression dispatcher passed against the staged safe libpng build\n'
+--- /dev/null
++++ libpng1.6-1.6.43/tests/dependents/palette_expand_shift.c
+@@ -0,0 +1,158 @@
++#include <png.h>
++#include <stdio.h>
++#include <stdlib.h>
++
++static int channel_limit(png_color_8 sig_bit, png_byte color_type, int channel) {
++    int bits = 8;
++    switch (color_type) {
++    case PNG_COLOR_TYPE_GRAY:
++        bits = sig_bit.gray;
++        break;
++    case PNG_COLOR_TYPE_RGB:
++        if (channel == 0) {
++            bits = sig_bit.red;
++        } else if (channel == 1) {
++            bits = sig_bit.green;
++        } else {
++            bits = sig_bit.blue;
++        }
++        break;
++    default:
++        return 255;
++    }
++
++    if (bits <= 0 || bits > 8) {
++        return 255;
++    }
++    return (1 << bits) - 1;
++}
++
++int main(int argc, char **argv) {
++    if (argc != 2) {
++        fprintf(stderr, "usage: %s <png>\n", argv[0]);
++        return 2;
++    }
++
++    FILE *fp = fopen(argv[1], "rb");
++    if (fp == NULL) {
++        perror("fopen");
++        return 1;
++    }
++
++    png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
++    if (png_ptr == NULL) {
++        fprintf(stderr, "png_create_read_struct failed\n");
++        fclose(fp);
++        return 1;
++    }
++
++    png_infop info_ptr = png_create_info_struct(png_ptr);
++    if (info_ptr == NULL) {
++        fprintf(stderr, "png_create_info_struct failed\n");
++        png_destroy_read_struct(&png_ptr, NULL, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
++        fprintf(stderr, "libpng signalled an error while decoding the dependent reproducer\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    png_init_io(png_ptr, fp);
++    png_read_info(png_ptr, info_ptr);
++
++    png_color_8p sig_bit_ptr = NULL;
++    if ((png_get_sBIT(png_ptr, info_ptr, &sig_bit_ptr) & PNG_INFO_sBIT) == 0 ||
++        sig_bit_ptr == NULL) {
++        fprintf(stderr, "expected an sBIT chunk in the fixture\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    png_color_8 sig_bit = *sig_bit_ptr;
++    png_byte input_color_type = png_get_color_type(png_ptr, info_ptr);
++    if (input_color_type == PNG_COLOR_TYPE_PALETTE) {
++        png_set_expand(png_ptr);
++    }
++    if ((input_color_type & PNG_COLOR_MASK_ALPHA) != 0) {
++        png_set_strip_alpha(png_ptr);
++    }
++    png_set_shift(png_ptr, &sig_bit);
++    png_set_interlace_handling(png_ptr);
++    png_read_update_info(png_ptr, info_ptr);
++
++    png_uint_32 width = png_get_image_width(png_ptr, info_ptr);
++    png_uint_32 height = png_get_image_height(png_ptr, info_ptr);
++    png_byte color_type = png_get_color_type(png_ptr, info_ptr);
++    png_byte bit_depth = png_get_bit_depth(png_ptr, info_ptr);
++    png_size_t rowbytes = png_get_rowbytes(png_ptr, info_ptr);
++
++    int channels = 0;
++    if (color_type == PNG_COLOR_TYPE_GRAY) {
++        channels = 1;
++    } else if (color_type == PNG_COLOR_TYPE_RGB) {
++        channels = 3;
++    } else {
++        fprintf(stderr, "unexpected shifted output color type %u\n", (unsigned)color_type);
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    if (bit_depth != 8 || rowbytes != width * (png_uint_32)channels) {
++        fprintf(stderr, "unexpected expanded image layout\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    png_bytep row = malloc(rowbytes);
++    if (row == NULL) {
++        fprintf(stderr, "failed to allocate row buffer\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    int saw_nonzero = 0;
++    for (png_uint_32 y = 0; y < height; ++y) {
++        png_read_row(png_ptr, row, NULL);
++        for (png_uint_32 x = 0; x < width; ++x) {
++            for (int channel = 0; channel < channels; ++channel) {
++                int sample = row[x * (png_uint_32)channels + (png_uint_32)channel];
++                if (sample != 0) {
++                    saw_nonzero = 1;
++                }
++                if (sample > channel_limit(sig_bit, color_type, channel)) {
++                    fprintf(
++                        stderr,
++                        "shifted sample exceeded sBIT limit at (%u,%u) channel %d: %d\n",
++                        y,
++                        x,
++                        channel,
++                        sample);
++                    free(row);
++                    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++                    fclose(fp);
++                    return 1;
++                }
++            }
++        }
++    }
++
++    png_read_end(png_ptr, NULL);
++    free(row);
++    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++    fclose(fp);
++
++    if (!saw_nonzero) {
++        fprintf(stderr, "fixture did not exercise non-zero palette samples\n");
++        return 1;
++    }
++
++    return 0;
++}

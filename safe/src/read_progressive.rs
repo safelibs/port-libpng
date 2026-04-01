@@ -364,8 +364,6 @@ unsafe fn drive_progressive_decode(png_ptr: png_structrp, info_ptr: png_inforp) 
             let row_num = core.row_number;
             let pass = core.pass;
 
-            crate::interlace::sanitize_row_padding(png_ptr, row.as_mut_ptr(), ptr::null_mut());
-
             let mut callback_core = core_after;
             callback_core.row_number = row_num;
             callback_core.pass = pass;

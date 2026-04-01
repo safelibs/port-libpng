@@ -52,6 +52,9 @@ pub(crate) unsafe fn call_app_error(png_ptr: png_structrp, message: &[u8]) -> c_
 pub(crate) unsafe fn call_error(png_ptr: png_structrp, message: &[u8]) -> c_int {
     let callback = state::with_png(png_ptr, |png_state| png_state.error_fn).flatten();
     if let Some(callback) = callback {
+        state::update_png(png_ptr, |png_state| {
+            png_state.error_callback_called = true;
+        });
         unsafe { callback(png_ptr, message.as_ptr().cast::<c_char>()) };
     }
     1

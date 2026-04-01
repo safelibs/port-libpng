@@ -57,6 +57,34 @@ pub type png_const_inforp = png_const_infop;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
+pub(crate) struct png_info_alias_text_prefix {
+    pub width: png_uint_32,
+    pub height: png_uint_32,
+    pub valid: png_uint_32,
+    pub rowbytes: usize,
+    pub palette: png_colorp,
+    pub num_palette: png_uint_16,
+    pub num_trans: png_uint_16,
+    pub bit_depth: png_byte,
+    pub color_type: png_byte,
+    pub compression_type: png_byte,
+    pub filter_type: png_byte,
+    pub interlace_type: png_byte,
+    pub channels: png_byte,
+    pub pixel_depth: png_byte,
+    pub spare_byte: png_byte,
+    pub signature: [png_byte; 8],
+    pub colorspace: png_colorspace,
+    pub iccp_name: png_charp,
+    pub iccp_profile: png_bytep,
+    pub iccp_proflen: png_uint_32,
+    pub num_text: c_int,
+    pub max_text: c_int,
+    pub text: png_textp,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
 pub struct png_color {
     pub red: png_byte,
     pub green: png_byte,

@@ -208,6 +208,10 @@ macro_rules! delegate_info_setter {
                 crate::abi_guard!($png_ptr as png_structrp, unsafe {
                     $upstream($png_ptr, $info_ptr $(, $arg)*);
                     sync_info_registry($info_ptr);
+                    crate::bridge_ffi::png_safe_sync_png_info_aliases(
+                        ($png_ptr as png_const_structrp).cast_mut(),
+                        $info_ptr,
+                    );
                 });
             }
         )+
@@ -218,9 +222,6 @@ macro_rules! delegate_info_setter {
 pub unsafe extern "C" fn png_set_sig_bytes(png_ptr: png_structrp, num_bytes: c_int) {
     crate::abi_guard!(png_ptr, unsafe {
         bridge_png_set_sig_bytes(png_ptr, num_bytes);
-        state::update_png(png_ptr, |state| {
-            state.sig_bytes = num_bytes.clamp(0, 8);
-        });
     });
 }
 
