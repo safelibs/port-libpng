@@ -78,6 +78,28 @@ require_source_orig_tar() {
   printf '%s\n' "$artifact"
 }
 
+require_safe_source_snapshot_tar() {
+  local package_name="$1"
+  local artifact
+
+  artifact="$(
+    find "$repo_root" -maxdepth 1 -type f \
+      -name "${package_name}_*.tar.xz" \
+      ! -name "${package_name}_*.debian.tar.xz" \
+      ! -name "${package_name}_*.orig.tar.xz" \
+      -printf '%T@ %p\n' \
+      | sort -nr \
+      | head -n1 \
+      | cut -d' ' -f2-
+  )"
+  if [[ -z "$artifact" ]]; then
+    printf 'missing refreshed safe source snapshot artifact: %s_*.tar.xz\n' "$package_name" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$artifact"
+}
+
 require_path() {
   local root="$1"
   local rel="$2"
@@ -159,18 +181,32 @@ tracked = subprocess.check_output(
         "--",
         "safe/Cargo.toml",
         "safe/build.rs",
+        "safe/UNSAFE.md",
+        "safe/abi",
         "safe/cshim",
+        "safe/debian",
         "safe/include",
         "safe/pkg",
         "safe/src",
-        "safe/debian",
+        "safe/tools",
     ],
     text=True,
 ).splitlines()
 
 tracked_rel = [path[len("safe/") :] for path in tracked]
 source_files = set()
-for rel in ["Cargo.toml", "build.rs", "cshim", "include", "pkg", "src", "debian"]:
+for rel in [
+    "Cargo.toml",
+    "build.rs",
+    "UNSAFE.md",
+    "abi",
+    "cshim",
+    "debian",
+    "include",
+    "pkg",
+    "src",
+    "tools",
+]:
     base = source_root / rel
     if base.is_file() or base.is_symlink():
         source_files.add(rel)
@@ -212,6 +248,66 @@ for rel in tracked_rel:
 PY
 }
 
+validate_safe_snapshot_tar_matches_tree() {
+  local snapshot_tar="$1"
+
+  python3 - <<'PY' "$repo_root" "$snapshot_tar"
+import pathlib
+import subprocess
+import sys
+import tarfile
+
+repo_root = pathlib.Path(sys.argv[1])
+snapshot_tar = pathlib.Path(sys.argv[2])
+
+tracked = subprocess.check_output(
+    ["git", "-C", str(repo_root), "ls-files", "--", "safe"],
+    text=True,
+).splitlines()
+
+with tarfile.open(snapshot_tar, "r:*") as tf:
+    members = {
+        member.name: member
+        for member in tf.getmembers()
+        if member.isfile() or member.issym()
+    }
+
+tracked_set = set(tracked)
+member_set = set(members)
+missing = sorted(tracked_set - member_set)
+extra = sorted(member_set - tracked_set)
+if missing:
+    raise SystemExit(
+        "safe source snapshot tar is missing tracked paths: "
+        + ", ".join(missing)
+    )
+if extra:
+    raise SystemExit(
+        "safe source snapshot tar contains unexpected paths: "
+        + ", ".join(extra)
+    )
+
+with tarfile.open(snapshot_tar, "r:*") as tf:
+    for rel in tracked:
+        repo_path = repo_root / rel
+        member = members[rel]
+
+        if repo_path.is_symlink() != member.issym():
+            raise SystemExit(f"path type mismatch for {rel}")
+
+        if repo_path.is_symlink():
+            if repo_path.readlink().as_posix() != member.linkname:
+                raise SystemExit(f"symlink target mismatch for {rel}")
+            continue
+
+        extracted = tf.extractfile(member)
+        if extracted is None:
+            raise SystemExit(f"unable to read archived file {rel}")
+        if repo_path.read_bytes() != extracted.read():
+            raise SystemExit(f"safe source snapshot content mismatch for {rel}")
+PY
+}
+
 runtime_deb="$(require_artifact libpng16-16t64 deb)"
 dev_deb="$(require_artifact libpng-dev deb)"
 tools_deb="$(require_artifact libpng-tools deb)"
@@ -223,6 +319,7 @@ source_buildinfo_artifact="$(latest_source_split_artifact libpng1.6 buildinfo)"
 source_dsc="$(require_artifact libpng1.6 dsc)"
 source_debian_tar="$(require_artifact libpng1.6 debian.tar.xz)"
 source_orig_tar="$(require_source_orig_tar libpng1.6)"
+safe_source_snapshot_tar="$(require_safe_source_snapshot_tar libpng1.6)"
 
 if [[ -n "$source_changes_artifact" && -z "$source_buildinfo_artifact" ]]; then
   printf 'missing source buildinfo artifact for %s\n' "$source_changes_artifact" >&2
@@ -318,6 +415,7 @@ if [[ ! -f "$source_orig_tar" || ! -f "$source_debian_tar" ]]; then
 fi
 
 validate_source_package_matches_tree "$source_root"
+validate_safe_snapshot_tar_matches_tree "$safe_source_snapshot_tar"
 
 multiarch_dir="$(find "$runtime_root/usr/lib" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -n1)"
 if [[ -z "$multiarch_dir" ]]; then
@@ -416,4 +514,5 @@ fi
 
 printf 'package artifacts passed for %s\n' "$runtime_version"
 printf 'source package artifacts match the current safe packaging tree\n'
+printf 'safe source snapshot tar matches the current tracked safe tree\n'
 printf 'libpng-dev examples preserved under /usr/share/doc/libpng-dev/examples/\n'
