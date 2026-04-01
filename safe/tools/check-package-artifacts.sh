@@ -4,15 +4,36 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 safe_dir="$(cd -- "$script_dir/.." && pwd)"
 repo_root="$(cd -- "$safe_dir/.." && pwd)"
+host_arch="$(dpkg-architecture -qDEB_HOST_ARCH)"
+
+latest_matching_artifact() {
+  local pattern="$1"
+
+  find "$repo_root" -maxdepth 1 -type f -name "$pattern" -printf '%T@ %p\n' \
+    | sort -nr \
+    | head -n1 \
+    | cut -d' ' -f2-
+}
 
 latest_artifact() {
   local package_name="$1"
   local extension="$2"
 
-  find "$repo_root" -maxdepth 1 -type f -name "${package_name}_*.${extension}" -printf '%T@ %p\n' \
-    | sort -nr \
-    | head -n1 \
-    | cut -d' ' -f2-
+  latest_matching_artifact "${package_name}_*.${extension}"
+}
+
+latest_arch_artifact() {
+  local package_name="$1"
+  local extension="$2"
+
+  latest_matching_artifact "${package_name}_*_${host_arch}.${extension}"
+}
+
+latest_source_split_artifact() {
+  local package_name="$1"
+  local extension="$2"
+
+  latest_matching_artifact "${package_name}_*_source.${extension}"
 }
 
 require_artifact() {
@@ -29,21 +50,28 @@ require_artifact() {
   printf '%s\n' "$artifact"
 }
 
+require_arch_artifact() {
+  local package_name="$1"
+  local extension="$2"
+  local artifact
+
+  artifact="$(latest_arch_artifact "$package_name" "$extension")"
+  if [[ -z "$artifact" ]]; then
+    printf 'missing built package artifact: %s_*_%s.%s\n' \
+      "$package_name" "$host_arch" "$extension" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$artifact"
+}
+
 require_source_orig_tar() {
   local package_name="$1"
   local artifact
 
-  artifact="$(
-    find "$repo_root" -maxdepth 1 -type f \
-      -name "${package_name}_*.tar.xz" \
-      ! -name "${package_name}_*.debian.tar.xz" \
-      -printf '%T@ %p\n' \
-      | sort -nr \
-      | head -n1 \
-      | cut -d' ' -f2-
-  )"
+  artifact="$(latest_matching_artifact "${package_name}_*.orig.tar.xz")"
   if [[ -z "$artifact" ]]; then
-    printf 'missing built source tar artifact: %s_*.tar.xz\n' "$package_name" >&2
+    printf 'missing built source orig tar artifact: %s_*.orig.tar.xz\n' "$package_name" >&2
     exit 1
   fi
 
@@ -81,6 +109,32 @@ require_changes_entry() {
   basename_artifact="$(basename "$artifact")"
   if ! grep -Fq " $basename_artifact" "$changes_file"; then
     printf 'changes file %s does not reference %s\n' "$changes_file" "$basename_artifact" >&2
+    exit 1
+  fi
+}
+
+require_buildinfo_entry() {
+  local buildinfo_file="$1"
+  local artifact="$2"
+  local basename_artifact
+
+  basename_artifact="$(basename "$artifact")"
+  if ! grep -Fq " $basename_artifact" "$buildinfo_file"; then
+    printf 'buildinfo file %s does not reference %s\n' "$buildinfo_file" "$basename_artifact" >&2
+    exit 1
+  fi
+}
+
+require_buildinfo_metadata() {
+  local buildinfo_file="$1"
+  local expected_version="$2"
+
+  if ! grep -Fq "Source: libpng1.6" "$buildinfo_file"; then
+    printf 'unexpected source stanza in %s\n' "$buildinfo_file" >&2
+    exit 1
+  fi
+  if ! grep -Fq "Version: $expected_version" "$buildinfo_file"; then
+    printf 'buildinfo version mismatch in %s\n' "$buildinfo_file" >&2
     exit 1
   fi
 }
@@ -162,11 +216,22 @@ runtime_deb="$(require_artifact libpng16-16t64 deb)"
 dev_deb="$(require_artifact libpng-dev deb)"
 tools_deb="$(require_artifact libpng-tools deb)"
 udeb_artifact="$(require_artifact libpng16-16-udeb udeb)"
-changes_artifact="$(require_artifact libpng1.6 changes)"
-buildinfo_artifact="$(require_artifact libpng1.6 buildinfo)"
+binary_changes_artifact="$(require_arch_artifact libpng1.6 changes)"
+binary_buildinfo_artifact="$(require_arch_artifact libpng1.6 buildinfo)"
+source_changes_artifact="$(latest_source_split_artifact libpng1.6 changes)"
+source_buildinfo_artifact="$(latest_source_split_artifact libpng1.6 buildinfo)"
 source_dsc="$(require_artifact libpng1.6 dsc)"
 source_debian_tar="$(require_artifact libpng1.6 debian.tar.xz)"
 source_orig_tar="$(require_source_orig_tar libpng1.6)"
+
+if [[ -n "$source_changes_artifact" && -z "$source_buildinfo_artifact" ]]; then
+  printf 'missing source buildinfo artifact for %s\n' "$source_changes_artifact" >&2
+  exit 1
+fi
+if [[ -z "$source_changes_artifact" && -n "$source_buildinfo_artifact" ]]; then
+  printf 'missing source changes artifact for %s\n' "$source_buildinfo_artifact" >&2
+  exit 1
+fi
 
 for pair in \
   "libpng16-16t64:$runtime_deb" \
@@ -193,33 +258,44 @@ for artifact in "$dev_deb" "$tools_deb" "$udeb_artifact"; do
   fi
 done
 
-for source_artifact in \
+for binary_artifact in \
   "$runtime_deb" \
   "$dev_deb" \
   "$tools_deb" \
   "$udeb_artifact" \
-  "$buildinfo_artifact" \
-  "$source_dsc" \
-  "$source_debian_tar"
+  "$binary_buildinfo_artifact"
 do
-  require_changes_entry "$changes_artifact" "$source_artifact"
+  require_changes_entry "$binary_changes_artifact" "$binary_artifact"
 done
 
-if ! grep -Fq "Source: libpng1.6" "$buildinfo_artifact"; then
-  printf 'unexpected source stanza in %s\n' "$buildinfo_artifact" >&2
-  exit 1
-fi
-if ! grep -Fq "Version: $runtime_version" "$buildinfo_artifact"; then
-  printf 'buildinfo version mismatch in %s\n' "$buildinfo_artifact" >&2
-  exit 1
-fi
-for artifact in "$runtime_deb" "$dev_deb" "$tools_deb" "$udeb_artifact" "$source_dsc"; do
-  basename_artifact="$(basename "$artifact")"
-  if ! grep -Fq " $basename_artifact" "$buildinfo_artifact"; then
-    printf 'buildinfo file %s does not reference %s\n' "$buildinfo_artifact" "$basename_artifact" >&2
-    exit 1
-  fi
+require_buildinfo_metadata "$binary_buildinfo_artifact" "$runtime_version"
+for artifact in "$runtime_deb" "$dev_deb" "$tools_deb" "$udeb_artifact"; do
+  require_buildinfo_entry "$binary_buildinfo_artifact" "$artifact"
 done
+
+if [[ -n "$source_changes_artifact" ]]; then
+  for source_artifact in \
+    "$source_dsc" \
+    "$source_orig_tar" \
+    "$source_debian_tar" \
+    "$source_buildinfo_artifact"
+  do
+    require_changes_entry "$source_changes_artifact" "$source_artifact"
+  done
+
+  require_buildinfo_metadata "$source_buildinfo_artifact" "$runtime_version"
+  require_buildinfo_entry "$source_buildinfo_artifact" "$source_dsc"
+else
+  for source_artifact in \
+    "$source_dsc" \
+    "$source_orig_tar" \
+    "$source_debian_tar"
+  do
+    require_changes_entry "$binary_changes_artifact" "$source_artifact"
+  done
+
+  require_buildinfo_entry "$binary_buildinfo_artifact" "$source_dsc"
+fi
 
 extract_root="$(mktemp -d)"
 trap 'rm -rf "$extract_root"' EXIT
