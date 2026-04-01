@@ -46,15 +46,15 @@ Checksums-Sha1:
  b659668a21e7a65ff005ddfaafb1ffe4257d6461 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
  7e8ad7c14b4aca0b860447e82cefd54331eeea37 190828 libpng1.6_1.6.43.orig.tar.xz
  7bc93c8494d2ea9317309c05a19eab666fa452ad 704704 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
- 6f5e509e4952a52a1ae91fe9bc7beba807eb45b6 8916 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+ eee40a11a3e50a7708819af87668ebe2e59fd262 8899 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
 Checksums-Sha256:
  ef35b279593d31b6878e2a76519a67cd827245646d57ac750cf99ca8bf59cc69 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
  245573d767b5374b12e0d261b69d38c48236b15581c5cf3de8b46caa494e4ba5 190828 libpng1.6_1.6.43.orig.tar.xz
  313786c31ede99d345f47ec0ca4037a4428eb8042ab86f9fa2d1ba9c2074eabb 704704 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
- a876b0bab051426acb5e76f6d8823859d1413ffa07a25e5b55951177965075c4 8916 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+ dcabaf4b5bf4050cd9311fa3de8388fc34dc3f57239a5be9783e05d72feed845 8899 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
 Files:
  bcce10b26d8c01c95d40ab85fed2162b 1553 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
  17d02fb01d828e0cdc9e25389aae22d4 190828 libs optional libpng1.6_1.6.43.orig.tar.xz
  0743471e1db64b67f54fcb319b5d8cd8 704704 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
- c4210b6b800ebf7e9905e1782dabc2b3 8916 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+ 875138616e2fd5a7e6d55449e99b4fd5 8899 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
 Original-Maintainer: Maintainers of libpng1.6 packages <libpng1.6@packages.debian.org>
