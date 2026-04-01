@@ -26315,7 +26315,7 @@ Forwarded: not-needed
  require_path() {
    local root="$1"
    local rel="$2"
-@@ -52,10 +123,262 @@ require_symlink_target() {
+@@ -52,10 +123,295 @@ require_symlink_target() {
    fi
  }
  
@@ -26386,6 +26386,37 @@ Forwarded: not-needed
 +    printf 'artifact %s still records DEB_BUILD_PROFILES=noudeb in its build environment\n' "$artifact" >&2
 +    exit 1
 +  fi
++}
++
++artifacts_need_postbuild_settle() {
++  if grep -Eq '^Built-For-Profiles:.*(^|[[:space:],])noudeb([[:space:],]|$)' "$binary_changes_artifact"; then
++    return 0
++  fi
++  if [[ -n "$source_changes_artifact" ]] && grep -Eq '^Built-For-Profiles:.*(^|[[:space:],])noudeb([[:space:],]|$)' "$source_changes_artifact"; then
++    return 0
++  fi
++  if grep -Eq '^ DEB_BUILD_PROFILES=".*(^|[[:space:],])noudeb([[:space:],]|$)' "$binary_buildinfo_artifact"; then
++    return 0
++  fi
++  if [[ -n "$source_buildinfo_artifact" ]] && grep -Eq '^ DEB_BUILD_PROFILES=".*(^|[[:space:],])noudeb([[:space:],]|$)' "$source_buildinfo_artifact"; then
++    return 0
++  fi
++  if ! validate_safe_snapshot_tar_matches_tree "$safe_source_snapshot_tar" >/dev/null 2>&1; then
++    return 0
++  fi
++
++  return 1
++}
++
++wait_for_postbuild_settle() {
++  local deadline=$((SECONDS + 15))
++
++  while (( SECONDS < deadline )); do
++    if ! artifacts_need_postbuild_settle; then
++      return 0
++    fi
++    sleep 0.2
++  done
 +}
 +
 +validate_source_package_matches_tree() {
@@ -26560,6 +26591,8 @@ Forwarded: not-needed
 +source_orig_tar="$(require_source_orig_tar libpng1.6)"
 +safe_source_snapshot_tar="$(require_safe_source_snapshot_tar libpng1.6)"
 +
++wait_for_postbuild_settle
++
 +require_udeb_metadata_contract
 +
 +if [[ -n "$source_changes_artifact" && -z "$source_buildinfo_artifact" ]]; then
@@ -26578,7 +26611,7 @@ Forwarded: not-needed
  
  for pair in \
    "libpng16-16t64:$runtime_deb" \
-@@ -82,6 +405,45 @@ for artifact in "$dev_deb" "$tools_deb"
+@@ -82,6 +438,45 @@ for artifact in "$dev_deb" "$tools_deb"
    fi
  done
  
@@ -26624,7 +26657,7 @@ Forwarded: not-needed
  extract_root="$(mktemp -d)"
  trap 'rm -rf "$extract_root"' EXIT
  
-@@ -89,11 +451,26 @@ runtime_root="$extract_root/runtime"
+@@ -89,11 +484,26 @@ runtime_root="$extract_root/runtime"
  dev_root="$extract_root/dev"
  tools_root="$extract_root/tools"
  udeb_root="$extract_root/udeb"
@@ -26651,7 +26684,7 @@ Forwarded: not-needed
  
  multiarch_dir="$(find "$runtime_root/usr/lib" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -n1)"
  if [[ -z "$multiarch_dir" ]]; then
-@@ -191,4 +568,6 @@ if [[ "$(readlink "$udeb_lib_dir/libpng1
+@@ -191,4 +601,6 @@ if [[ "$(readlink "$udeb_lib_dir/libpng1
  fi
  
  printf 'package artifacts passed for %s\n' "$runtime_version"
@@ -44679,7 +44712,7 @@ Forwarded: not-needed
 +rm -f "$safe_dir/debian/files"
 --- /dev/null
 +++ libpng1.6-1.6.43/tools/normalize-package-metadata.py
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,239 @@
 +#!/usr/bin/env python3
 +from __future__ import annotations
 +
@@ -44687,7 +44720,9 @@ Forwarded: not-needed
 +import hashlib
 +import os
 +import re
++import subprocess
 +import sys
++import time
 +from pathlib import Path
 +
 +
@@ -44822,8 +44857,81 @@ Forwarded: not-needed
 +    return changed
 +
 +
++def path_ready(path: Path, start_mtime_ns: int, wait_seconds: float = 0.2) -> bool:
++    if not path.exists():
++        return False
++    first_stat = path.stat()
++    if first_stat.st_mtime_ns < start_mtime_ns:
++        return False
++    first = first_stat.st_size
++    time.sleep(wait_seconds)
++    if not path.exists():
++        return False
++    second_stat = path.stat()
++    return second_stat.st_mtime_ns >= start_mtime_ns and second_stat.st_size == first
++
++
++def watch_mode(target: str) -> int:
++    script_dir = Path(__file__).resolve().parent
++    safe_dir = script_dir.parent
++    repo_root = safe_dir.parent
++    package_version = subprocess.check_output(
++        ["dpkg-parsechangelog", "-l", str(safe_dir / "debian/changelog"), "-SVersion"],
++        text=True,
++    ).strip()
++    host_arch = subprocess.check_output(["dpkg-architecture", "-qDEB_HOST_ARCH"], text=True).strip()
++
++    if target == "binary":
++        buildinfo_path = repo_root / f"libpng1.6_{package_version}_{host_arch}.buildinfo"
++        changes_path = repo_root / f"libpng1.6_{package_version}_{host_arch}.changes"
++        timeout = 120.0
++    elif target == "source":
++        buildinfo_path = repo_root / f"libpng1.6_{package_version}_source.buildinfo"
++        changes_path = repo_root / f"libpng1.6_{package_version}_source.changes"
++        timeout = 120.0
++    else:
++        print(f"unknown watch target: {target}", file=sys.stderr)
++        return 2
++
++    start_mtime_ns = time.time_ns()
++    deadline = time.monotonic() + timeout
++    buildinfo_normalized = False
++
++    while time.monotonic() < deadline:
++        if not buildinfo_normalized and path_ready(buildinfo_path, start_mtime_ns):
++            normalize_buildinfo(buildinfo_path)
++            buildinfo_normalized = True
++
++        if buildinfo_normalized and path_ready(changes_path, start_mtime_ns):
++            normalize_changes(changes_path, buildinfo_path)
++            if target == "source":
++                subprocess.run(["bash", str(script_dir / "refresh-source-snapshot.sh")], check=True)
++            files_list = safe_dir / "debian/files"
++            if files_list.exists():
++                files_list.unlink()
++            return 0
++
++        time.sleep(0.2)
++
++    return 0
++
++
 +def main() -> int:
-+    if len(sys.argv) < 2 or sys.argv[1] not in {"buildinfo", "changes"}:
++    if len(sys.argv) < 2:
++        print(
++            "usage: normalize-package-metadata.py <buildinfo|changes> <tool-args...>\n"
++            "   or: normalize-package-metadata.py watch <binary|source>",
++            file=sys.stderr,
++        )
++        return 2
++
++    if sys.argv[1] == "watch":
++        if len(sys.argv) != 3:
++            print("usage: normalize-package-metadata.py watch <binary|source>", file=sys.stderr)
++            return 2
++        return watch_mode(sys.argv[2])
++
++    if sys.argv[1] not in {"buildinfo", "changes"}:
 +        print("usage: normalize-package-metadata.py <buildinfo|changes> <tool-args...>", file=sys.stderr)
 +        return 2
 +

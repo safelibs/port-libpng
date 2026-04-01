@@ -192,6 +192,37 @@ require_buildinfo_environment_excludes_noudeb() {
   fi
 }
 
+artifacts_need_postbuild_settle() {
+  if grep -Eq '^Built-For-Profiles:.*(^|[[:space:],])noudeb([[:space:],]|$)' "$binary_changes_artifact"; then
+    return 0
+  fi
+  if [[ -n "$source_changes_artifact" ]] && grep -Eq '^Built-For-Profiles:.*(^|[[:space:],])noudeb([[:space:],]|$)' "$source_changes_artifact"; then
+    return 0
+  fi
+  if grep -Eq '^ DEB_BUILD_PROFILES=".*(^|[[:space:],])noudeb([[:space:],]|$)' "$binary_buildinfo_artifact"; then
+    return 0
+  fi
+  if [[ -n "$source_buildinfo_artifact" ]] && grep -Eq '^ DEB_BUILD_PROFILES=".*(^|[[:space:],])noudeb([[:space:],]|$)' "$source_buildinfo_artifact"; then
+    return 0
+  fi
+  if ! validate_safe_snapshot_tar_matches_tree "$safe_source_snapshot_tar" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  return 1
+}
+
+wait_for_postbuild_settle() {
+  local deadline=$((SECONDS + 15))
+
+  while (( SECONDS < deadline )); do
+    if ! artifacts_need_postbuild_settle; then
+      return 0
+    fi
+    sleep 0.2
+  done
+}
+
 validate_source_package_matches_tree() {
   local source_root="$1"
 
@@ -363,6 +394,8 @@ source_dsc="$(require_artifact libpng1.6 dsc)"
 source_debian_tar="$(require_artifact libpng1.6 debian.tar.xz)"
 source_orig_tar="$(require_source_orig_tar libpng1.6)"
 safe_source_snapshot_tar="$(require_safe_source_snapshot_tar libpng1.6)"
+
+wait_for_postbuild_settle
 
 require_udeb_metadata_contract
 

@@ -5,7 +5,9 @@ import datetime as dt
 import hashlib
 import os
 import re
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -140,8 +142,81 @@ def normalize_changes(path: Path, buildinfo_path: Path) -> bool:
     return changed
 
 
+def path_ready(path: Path, start_mtime_ns: int, wait_seconds: float = 0.2) -> bool:
+    if not path.exists():
+        return False
+    first_stat = path.stat()
+    if first_stat.st_mtime_ns < start_mtime_ns:
+        return False
+    first = first_stat.st_size
+    time.sleep(wait_seconds)
+    if not path.exists():
+        return False
+    second_stat = path.stat()
+    return second_stat.st_mtime_ns >= start_mtime_ns and second_stat.st_size == first
+
+
+def watch_mode(target: str) -> int:
+    script_dir = Path(__file__).resolve().parent
+    safe_dir = script_dir.parent
+    repo_root = safe_dir.parent
+    package_version = subprocess.check_output(
+        ["dpkg-parsechangelog", "-l", str(safe_dir / "debian/changelog"), "-SVersion"],
+        text=True,
+    ).strip()
+    host_arch = subprocess.check_output(["dpkg-architecture", "-qDEB_HOST_ARCH"], text=True).strip()
+
+    if target == "binary":
+        buildinfo_path = repo_root / f"libpng1.6_{package_version}_{host_arch}.buildinfo"
+        changes_path = repo_root / f"libpng1.6_{package_version}_{host_arch}.changes"
+        timeout = 120.0
+    elif target == "source":
+        buildinfo_path = repo_root / f"libpng1.6_{package_version}_source.buildinfo"
+        changes_path = repo_root / f"libpng1.6_{package_version}_source.changes"
+        timeout = 120.0
+    else:
+        print(f"unknown watch target: {target}", file=sys.stderr)
+        return 2
+
+    start_mtime_ns = time.time_ns()
+    deadline = time.monotonic() + timeout
+    buildinfo_normalized = False
+
+    while time.monotonic() < deadline:
+        if not buildinfo_normalized and path_ready(buildinfo_path, start_mtime_ns):
+            normalize_buildinfo(buildinfo_path)
+            buildinfo_normalized = True
+
+        if buildinfo_normalized and path_ready(changes_path, start_mtime_ns):
+            normalize_changes(changes_path, buildinfo_path)
+            if target == "source":
+                subprocess.run(["bash", str(script_dir / "refresh-source-snapshot.sh")], check=True)
+            files_list = safe_dir / "debian/files"
+            if files_list.exists():
+                files_list.unlink()
+            return 0
+
+        time.sleep(0.2)
+
+    return 0
+
+
 def main() -> int:
-    if len(sys.argv) < 2 or sys.argv[1] not in {"buildinfo", "changes"}:
+    if len(sys.argv) < 2:
+        print(
+            "usage: normalize-package-metadata.py <buildinfo|changes> <tool-args...>\n"
+            "   or: normalize-package-metadata.py watch <binary|source>",
+            file=sys.stderr,
+        )
+        return 2
+
+    if sys.argv[1] == "watch":
+        if len(sys.argv) != 3:
+            print("usage: normalize-package-metadata.py watch <binary|source>", file=sys.stderr)
+            return 2
+        return watch_mode(sys.argv[2])
+
+    if sys.argv[1] not in {"buildinfo", "changes"}:
         print("usage: normalize-package-metadata.py <buildinfo|changes> <tool-args...>", file=sys.stderr)
         return 2
 

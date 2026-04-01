@@ -16,6 +16,8 @@ libpng1.6 (1.6.43-5ubuntu0.5+safelibs1) noble; urgency=medium
     the build so repeated packaging verification leaves the workspace clean.
   * Commit repo-local package-command shims so the build no longer depends
     on user-specific PATH wrappers outside the tree.
+  * Normalize the generated .buildinfo and .changes files from debian/rules
+    as well so the stock dpkg-buildpackage path stays noudeb-free.
   * Keep package-artifact verification read-only so it validates the
     committed outputs instead of rewriting them in place.
 

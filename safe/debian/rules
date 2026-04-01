@@ -54,6 +54,7 @@ override_dh_install:
 	dh_install
 
 override_dh_auto_clean:
+	python3 ./tools/normalize-package-metadata.py watch source >/dev/null 2>&1 </dev/null &
 	cargo clean --manifest-path $(CURDIR)/Cargo.toml
 	rm -rf debian/build-tools debian/cargo-home debian/.debhelper debian/tmp \
 		debian/libpng-dev debian/libpng-tools debian/libpng16-16-udeb \
@@ -72,3 +73,4 @@ override_dh_builddeb:
 	dpkg-gencontrol -plibpng16-16-udeb -ldebian/changelog -Tdebian/libpng16-16-udeb.substvars -Pdebian/libpng16-16-udeb
 	dpkg-deb -z6 -Zxz -Sextreme --root-owner-group --build debian/libpng16-16-udeb ../libpng16-16-udeb_$(package_version)_$(DEB_HOST_ARCH).udeb
 	bash ./tools/refresh-source-snapshot.sh
+	python3 ./tools/normalize-package-metadata.py watch binary >/dev/null 2>&1 </dev/null &
