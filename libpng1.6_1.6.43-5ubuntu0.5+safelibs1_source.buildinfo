@@ -10,7 +10,7 @@ Checksums-Sha256:
  32f1b71ff82c9c530f93bcd4e88506df63340a53f1c66768934f60ad40ffcdfe 1560 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
 Build-Origin: Ubuntu
 Build-Architecture: amd64
-Build-Date: Tue, 31 Mar 2026 23:39:36 -0700
+Build-Date: Tue, 31 Mar 2026 23:47:32 -0700
 Build-Tainted-By:
  merged-usr-via-aliased-dirs
 Installed-Build-Depends:
@@ -233,6 +233,4 @@ Environment:
  DEB_BUILD_OPTIONS="parallel=24"
  DEB_BUILD_PROFILES="noudeb"
  LANG="en_US.UTF-8"
- LC_ALL="C.UTF-8"
- LC_CTYPE="C.UTF-8"
  SOURCE_DATE_EPOCH="1775020647"
