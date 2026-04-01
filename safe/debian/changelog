@@ -18,6 +18,9 @@ libpng1.6 (1.6.43-5ubuntu0.5+safelibs1) noble; urgency=medium
     on user-specific PATH wrappers outside the tree.
   * Normalize the generated .buildinfo and .changes files from debian/rules
     as well so the stock dpkg-buildpackage path stays noudeb-free.
+  * Build the safe snapshot tar from a committed manifest so the extracted
+    source package rebuilds without a git checkout, and declare python3 in
+    Build-Depends for the metadata helpers.
   * Keep package-artifact verification read-only so it validates the
     committed outputs instead of rewriting them in place.
 
