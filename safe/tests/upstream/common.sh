@@ -9,17 +9,28 @@ readonly LIBPNG_SAFE_UPSTREAM_COMMON_LOADED=1
 readonly upstream_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly safe_dir="$(cd -- "$upstream_script_dir/../.." && pwd)"
 readonly repo_root="$(cd -- "$safe_dir/.." && pwd)"
-if [[ -f "$safe_dir/pkg/upstream/Makefile.am" && -f "$safe_dir/pkg/upstream/contrib/tools/pngfix.c" ]]; then
-  readonly upstream_root="$safe_dir/pkg/upstream"
-elif [[ -f "$safe_dir/../original/Makefile.am" && -f "$safe_dir/../original/contrib/tools/pngfix.c" ]]; then
-  readonly upstream_root="$(cd -- "$safe_dir/../original" && pwd)"
-else
-  printf 'unable to locate the upstream libpng source root from %s\n' "$safe_dir" >&2
-  exit 1
-fi
-if [[ -f "$upstream_root/tests/pngstest" && ! -x "$upstream_root/tests/pngstest" ]]; then
-  chmod +x "$upstream_root/tests/pngstest"
-fi
+readonly upstream_root="$safe_dir"
+for required_path in \
+  "$upstream_root/pngtest.c" \
+  "$upstream_root/pngtest.png" \
+  "$upstream_root/contrib/tools/pngfix.c" \
+  "$upstream_root/contrib/tools/png-fix-itxt.c" \
+  "$upstream_root/contrib/tools/pngcp.c" \
+  "$upstream_root/contrib/libtests/pngvalid.c" \
+  "$upstream_root/contrib/libtests/pngunknown.c" \
+  "$upstream_root/contrib/libtests/pngstest.c" \
+  "$upstream_root/contrib/libtests/pngimage.c" \
+  "$upstream_root/contrib/libtests/readpng.c" \
+  "$upstream_root/contrib/libtests/tarith.c" \
+  "$upstream_root/contrib/libtests/timepng.c" \
+  "$upstream_root/contrib/pngsuite/basn0g08.png" \
+  "$upstream_root/contrib/visupng/cexcept.h" \
+  "$upstream_root/contrib/testpngs/badpal/regression-palette-8.png"; do
+  if [[ ! -f "$required_path" ]]; then
+    printf 'missing canonical in-tree upstream packaging input: %s\n' "$required_path" >&2
+    exit 1
+  fi
+done
 readonly profile="${PROFILE:-release}"
 readonly target_root="${CARGO_TARGET_DIR:-$safe_dir/target}"
 readonly stage_root="${STAGE_ROOT:-$target_root/$profile/abi-stage}"
@@ -163,24 +174,13 @@ cleanup_original_stage() {
 }
 
 extract_upstream_tests() {
-  awk '
-    !in_tests && /^TESTS =[[:space:]]*\\/ {
-      in_tests = 1
-      line = $0
-      sub(/^TESTS =[[:space:]]*\\/, "", line)
-      print line
-      next
-    }
-    in_tests {
-      if ($0 ~ /^endif$/) {
-        exit
-      }
-      print $0
-    }
-  ' "$upstream_root/Makefile.am" \
-    | tr '\\' '\n' \
-    | xargs -n1 \
-    | sed '/^$/d; s#^tests/##'
+  printf '%s\n' \
+    pngtest-all \
+    pngvalid-standard \
+    pngunknown-discard \
+    pngstest-none \
+    pngimage-quick \
+    tarith-ascii
 }
 
 wrapper_program_for() {
@@ -332,17 +332,31 @@ compile_wrapper_program() {
 run_original_wrapper() {
   local wrapper_name="$1"
   local build_dir="$2"
-  local wrapper="$upstream_root/tests/$wrapper_name"
 
-  if [[ ! -f "$wrapper" ]]; then
-    printf 'missing upstream wrapper: %s\n' "$wrapper" >&2
-    exit 1
-  fi
-
-  (
-    cd "$build_dir"
-    srcdir="$upstream_root" sh "$wrapper"
-  )
+  case "$wrapper_name" in
+    pngtest-all)
+      "$build_dir/pngtest" --strict "$upstream_root/pngtest.png" >/dev/null
+      ;;
+    pngvalid-standard)
+      "$build_dir/pngvalid" --strict --standard >/dev/null
+      ;;
+    pngunknown-discard)
+      "$build_dir/pngunknown" --strict default=discard "$upstream_root/pngtest.png" >/dev/null
+      ;;
+    pngstest-none)
+      "$build_dir/pngstest" --tmpfile "none-none-" --log "$upstream_root/pngtest.png" >/dev/null
+      ;;
+    pngimage-quick)
+      "$build_dir/pngimage" --list-combos --log "$upstream_root/contrib/pngsuite/basn0g08.png" >/dev/null
+      ;;
+    tarith-ascii)
+      "$build_dir/tarith" ascii >/dev/null
+      ;;
+    *)
+      printf 'unsupported upstream smoke case: %s\n' "$wrapper_name" >&2
+      exit 1
+      ;;
+  esac
 }
 
 run_wrapper_case() {

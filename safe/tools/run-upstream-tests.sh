@@ -8,7 +8,7 @@ source "$safe_dir/tests/upstream/common.sh"
 mapfile -t upstream_wrappers < <(extract_upstream_tests)
 
 if [[ "${#upstream_wrappers[@]}" -eq 0 ]]; then
-  printf 'failed to extract upstream TESTS list from %s\n' "$upstream_root/Makefile.am" >&2
+  printf 'failed to enumerate upstream smoke cases from the in-tree package inputs\n' >&2
   exit 1
 fi
 
@@ -62,6 +62,6 @@ done
 printf '==> %s\n' "png-fix-itxt"
 "$safe_dir/tests/upstream/png-fix-itxt.sh"
 
-printf 'upstream wrapper matrix passed against the staged safe libpng build\n'
+printf 'upstream smoke matrix passed against the staged safe libpng build\n'
 printf 'explicit consumer smokes passed for pngcp, timepng, and pngfix\n'
 printf 'standalone packaged-tool smoke passed for png-fix-itxt\n'
