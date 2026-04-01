@@ -1,11 +1,14 @@
 libpng1.6 (1.6.43-5ubuntu0.5+safelibs1) noble; urgency=medium
 
-  * Build the Rust port into Ubuntu-compatible binary packages while keeping
-    the existing libpng1.6 source package name and binary package layout.
-  * Run the upstream shell-test wrapper matrix and standalone tool smokes
-    against the staged safe headers and libraries during package tests.
+  * Finalize the Rust-port packaging refresh while preserving the existing
+    libpng1.6 source package name, Ubuntu multiarch install layout, and
+    binary package split.
+  * Keep pngfix linked against the staged safe libpng while continuing to
+    package png-fix-itxt separately against zlib only.
+  * Refresh the binary and source package artifacts in place using the
+    tracked upstream orig tarball and the current safe packaging tree.
 
- -- Safe Libraries Team <safelibs@example.invalid>  Mon, 30 Mar 2026 12:00:00 -0700
+ -- Safe Libraries Team <safelibs@example.invalid>  Tue, 31 Mar 2026 22:17:27 -0700
 
 libpng1.6 (1.6.43-5ubuntu0.5) noble-security; urgency=medium
 
