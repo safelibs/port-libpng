@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
 safe_dir="$(cd -- "$script_dir/.." && pwd)"
 repo_root="$(cd -- "$safe_dir/.." && pwd)"
 pwd_real="$(pwd -P)"

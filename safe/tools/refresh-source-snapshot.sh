@@ -9,6 +9,7 @@ output_path="$repo_root/libpng1.6_${package_version}.tar.xz"
 manifest="$(mktemp)"
 filtered_manifest="$(mktemp)"
 tmp_output="$(mktemp --tmpdir "$package_version.XXXXXX.tar.xz")"
+source_date_epoch="${SOURCE_DATE_EPOCH:-$(dpkg-parsechangelog -l "$safe_dir/debian/changelog" -STimestamp)}"
 
 cleanup() {
   rm -f "$manifest" "$filtered_manifest" "$tmp_output"
@@ -30,6 +31,11 @@ fi
 tar \
   -C "$repo_root" \
   --null \
+  --sort=name \
+  --mtime="@$source_date_epoch" \
+  --owner=0 \
+  --group=0 \
+  --numeric-owner \
   --verbatim-files-from \
   --files-from "$filtered_manifest" \
   -cJf "$tmp_output"

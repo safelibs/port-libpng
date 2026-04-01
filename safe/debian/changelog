@@ -12,6 +12,8 @@ libpng1.6 (1.6.43-5ubuntu0.5+safelibs1) noble; urgency=medium
   * Force package metadata generation for this tree to bypass Ubuntu's
     implicit noudeb vendor profile so the emitted udeb artifacts remain
     contract-consistent.
+  * Normalize generated package metadata and the safe source snapshot during
+    the build so repeated packaging verification leaves the workspace clean.
   * Keep package-artifact verification read-only so it validates the
     committed outputs instead of rewriting them in place.
 
