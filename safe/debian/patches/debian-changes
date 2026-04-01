@@ -39874,7 +39874,7 @@ Forwarded: not-needed
 +exec "$safe_dir/tools/dpkg-genchanges-wrapper.sh" "$@"
 --- /dev/null
 +++ libpng1.6-1.6.43/pkg/source-snapshot-manifest.txt
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,148 @@
 +.gitignore
 +ANNOUNCE
 +CHANGES
@@ -39980,6 +39980,7 @@ Forwarded: not-needed
 +tests/cve-regressions/read/simplified_regressions.c
 +tests/cve-regressions/write/cve_2016_10087_text_remove_readd.c
 +tests/cve-regressions/write/simplified_write_negative_stride_large_stride.c
++tests/dependents/palette_expand_shift.c
 +tests/dependents/png_set_sig_bytes_custom_error.c
 +tests/read-core/limit_rejects.c
 +tests/read-core/progressive_read.c
