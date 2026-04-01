@@ -21,6 +21,9 @@ libpng1.6 (1.6.43-5ubuntu0.5+safelibs1) noble; urgency=medium
   * Build the safe snapshot tar from a committed manifest so the extracted
     source package rebuilds without a git checkout, and declare python3 in
     Build-Depends for the metadata helpers.
+  * Track Cargo.lock as a package-affecting input so the emitted source
+    package, the safe snapshot manifest, and package-artifact verification
+    all cover the same Rust dependency lockfile.
   * Resolve upstream tool, test, doc, example, and manpage inputs from the
     extracted source tree itself so binary rebuilds no longer depend on a
     workspace-only sibling checkout.

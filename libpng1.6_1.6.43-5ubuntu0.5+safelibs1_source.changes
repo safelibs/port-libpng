@@ -31,6 +31,9 @@ Changes:
    * Build the safe snapshot tar from a committed manifest so the extracted
      source package rebuilds without a git checkout, and declare python3 in
      Build-Depends for the metadata helpers.
+   * Track Cargo.lock as a package-affecting input so the emitted source
+     package, the safe snapshot manifest, and package-artifact verification
+     all cover the same Rust dependency lockfile.
    * Resolve upstream tool, test, doc, example, and manpage inputs from the
      extracted source tree itself so binary rebuilds no longer depend on a
      workspace-only sibling checkout.
@@ -40,18 +43,18 @@ Changes:
    * Keep package-artifact verification read-only so it validates the
      committed outputs instead of rewriting them in place.
 Checksums-Sha1:
- 5c14693b692e9722835abb0af12a1d4d2ea1c746 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ d6bc64388202ca5ca678d6e0661363a8f533e049 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
  7e8ad7c14b4aca0b860447e82cefd54331eeea37 190828 libpng1.6_1.6.43.orig.tar.xz
- a66611791af04abc9678159dbe62aa2fd3c59ff0 701980 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
- 23c4a605922c1102b6d9b6328cfd6bd8c8b88ffc 8899 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+ fc52a5c152065d13a3785a2bbccc3ae6db813c6a 702044 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ 9209355ebea7800ccf43719d4e0316f7c4348600 8920 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
 Checksums-Sha256:
- 59893f68f83eb8cde040b5b6a26b7742367dd0ebc286f9a520c3498553b78e63 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 62e5032744b3d964b60f7b0486ebbc7925915f4fe7fb37d6b4077da2eb36ab03 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
  245573d767b5374b12e0d261b69d38c48236b15581c5cf3de8b46caa494e4ba5 190828 libpng1.6_1.6.43.orig.tar.xz
- 78da9c2f81c0878375f6fc39a8753fd1406cea22e049a17203d6db3431e46636 701980 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
- befdbbb13143697d661f314aa90bd8dd3c357dea50ec2c092441521b8c5eb9e9 8899 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+ d30f0d3094caf3e0526fe1f9e1609ba5c5a48fd145514ee0cf406c63679e40de 702044 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ abf807ba11989417d40af3729ca68ded80d8e32b7d52820be22a9e62946d0ca1 8920 libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
 Files:
- f350613372c9386432b191d6d02d751f 1553 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 3d6d87c414ea7e9b1eeede186d917def 1553 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
  17d02fb01d828e0cdc9e25389aae22d4 190828 libs optional libpng1.6_1.6.43.orig.tar.xz
- 9216e4c4590b1e46251ff65d79f51130 701980 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
- ad35efccae2e2e7425d04d603580cb5d 8899 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+ a9c5e4c2571ab50522a18f74946bb54a 702044 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ d2fd1c25d8811003a1f099023ce7d869 8920 libs optional libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
 Original-Maintainer: Maintainers of libpng1.6 packages <libpng1.6@packages.debian.org>

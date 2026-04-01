@@ -241,6 +241,7 @@ tracked = subprocess.check_output(
         str(repo_root),
         "ls-files",
         "--",
+        "safe/Cargo.lock",
         "safe/Cargo.toml",
         "safe/build.rs",
         "safe/UNSAFE.md",
@@ -264,6 +265,7 @@ tracked = [
 tracked_rel = [path[len("safe/") :] for path in tracked]
 source_files = set()
 for rel in [
+    "Cargo.lock",
     "Cargo.toml",
     "build.rs",
     "UNSAFE.md",

@@ -17,11 +17,11 @@ Package-List:
  libpng16-16t64 deb libs optional arch=any
 Checksums-Sha1:
  7e8ad7c14b4aca0b860447e82cefd54331eeea37 190828 libpng1.6_1.6.43.orig.tar.xz
- a66611791af04abc9678159dbe62aa2fd3c59ff0 701980 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ fc52a5c152065d13a3785a2bbccc3ae6db813c6a 702044 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
 Checksums-Sha256:
  245573d767b5374b12e0d261b69d38c48236b15581c5cf3de8b46caa494e4ba5 190828 libpng1.6_1.6.43.orig.tar.xz
- 78da9c2f81c0878375f6fc39a8753fd1406cea22e049a17203d6db3431e46636 701980 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ d30f0d3094caf3e0526fe1f9e1609ba5c5a48fd145514ee0cf406c63679e40de 702044 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
 Files:
  17d02fb01d828e0cdc9e25389aae22d4 190828 libpng1.6_1.6.43.orig.tar.xz
- 9216e4c4590b1e46251ff65d79f51130 701980 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+ a9c5e4c2571ab50522a18f74946bb54a 702044 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
 Original-Maintainer: Maintainers of libpng1.6 packages <libpng1.6@packages.debian.org>

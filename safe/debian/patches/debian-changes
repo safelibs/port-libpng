@@ -20719,7 +20719,7 @@ Forwarded: not-needed
  require_path() {
    local root="$1"
    local rel="$2"
-@@ -52,10 +123,295 @@ require_symlink_target() {
+@@ -52,10 +123,297 @@ require_symlink_target() {
    fi
  }
  
@@ -20841,6 +20841,7 @@ Forwarded: not-needed
 +        str(repo_root),
 +        "ls-files",
 +        "--",
++        "safe/Cargo.lock",
 +        "safe/Cargo.toml",
 +        "safe/build.rs",
 +        "safe/UNSAFE.md",
@@ -20864,6 +20865,7 @@ Forwarded: not-needed
 +tracked_rel = [path[len("safe/") :] for path in tracked]
 +source_files = set()
 +for rel in [
++    "Cargo.lock",
 +    "Cargo.toml",
 +    "build.rs",
 +    "UNSAFE.md",
@@ -21015,7 +21017,7 @@ Forwarded: not-needed
  
  for pair in \
    "libpng16-16t64:$runtime_deb" \
-@@ -82,6 +438,45 @@ for artifact in "$dev_deb" "$tools_deb"
+@@ -82,6 +440,45 @@ for artifact in "$dev_deb" "$tools_deb"
    fi
  done
  
@@ -21061,7 +21063,7 @@ Forwarded: not-needed
  extract_root="$(mktemp -d)"
  trap 'rm -rf "$extract_root"' EXIT
  
-@@ -89,11 +484,26 @@ runtime_root="$extract_root/runtime"
+@@ -89,11 +486,26 @@ runtime_root="$extract_root/runtime"
  dev_root="$extract_root/dev"
  tools_root="$extract_root/tools"
  udeb_root="$extract_root/udeb"
@@ -21088,7 +21090,7 @@ Forwarded: not-needed
  
  multiarch_dir="$(find "$runtime_root/usr/lib" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -n1)"
  if [[ -z "$multiarch_dir" ]]; then
-@@ -154,12 +564,13 @@ require_symlink_target "$dev_root" "usr/
+@@ -154,12 +566,13 @@ require_symlink_target "$dev_root" "usr/
  require_symlink_target "$dev_root" "usr/bin/libpng-config" "libpng16-config"
  
  examples_dir="$dev_root/usr/share/doc/libpng-dev/examples"
@@ -21103,7 +21105,7 @@ Forwarded: not-needed
      printf 'packaged libpng-dev example payload diverged: %s\n' "$example_name" >&2
      exit 1
    fi
-@@ -191,4 +602,6 @@ if [[ "$(readlink "$udeb_lib_dir/libpng1
+@@ -191,4 +604,6 @@ if [[ "$(readlink "$udeb_lib_dir/libpng1
  fi
  
  printf 'package artifacts passed for %s\n' "$runtime_version"
@@ -39598,10 +39600,11 @@ Forwarded: not-needed
 +exec "$safe_dir/tools/dpkg-genchanges-wrapper.sh" "$@"
 --- /dev/null
 +++ libpng1.6-1.6.43/pkg/source-snapshot-manifest.txt
-@@ -0,0 +1,144 @@
+@@ -0,0 +1,145 @@
 +.gitignore
 +ANNOUNCE
 +CHANGES
++Cargo.lock
 +Cargo.toml
 +README
 +TODO

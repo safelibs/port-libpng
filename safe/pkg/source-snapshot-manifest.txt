@@ -1,6 +1,7 @@
 .gitignore
 ANNOUNCE
 CHANGES
+Cargo.lock
 Cargo.toml
 README
 TODO
