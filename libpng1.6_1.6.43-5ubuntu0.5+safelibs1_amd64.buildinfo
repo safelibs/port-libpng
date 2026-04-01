@@ -4,26 +4,26 @@ Binary: libpng-dev libpng-tools libpng-tools-dbgsym libpng16-16-udeb libpng16-16
 Architecture: amd64
 Version: 1.6.43-5ubuntu0.5+safelibs1
 Checksums-Md5:
- 7867e8c651e03d60cb913c0263ffd4d1 3974206 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 3300a3708f330e38f658f556ed600139 3974272 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
  e745616135c3d41e800636246973cd53 51218 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 1b3e269d2fdcddaab8f42ce7c8cfed63 31140 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 529ff8b3d3c9c3a52d7e6e42eefa1157 31198 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
  3018f955c894bd12d6e52c95bc2f0c0e 669632 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
  cf22ec687c4cfb40fad3d034a81a9057 1173120 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 90327ce8416e290d6fd1d2ac8e20b8cc 815602 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 631d3f1b79c213dce94ee7189634b4f4 815666 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
 Checksums-Sha1:
- eed442e0a8ee23efc4fa6b87cd834157b479926c 3974206 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ b16922d3e99148d061434ac40115e9118f24ec84 3974272 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
  6ee780aa25a71acefa25bec5a28eb0363df69541 51218 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 8c6b8c28e8b6721934584f9c0ea99624cb479e0f 31140 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 31de3c2cc4e69cc3d683a100575939b266542611 31198 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
  fe636f257fb1a318c9d31c7305035b99b18f66d6 669632 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
  33c84181c5ea9c64ce34d855fce9ceeb1d8d8912 1173120 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- afa66b0bae5bc903ddc7519240a2621f82e7b39e 815602 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ d3e733f9d20805c0e0c436964c8f8b2d1b433a09 815666 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
 Checksums-Sha256:
- d793ca90a717bbd94b2eb9102d2400611858acda3a7a9225f6884c5254d10ee8 3974206 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ ab71c00f0b914ce5dd3f63b5be45e11f3fb053fbdcdd45da3019dfcf95504379 3974272 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
  c35c35b8357cdf513f1c45369122d004e4a27d152aa4d731859f4a4b25311c44 51218 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 8f77e02736aac37c3a346bf936211515958b95bcd7812b54562e6d0f93a0debe 31140 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 68c924a23245d33ca5ce1f6298ddf8fc068f02cf6ac22eb61baad739e7edcbb4 31198 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
  fe0d00d8767e00c624e2fca6340f3a40ed60175bea1dd66c5261a7a14380df04 669632 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
  41eeba55e251bc6e543ac229824476019c8b2cae51aaad1722c643f6aa899ab6 1173120 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 07dd30db313584eceabc3d6f459a55f1a0eccbbb5b6e9769d88bb4eec8700977 815602 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 1f5933752443795a624a86bdceb47509fc8625333b05c594670a96055b8b7481 815666 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
 Build-Origin: Debian
 Build-Architecture: amd64
 Build-Date: Tue, 31 Mar 2026 22:17:27 -0700

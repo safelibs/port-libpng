@@ -3,11 +3,11 @@ Source: libpng1.6
 Architecture: source
 Version: 1.6.43-5ubuntu0.5+safelibs1
 Checksums-Md5:
- cde5f6f755983890a64498c904dd04ff 1544 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 2e9f5a130f18f2e27deaa4dbedeb6b98 1544 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
 Checksums-Sha1:
- 70298694b30c1a7f259c6239f12f375a04280022 1544 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 850bc91b6258965e39a776bdacf3631613fe98af 1544 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
 Checksums-Sha256:
- 955a5754a9c6765c7a282cf9975351a0457f6b195a39f33aa013cee2b5ff4d62 1544 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 608cd28942e499878b6514ac95156d7690a3df2d872f6dfece196f5e07a6d6e5 1544 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
 Build-Origin: Debian
 Build-Architecture: amd64
 Build-Date: Tue, 31 Mar 2026 22:17:27 -0700

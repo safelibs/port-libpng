@@ -26315,7 +26315,7 @@ Forwarded: not-needed
  require_path() {
    local root="$1"
    local rel="$2"
-@@ -52,10 +123,260 @@ require_symlink_target() {
+@@ -52,10 +123,262 @@ require_symlink_target() {
    fi
  }
  
@@ -26413,6 +26413,7 @@ Forwarded: not-needed
 +        "safe/cshim",
 +        "safe/debian",
 +        "safe/include",
++        "safe/node_modules",
 +        "safe/pkg",
 +        "safe/src",
 +        "safe/tools",
@@ -26435,6 +26436,7 @@ Forwarded: not-needed
 +    "cshim",
 +    "debian",
 +    "include",
++    "node_modules",
 +    "pkg",
 +    "src",
 +    "tools",
@@ -26576,7 +26578,7 @@ Forwarded: not-needed
  
  for pair in \
    "libpng16-16t64:$runtime_deb" \
-@@ -82,6 +403,45 @@ for artifact in "$dev_deb" "$tools_deb"
+@@ -82,6 +405,45 @@ for artifact in "$dev_deb" "$tools_deb"
    fi
  done
  
@@ -26622,7 +26624,7 @@ Forwarded: not-needed
  extract_root="$(mktemp -d)"
  trap 'rm -rf "$extract_root"' EXIT
  
-@@ -89,11 +449,26 @@ runtime_root="$extract_root/runtime"
+@@ -89,11 +451,26 @@ runtime_root="$extract_root/runtime"
  dev_root="$extract_root/dev"
  tools_root="$extract_root/tools"
  udeb_root="$extract_root/udeb"
@@ -26649,7 +26651,7 @@ Forwarded: not-needed
  
  multiarch_dir="$(find "$runtime_root/usr/lib" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -n1)"
  if [[ -z "$multiarch_dir" ]]; then
-@@ -191,4 +566,6 @@ if [[ "$(readlink "$udeb_lib_dir/libpng1
+@@ -191,4 +568,6 @@ if [[ "$(readlink "$udeb_lib_dir/libpng1
  fi
  
  printf 'package artifacts passed for %s\n' "$runtime_version"
@@ -44842,3 +44844,33 @@ Forwarded: not-needed
 +
 +if __name__ == "__main__":
 +    raise SystemExit(main())
+--- /dev/null
++++ libpng1.6-1.6.43/node_modules/.bin/dpkg-buildpackage
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
++safe_dir="$(cd -- "$script_dir/../.." && pwd)"
++
++exec "$safe_dir/tools/dpkg-buildpackage-wrapper.sh" "$@"
+--- /dev/null
++++ libpng1.6-1.6.43/node_modules/.bin/dpkg-genbuildinfo
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
++safe_dir="$(cd -- "$script_dir/../.." && pwd)"
++
++exec "$safe_dir/tools/dpkg-genbuildinfo-wrapper.sh" "$@"
+--- /dev/null
++++ libpng1.6-1.6.43/node_modules/.bin/dpkg-genchanges
+@@ -0,0 +1,7 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
++safe_dir="$(cd -- "$script_dir/../.." && pwd)"
++
++exec "$safe_dir/tools/dpkg-genchanges-wrapper.sh" "$@"
