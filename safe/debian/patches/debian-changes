@@ -27493,10 +27493,11 @@ Forwarded: not-needed
      png_set_check_for_invalid_index(png_ptr, 1);
 --- libpng1.6-1.6.43.orig/tests/upstream/common.sh
 +++ libpng1.6-1.6.43/tests/upstream/common.sh
-@@ -9,13 +9,93 @@ readonly LIBPNG_SAFE_UPSTREAM_COMMON_LOA
+@@ -9,13 +9,104 @@ readonly LIBPNG_SAFE_UPSTREAM_COMMON_LOA
  readonly upstream_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
  readonly safe_dir="$(cd -- "$upstream_script_dir/../.." && pwd)"
  readonly repo_root="$(cd -- "$safe_dir/.." && pwd)"
++readonly original_root="$repo_root/original"
 +readonly upstream_root="$safe_dir"
 +for required_path in \
 +  "$upstream_root/pngtest.c" \
@@ -27513,7 +27514,17 @@ Forwarded: not-needed
 +  "$upstream_root/contrib/libtests/timepng.c" \
 +  "$upstream_root/contrib/pngsuite/basn0g08.png" \
 +  "$upstream_root/contrib/visupng/cexcept.h" \
-+  "$upstream_root/contrib/testpngs/badpal/regression-palette-8.png"; do
++  "$upstream_root/contrib/testpngs/badpal/regression-palette-8.png" \
++  "$original_root/tests/pngtest-all" \
++  "$original_root/tests/pngvalid-standard" \
++  "$original_root/tests/pngunknown-discard" \
++  "$original_root/tests/pngstest" \
++  "$original_root/tests/pngstest-none" \
++  "$original_root/tests/pngimage-quick" \
++  "$original_root/tests/tarith-ascii" \
++  "$original_root/pngtest.png" \
++  "$original_root/contrib/pngsuite/basn0g08.png" \
++  "$original_root/contrib/testpngs/badpal/regression-palette-8.png"; do
 +  if [[ ! -f "$required_path" ]]; then
 +    printf 'missing canonical in-tree upstream packaging input: %s\n' "$required_path" >&2
 +    exit 1
@@ -27587,7 +27598,7 @@ Forwarded: not-needed
  
  build_safe_stage() {
    local build_args=(build --manifest-path "$safe_dir/Cargo.toml")
-@@ -39,7 +119,14 @@ locate_safe_stage() {
+@@ -39,7 +130,14 @@ locate_safe_stage() {
    fi
  
    libpng_stage_lib_dir="$(dirname "$libpng_stage_shared_lib")"
@@ -27602,7 +27613,7 @@ Forwarded: not-needed
  }
  
  ensure_safe_stage() {
-@@ -54,25 +141,46 @@ ensure_safe_stage() {
+@@ -54,25 +152,46 @@ ensure_safe_stage() {
    fi
  }
  
@@ -27667,7 +27678,7 @@ Forwarded: not-needed
  }
  
  wrapper_program_for() {
-@@ -117,9 +225,8 @@ compile_libpng_client() {
+@@ -117,9 +236,8 @@ compile_libpng_client() {
      -Werror
      -Wno-deprecated-declarations
      -DPNG_FREESTANDING_TESTS
@@ -27679,7 +27690,7 @@ Forwarded: not-needed
    )
    cc_args+=("$@")
    cc_args+=(
-@@ -151,12 +258,38 @@ prepare_pngtest_source() {
+@@ -151,12 +269,38 @@ prepare_pngtest_source() {
    local dest="$build_dir/pngtest.c"
  
    sed 's/^#include "png.h"$/#include <png.h>/' \
@@ -27719,7 +27730,7 @@ Forwarded: not-needed
  compile_wrapper_program() {
    local program="$1"
    local build_dir="$2"
-@@ -167,8 +300,7 @@ compile_wrapper_program() {
+@@ -167,8 +311,7 @@ compile_wrapper_program() {
        ensure_safe_stage
        pngtest_source="$(prepare_pngtest_source "$build_dir")"
        cc -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
@@ -27729,7 +27740,7 @@ Forwarded: not-needed
          "$pngtest_source" \
          -L"$libpng_stage_lib_dir" \
          -Wl,-rpath,"$libpng_stage_lib_dir" \
-@@ -176,19 +308,19 @@ compile_wrapper_program() {
+@@ -176,19 +319,19 @@ compile_wrapper_program() {
          -o "$build_dir/pngtest"
        ;;
      pngvalid)
@@ -27754,49 +27765,30 @@ Forwarded: not-needed
        ;;
      *)
        printf 'unsupported upstream wrapper program: %s\n' "$program" >&2
-@@ -200,17 +332,31 @@ compile_wrapper_program() {
+@@ -200,16 +343,18 @@ compile_wrapper_program() {
  run_original_wrapper() {
    local wrapper_name="$1"
    local build_dir="$2"
 -  local wrapper="$repo_root/original/tests/$wrapper_name"
--
++  local wrapper_path="$original_root/tests/$wrapper_name"
+ 
 -  if [[ ! -f "$wrapper" ]]; then
 -    printf 'missing upstream wrapper: %s\n' "$wrapper" >&2
--    exit 1
--  fi
++  if [[ ! -f "$wrapper_path" ]]; then
++    printf 'missing upstream wrapper: %s\n' "$wrapper_path" >&2
+     exit 1
+   fi
  
--  (
--    cd "$build_dir"
+   (
+     cd "$build_dir"
 -    srcdir="$repo_root/original" sh "$wrapper"
--  )
-+  case "$wrapper_name" in
-+    pngtest-all)
-+      "$build_dir/pngtest" --strict "$upstream_root/pngtest.png" >/dev/null
-+      ;;
-+    pngvalid-standard)
-+      "$build_dir/pngvalid" --strict --standard >/dev/null
-+      ;;
-+    pngunknown-discard)
-+      "$build_dir/pngunknown" --strict default=discard "$upstream_root/pngtest.png" >/dev/null
-+      ;;
-+    pngstest-none)
-+      "$build_dir/pngstest" --tmpfile "none-none-" --log "$upstream_root/pngtest.png" >/dev/null
-+      ;;
-+    pngimage-quick)
-+      "$build_dir/pngimage" --list-combos --log "$upstream_root/contrib/pngsuite/basn0g08.png" >/dev/null
-+      ;;
-+    tarith-ascii)
-+      "$build_dir/tarith" ascii >/dev/null
-+      ;;
-+    *)
-+      printf 'unsupported upstream smoke case: %s\n' "$wrapper_name" >&2
-+      exit 1
-+      ;;
-+  esac
++    srcdir="$original_root"
++    export srcdir
++    exec /bin/sh "$wrapper_path"
+   )
  }
  
- run_wrapper_case() {
-@@ -224,19 +370,19 @@ run_wrapper_case() {
+@@ -224,19 +369,19 @@ run_wrapper_case() {
  }
  
  build_pngcp_consumer() {
@@ -27820,7 +27812,7 @@ Forwarded: not-needed
  }
  
  smoke_pngcp() {
-@@ -245,7 +391,7 @@ smoke_pngcp() {
+@@ -245,7 +390,7 @@ smoke_pngcp() {
  
    "$build_dir/pngcp" \
      --fix-palette-index \
@@ -27829,7 +27821,7 @@ Forwarded: not-needed
      "$output"
  
    if [[ ! -s "$output" ]]; then
-@@ -260,7 +406,7 @@ smoke_pngfix() {
+@@ -260,7 +405,7 @@ smoke_pngfix() {
  
    "$build_dir/pngfix" \
      "--out=$output" \
@@ -27838,7 +27830,7 @@ Forwarded: not-needed
  
    if [[ ! -s "$output" ]]; then
      printf 'pngfix did not produce an output file\n' >&2
-@@ -270,7 +416,7 @@ smoke_pngfix() {
+@@ -270,7 +415,7 @@ smoke_pngfix() {
  
  smoke_timepng() {
    local build_dir="$1"
@@ -27847,7 +27839,7 @@ Forwarded: not-needed
  }
  
  smoke_png_fix_itxt() {
-@@ -278,8 +424,8 @@ smoke_png_fix_itxt() {
+@@ -278,8 +423,8 @@ smoke_png_fix_itxt() {
    local output="$build_dir/png-fix-itxt-output.png"
  
    "$build_dir/png-fix-itxt" \
@@ -35115,7 +35107,7 @@ Forwarded: not-needed
 +}
 --- /dev/null
 +++ libpng1.6-1.6.43/src/simplified_runtime.rs
-@@ -0,0 +1,2034 @@
+@@ -0,0 +1,2028 @@
 +use crate::types::*;
 +use core::ffi::{c_char, c_int};
 +use core::ptr;
@@ -35442,10 +35434,8 @@ Forwarded: not-needed
 +        Transfer::Gamma(1.0)
 +    } else if info.bit_depth == PngBitDepth::Sixteen {
 +        Transfer::Srgb
-+    } else if info.color_type == PngColorType::Indexed {
-+        Transfer::Srgb
 +    } else {
-+        Transfer::Gamma(45_455.0 / 100_000.0)
++        Transfer::Srgb
 +    }
 +}
 +
@@ -35456,11 +35446,7 @@ Forwarded: not-needed
 +    let info = reader.info();
 +    let transfer = source_transfer(info, image_flags);
 +    let file_gamma = info_gamma(info);
-+    let nonlinear_encode = if info.srgb.is_some() {
-+        Transfer::Srgb
-+    } else {
-+        Transfer::Gamma(45_455.0 / 100_000.0)
-+    };
++    let nonlinear_encode = Transfer::Srgb;
 +    let mut buffer = vec![
 +        0;
 +        reader

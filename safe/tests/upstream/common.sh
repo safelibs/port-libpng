@@ -9,6 +9,7 @@ readonly LIBPNG_SAFE_UPSTREAM_COMMON_LOADED=1
 readonly upstream_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly safe_dir="$(cd -- "$upstream_script_dir/../.." && pwd)"
 readonly repo_root="$(cd -- "$safe_dir/.." && pwd)"
+readonly original_root="$repo_root/original"
 readonly upstream_root="$safe_dir"
 for required_path in \
   "$upstream_root/pngtest.c" \
@@ -25,7 +26,17 @@ for required_path in \
   "$upstream_root/contrib/libtests/timepng.c" \
   "$upstream_root/contrib/pngsuite/basn0g08.png" \
   "$upstream_root/contrib/visupng/cexcept.h" \
-  "$upstream_root/contrib/testpngs/badpal/regression-palette-8.png"; do
+  "$upstream_root/contrib/testpngs/badpal/regression-palette-8.png" \
+  "$original_root/tests/pngtest-all" \
+  "$original_root/tests/pngvalid-standard" \
+  "$original_root/tests/pngunknown-discard" \
+  "$original_root/tests/pngstest" \
+  "$original_root/tests/pngstest-none" \
+  "$original_root/tests/pngimage-quick" \
+  "$original_root/tests/tarith-ascii" \
+  "$original_root/pngtest.png" \
+  "$original_root/contrib/pngsuite/basn0g08.png" \
+  "$original_root/contrib/testpngs/badpal/regression-palette-8.png"; do
   if [[ ! -f "$required_path" ]]; then
     printf 'missing canonical in-tree upstream packaging input: %s\n' "$required_path" >&2
     exit 1
@@ -332,31 +343,19 @@ compile_wrapper_program() {
 run_original_wrapper() {
   local wrapper_name="$1"
   local build_dir="$2"
+  local wrapper_path="$original_root/tests/$wrapper_name"
 
-  case "$wrapper_name" in
-    pngtest-all)
-      "$build_dir/pngtest" --strict "$upstream_root/pngtest.png" >/dev/null
-      ;;
-    pngvalid-standard)
-      "$build_dir/pngvalid" --strict --standard >/dev/null
-      ;;
-    pngunknown-discard)
-      "$build_dir/pngunknown" --strict default=discard "$upstream_root/pngtest.png" >/dev/null
-      ;;
-    pngstest-none)
-      "$build_dir/pngstest" --tmpfile "none-none-" --log "$upstream_root/pngtest.png" >/dev/null
-      ;;
-    pngimage-quick)
-      "$build_dir/pngimage" --list-combos --log "$upstream_root/contrib/pngsuite/basn0g08.png" >/dev/null
-      ;;
-    tarith-ascii)
-      "$build_dir/tarith" ascii >/dev/null
-      ;;
-    *)
-      printf 'unsupported upstream smoke case: %s\n' "$wrapper_name" >&2
-      exit 1
-      ;;
-  esac
+  if [[ ! -f "$wrapper_path" ]]; then
+    printf 'missing upstream wrapper: %s\n' "$wrapper_path" >&2
+    exit 1
+  fi
+
+  (
+    cd "$build_dir"
+    srcdir="$original_root"
+    export srcdir
+    exec /bin/sh "$wrapper_path"
+  )
 }
 
 run_wrapper_case() {

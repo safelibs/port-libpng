@@ -324,10 +324,8 @@ fn source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
         Transfer::Gamma(1.0)
     } else if info.bit_depth == PngBitDepth::Sixteen {
         Transfer::Srgb
-    } else if info.color_type == PngColorType::Indexed {
-        Transfer::Srgb
     } else {
-        Transfer::Gamma(45_455.0 / 100_000.0)
+        Transfer::Srgb
     }
 }
 
@@ -338,11 +336,7 @@ fn decode_png(bytes: &[u8], image_flags: png_uint_32) -> Result<DecodedImage, St
     let info = reader.info();
     let transfer = source_transfer(info, image_flags);
     let file_gamma = info_gamma(info);
-    let nonlinear_encode = if info.srgb.is_some() {
-        Transfer::Srgb
-    } else {
-        Transfer::Gamma(45_455.0 / 100_000.0)
-    };
+    let nonlinear_encode = Transfer::Srgb;
     let mut buffer = vec![
         0;
         reader
