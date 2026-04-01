@@ -129,14 +129,23 @@ fn compact_progressive_buffer(png_ptr: png_structrp) {
     state::update_png(png_ptr, |png_state| {
         let progressive = &mut png_state.progressive_state;
         let drain = progressive.decode_offset;
+        let len = progressive.buffered.len();
         if drain == 0 {
             return;
         }
-        if drain < 4096 && drain < progressive.buffered.len() / 2 {
+
+        // Progressive callers can feed tiny fragments. Compacting on most
+        // callbacks turns the buffered input into an O(n^2) memmove path.
+        if len <= 256 * 1024 {
+            return;
+        }
+        if drain < 64 * 1024 || drain < len / 2 {
             return;
         }
 
-        progressive.buffered.drain(..drain);
+        progressive.buffered.copy_within(drain.., 0);
+        progressive.buffered.truncate(len - drain);
+
         progressive.decode_offset = 0;
         progressive.current_input_start = progressive.current_input_start.saturating_sub(drain);
     });

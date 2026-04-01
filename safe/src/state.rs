@@ -412,6 +412,15 @@ pub(crate) fn append_captured_read_data(png_ptr: png_structrp, bytes: &[png_byte
     });
 }
 
+pub(crate) fn restore_captured_read_data_len(png_ptr: png_structrp, len: usize) {
+    update_png(png_ptr, |state| {
+        state.captured_input.truncate(len);
+        let mut latest = lock_recover(latest_passthrough_bytes());
+        latest.clear();
+        latest.extend_from_slice(&state.captured_input);
+    });
+}
+
 pub(crate) fn latest_captured_read_data() -> Option<Vec<png_byte>> {
     let latest = lock_recover(latest_passthrough_bytes());
     if latest.is_empty() {

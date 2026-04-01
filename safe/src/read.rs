@@ -202,8 +202,90 @@ unsafe extern "C" {
 pub(crate) struct ParseSnapshot {
     native: *mut c_void,
     core: Option<png_safe_read_core>,
-    png_state: Option<state::PngStructState>,
+    png_state: Option<PngStateSnapshot>,
     info_state: Option<state::PngInfoState>,
+}
+
+enum PngStateSnapshot {
+    Full(state::PngStructState),
+    Progressive(ProgressiveParseSnapshot),
+}
+
+#[derive(Clone, Copy)]
+struct ProgressiveParseSnapshot {
+    check_for_invalid_index: c_int,
+    palette_max: c_int,
+    sig_bytes: c_int,
+    read_phase: ReadPhase,
+    last_pause_bytes: usize,
+    last_skip_bytes: png_uint_32,
+    paused_with_save: bool,
+    pause_requested: bool,
+    short_read: bool,
+    decode_offset: usize,
+    current_input_start: usize,
+    current_input_size: usize,
+    info_emitted: bool,
+    end_emitted: bool,
+    decoded: bool,
+    filler: png_uint_16,
+    read_info_ptr: png_inforp,
+    pending_chunk_header: [png_byte; 8],
+    has_pending_chunk_header: bool,
+    captured_input_len: usize,
+    passthrough_written: bool,
+}
+
+impl ProgressiveParseSnapshot {
+    fn capture(png_state: &state::PngStructState) -> Self {
+        let progressive = &png_state.progressive_state;
+        Self {
+            check_for_invalid_index: png_state.check_for_invalid_index,
+            palette_max: png_state.palette_max,
+            sig_bytes: png_state.sig_bytes,
+            read_phase: png_state.read_phase,
+            last_pause_bytes: progressive.last_pause_bytes,
+            last_skip_bytes: progressive.last_skip_bytes,
+            paused_with_save: progressive.paused_with_save,
+            pause_requested: progressive.pause_requested,
+            short_read: progressive.short_read,
+            decode_offset: progressive.decode_offset,
+            current_input_start: progressive.current_input_start,
+            current_input_size: progressive.current_input_size,
+            info_emitted: progressive.info_emitted,
+            end_emitted: progressive.end_emitted,
+            decoded: progressive.decoded,
+            filler: png_state.filler,
+            read_info_ptr: png_state.read_info_ptr,
+            pending_chunk_header: png_state.pending_chunk_header,
+            has_pending_chunk_header: png_state.has_pending_chunk_header,
+            captured_input_len: png_state.captured_input.len(),
+            passthrough_written: png_state.passthrough_written,
+        }
+    }
+
+    fn restore_into(self, png_state: &mut state::PngStructState) {
+        png_state.check_for_invalid_index = self.check_for_invalid_index;
+        png_state.palette_max = self.palette_max;
+        png_state.sig_bytes = self.sig_bytes;
+        png_state.read_phase = self.read_phase;
+        png_state.progressive_state.last_pause_bytes = self.last_pause_bytes;
+        png_state.progressive_state.last_skip_bytes = self.last_skip_bytes;
+        png_state.progressive_state.paused_with_save = self.paused_with_save;
+        png_state.progressive_state.pause_requested = self.pause_requested;
+        png_state.progressive_state.short_read = self.short_read;
+        png_state.progressive_state.decode_offset = self.decode_offset;
+        png_state.progressive_state.current_input_start = self.current_input_start;
+        png_state.progressive_state.current_input_size = self.current_input_size;
+        png_state.progressive_state.info_emitted = self.info_emitted;
+        png_state.progressive_state.end_emitted = self.end_emitted;
+        png_state.progressive_state.decoded = self.decoded;
+        png_state.filler = self.filler;
+        png_state.read_info_ptr = self.read_info_ptr;
+        png_state.pending_chunk_header = self.pending_chunk_header;
+        png_state.has_pending_chunk_header = self.has_pending_chunk_header;
+        png_state.passthrough_written = self.passthrough_written;
+    }
 }
 
 #[derive(Debug)]
@@ -242,7 +324,15 @@ pub(crate) unsafe fn snapshot_parse_state(
     ParseSnapshot {
         native,
         core: (!png_ptr.is_null()).then(|| read_core(png_ptr)),
-        png_state: state::get_png(png_ptr),
+        png_state: if png_ptr.is_null() {
+            None
+        } else if info_ptr.is_null() {
+            state::with_png(png_ptr, |png_state| {
+                PngStateSnapshot::Progressive(ProgressiveParseSnapshot::capture(png_state))
+            })
+        } else {
+            state::get_png(png_ptr).map(PngStateSnapshot::Full)
+        },
         info_state: state::get_info(info_ptr),
     }
 }
@@ -284,8 +374,18 @@ pub(crate) unsafe fn rollback_parse_state(
             unsafe { png_safe_sync_png_info_aliases(png_ptr, info_ptr) };
         }
     }
-    if let Some(png_state) = snapshot.png_state.clone() {
-        state::register_png(png_ptr, png_state);
+    match &snapshot.png_state {
+        Some(PngStateSnapshot::Full(png_state)) => {
+            state::register_png(png_ptr, png_state.clone());
+        }
+        Some(PngStateSnapshot::Progressive(png_state)) => {
+            let png_state = *png_state;
+            state::update_png(png_ptr, |state| {
+                png_state.restore_into(state);
+            });
+            state::restore_captured_read_data_len(png_ptr, png_state.captured_input_len);
+        }
+        None => {}
     }
     if let Some(info_state) = snapshot.info_state.clone() {
         state::register_info(info_ptr, info_state);

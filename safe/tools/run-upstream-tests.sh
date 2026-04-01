@@ -32,18 +32,27 @@ trap cleanup EXIT
 
 ensure_safe_stage
 
-for wrapper_name in "${upstream_wrappers[@]}"; do
-  program="$(wrapper_program_for "$wrapper_name")"
+wrapper_jobs="${LIBPNG_SAFE_UPSTREAM_JOBS:-$(build_jobs)}"
+if [[ "$wrapper_jobs" -gt 12 ]]; then
+  wrapper_jobs=12
+fi
 
-  if [[ -z "${build_dirs[$program]:-}" ]]; then
-    build_dirs[$program]="$(mktemp -d)"
-    cleanup_dirs+=("${build_dirs[$program]}")
-    compile_wrapper_program "$program" "${build_dirs[$program]}"
-  fi
+printf '%s\n' "${upstream_wrappers[@]}" | xargs -P"$wrapper_jobs" -I{} \
+  bash -lc '
+    set -euo pipefail
+    source "'"$safe_dir/tests/upstream/common.sh"'"
+    build_dir="$(mktemp -d)"
+    log_file="$(mktemp)"
+    trap "rm -rf \"$build_dir\" \"$log_file\"" EXIT
 
-  printf '==> %s\n' "$wrapper_name"
-  run_original_wrapper "$wrapper_name" "${build_dirs[$program]}"
-done
+    if run_wrapper_case "$1" "$build_dir" >"$log_file" 2>&1; then
+      printf "PASS: %s\n" "$1"
+    else
+      printf "FAIL: %s\n" "$1" >&2
+      cat "$log_file" >&2
+      exit 1
+    fi
+  ' _ {}
 
 for smoke_script in pngcp.sh timepng.sh pngfix.sh; do
   printf '==> %s\n' "${smoke_script%.sh}"
