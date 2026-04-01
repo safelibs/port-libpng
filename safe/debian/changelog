@@ -9,6 +9,11 @@ libpng1.6 (1.6.43-5ubuntu0.5+safelibs1) noble; urgency=medium
     tracked upstream orig tarball and the current safe packaging tree.
   * Keep the installer udeb in the refreshed artifact set without a noudeb
     profile gate so the emitted binary and source metadata stay coherent.
+  * Force package metadata generation for this tree to bypass Ubuntu's
+    implicit noudeb vendor profile so the emitted udeb artifacts remain
+    contract-consistent.
+  * Keep package-artifact verification read-only so it validates the
+    committed outputs instead of rewriting them in place.
 
  -- Safe Libraries Team <safelibs@example.invalid>  Tue, 31 Mar 2026 22:17:27 -0700
 

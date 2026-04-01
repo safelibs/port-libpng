@@ -223,6 +223,11 @@ tracked = subprocess.check_output(
     ],
     text=True,
 ).splitlines()
+tracked = [
+    path
+    for path in tracked
+    if (repo_root / path).exists() or (repo_root / path).is_symlink()
+]
 
 tracked_rel = [path[len("safe/") :] for path in tracked]
 source_files = set()
@@ -295,6 +300,11 @@ tracked = subprocess.check_output(
     ["git", "-C", str(repo_root), "ls-files", "--", "safe"],
     text=True,
 ).splitlines()
+tracked = [
+    path
+    for path in tracked
+    if (repo_root / path).exists() or (repo_root / path).is_symlink()
+]
 
 with tarfile.open(snapshot_tar, "r:*") as tf:
     members = {
@@ -351,9 +361,6 @@ source_dsc="$(require_artifact libpng1.6 dsc)"
 source_debian_tar="$(require_artifact libpng1.6 debian.tar.xz)"
 source_orig_tar="$(require_source_orig_tar libpng1.6)"
 safe_source_snapshot_tar="$(require_safe_source_snapshot_tar libpng1.6)"
-
-python3 "$script_dir/postprocess-package-metadata.py" --mode binary >/dev/null 2>&1 || true
-python3 "$script_dir/postprocess-package-metadata.py" --mode source >/dev/null 2>&1 || true
 
 require_udeb_metadata_contract
 
