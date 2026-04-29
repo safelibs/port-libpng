@@ -1,1 +1,7 @@
-pngout.png
+/.work/
+/build/
+/dist/
+*.ddeb
+*.buildinfo
+*.changes
+*.log
