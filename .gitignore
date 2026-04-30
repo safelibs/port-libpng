@@ -6,6 +6,9 @@
 /build/
 /dist/
 /release-artifacts/
+/validator/
+/validator-overrides/
+/validator-exception-tests/
 *.deb
 *.ddeb
 *.dsc
@@ -19,4 +22,6 @@
 *.swo
 *~
 __pycache__/
+**/__pycache__/
 *.pyc
+pngout.png
