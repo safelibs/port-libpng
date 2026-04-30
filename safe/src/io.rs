@@ -7,7 +7,8 @@ unsafe extern "C" fn stdio_read_data(png_ptr: png_structp, out: png_bytep, lengt
         return;
     }
 
-    let io_ptr = state::with_png(png_ptr, |png_state| png_state.io_ptr).unwrap_or(core::ptr::null_mut());
+    let io_ptr =
+        state::with_png(png_ptr, |png_state| png_state.io_ptr).unwrap_or(core::ptr::null_mut());
     if io_ptr.is_null() {
         unsafe { crate::error::png_error(png_ptr, c"Read Error".as_ptr()) };
     }
@@ -23,7 +24,8 @@ unsafe extern "C" fn stdio_write_data(png_ptr: png_structp, data: png_bytep, len
         return;
     }
 
-    let io_ptr = state::with_png(png_ptr, |png_state| png_state.io_ptr).unwrap_or(core::ptr::null_mut());
+    let io_ptr =
+        state::with_png(png_ptr, |png_state| png_state.io_ptr).unwrap_or(core::ptr::null_mut());
     if io_ptr.is_null() {
         unsafe { crate::error::png_error(png_ptr, c"Write Error".as_ptr()) };
     }
@@ -39,7 +41,8 @@ unsafe extern "C" fn stdio_flush(png_ptr: png_structp) {
         return;
     }
 
-    let io_ptr = state::with_png(png_ptr, |png_state| png_state.io_ptr).unwrap_or(core::ptr::null_mut());
+    let io_ptr =
+        state::with_png(png_ptr, |png_state| png_state.io_ptr).unwrap_or(core::ptr::null_mut());
     if !io_ptr.is_null() {
         unsafe {
             libc::fflush(io_ptr.cast());
@@ -64,7 +67,8 @@ pub(crate) unsafe extern "C" fn png_safe_read_user_chunk_trampoline(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_get_io_ptr(png_ptr: png_const_structrp) -> png_voidp {
     crate::abi_guard!(png_ptr.cast_mut(), {
-        state::with_png(png_ptr.cast_mut(), |png_state| png_state.io_ptr).unwrap_or(core::ptr::null_mut())
+        state::with_png(png_ptr.cast_mut(), |png_state| png_state.io_ptr)
+            .unwrap_or(core::ptr::null_mut())
     })
 }
 
@@ -256,7 +260,9 @@ pub unsafe extern "C" fn png_get_io_chunk_type(png_ptr: png_const_structrp) -> p
 pub(crate) fn read_user_chunk_registration(
     png_ptr: png_const_structrp,
 ) -> Option<(png_voidp, png_user_chunk_ptr)> {
-    state::with_png(png_ptr.cast_mut(), |png_state| (png_state.user_chunk_ptr, png_state.read_user_chunk_fn))
+    state::with_png(png_ptr.cast_mut(), |png_state| {
+        (png_state.user_chunk_ptr, png_state.read_user_chunk_fn)
+    })
 }
 
 pub(crate) fn progressive_read_registration(
@@ -429,8 +435,6 @@ pub unsafe extern "C" fn bridge_png_get_io_state(png_ptr: png_const_structrp) ->
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn bridge_png_get_io_chunk_type(
-    png_ptr: png_const_structrp,
-) -> png_uint_32 {
+pub unsafe extern "C" fn bridge_png_get_io_chunk_type(png_ptr: png_const_structrp) -> png_uint_32 {
     unsafe { png_get_io_chunk_type(png_ptr) }
 }

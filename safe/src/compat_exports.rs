@@ -71,9 +71,8 @@ fn read_transform_ok(png_ptr: png_structrp, need_ihdr: bool) -> bool {
     }
 
     if need_ihdr && (core.mode & PNG_HAVE_IHDR) == 0 {
-        let _ = unsafe {
-            call_app_error(png_ptr, b"invalid before the PNG header has been read\0")
-        };
+        let _ =
+            unsafe { call_app_error(png_ptr, b"invalid before the PNG header has been read\0") };
         return false;
     }
 
@@ -114,8 +113,9 @@ fn normalize_unknown_chunk_location(png_ptr: png_const_structrp, mut location: c
 
     if location == 0 {
         let mode = read_core(png_ptr.cast_mut()).mode;
-        let is_read_struct = state::with_png(png_ptr.cast_mut(), |png_state| png_state.is_read_struct)
-            .unwrap_or(false);
+        let is_read_struct =
+            state::with_png(png_ptr.cast_mut(), |png_state| png_state.is_read_struct)
+                .unwrap_or(false);
         if !is_read_struct {
             location = (mode & (PNG_HAVE_IHDR | PNG_HAVE_PLTE | PNG_AFTER_IDAT)) as c_int;
         }
@@ -170,7 +170,9 @@ fn read_phys(
     let mut res_x = 0;
     let mut res_y = 0;
     let mut unit_type = 0;
-    let valid = unsafe { crate::get::png_get_pHYs(png_ptr, info_ptr, &mut res_x, &mut res_y, &mut unit_type) };
+    let valid = unsafe {
+        crate::get::png_get_pHYs(png_ptr, info_ptr, &mut res_x, &mut res_y, &mut unit_type)
+    };
     if (valid & PNG_INFO_pHYs) != 0 {
         Some((res_x, res_y, unit_type))
     } else {
@@ -185,7 +187,8 @@ fn read_offsets(
     let mut x = 0;
     let mut y = 0;
     let mut unit_type = 0;
-    let valid = unsafe { crate::get::png_get_oFFs(png_ptr, info_ptr, &mut x, &mut y, &mut unit_type) };
+    let valid =
+        unsafe { crate::get::png_get_oFFs(png_ptr, info_ptr, &mut x, &mut y, &mut unit_type) };
     if valid != 0 {
         Some((x, y, unit_type))
     } else {
@@ -248,7 +251,8 @@ unsafe fn apply_read_png_transforms(
     }
     if (transforms & PNG_TRANSFORM_SHIFT) != 0 {
         let mut sig_bit = ptr::null_mut();
-        if (unsafe { crate::get::png_get_sBIT(png_ptr, info_ptr, &mut sig_bit) } & PNG_INFO_sBIT) != 0
+        if (unsafe { crate::get::png_get_sBIT(png_ptr, info_ptr, &mut sig_bit) } & PNG_INFO_sBIT)
+            != 0
             && !sig_bit.is_null()
         {
             unsafe { crate::read_transform::png_set_shift(png_ptr, sig_bit) };
@@ -290,7 +294,9 @@ unsafe fn ensure_read_png_rows(png_ptr: png_structrp, info_ptr: png_inforp) {
         unsafe {
             crate::error::png_error(
                 png_ptr,
-                b"Image is too high to process with png_read_png()\0".as_ptr().cast(),
+                b"Image is too high to process with png_read_png()\0"
+                    .as_ptr()
+                    .cast(),
             );
         }
     };
@@ -422,7 +428,9 @@ pub unsafe extern "C" fn png_set_expand_gray_1_2_4_to_8(png_ptr: png_structrp) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_get_rgb_to_gray_status(png_ptr: png_const_structrp) -> png_byte {
-    crate::abi_guard!(png_ptr.cast_mut(), { read_core(png_ptr).rgb_to_gray_status })
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        read_core(png_ptr).rgb_to_gray_status
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -460,10 +468,7 @@ pub unsafe extern "C" fn png_set_gamma_fixed(
 
         if screen_gamma <= 0 || override_file_gamma <= 0 {
             unsafe {
-                crate::error::png_error(
-                    png_ptr,
-                    b"invalid gamma value\0".as_ptr().cast(),
-                );
+                crate::error::png_error(png_ptr, b"invalid gamma value\0".as_ptr().cast());
             }
         }
 
@@ -478,14 +483,20 @@ pub unsafe extern "C" fn png_set_gamma_fixed(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_read_info(png_ptr: png_structrp, info_ptr: png_inforp) {
     crate::abi_guard!(png_ptr, unsafe {
-        longjmp_on_zero(png_ptr, crate::read::png_safe_rust_read_info(png_ptr, info_ptr));
+        longjmp_on_zero(
+            png_ptr,
+            crate::read::png_safe_rust_read_info(png_ptr, info_ptr),
+        );
     });
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_start_read_image(png_ptr: png_structrp) {
     crate::abi_guard!(png_ptr, unsafe {
-        longjmp_on_zero(png_ptr, crate::read::png_safe_rust_start_read_image(png_ptr));
+        longjmp_on_zero(
+            png_ptr,
+            crate::read::png_safe_rust_start_read_image(png_ptr),
+        );
     });
 }
 
@@ -531,14 +542,20 @@ pub unsafe extern "C" fn png_read_row(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_read_image(png_ptr: png_structrp, image: png_bytepp) {
     crate::abi_guard!(png_ptr, unsafe {
-        longjmp_on_zero(png_ptr, crate::read::png_safe_rust_read_image(png_ptr, image));
+        longjmp_on_zero(
+            png_ptr,
+            crate::read::png_safe_rust_read_image(png_ptr, image),
+        );
     });
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_read_end(png_ptr: png_structrp, info_ptr: png_inforp) {
     crate::abi_guard!(png_ptr, unsafe {
-        longjmp_on_zero(png_ptr, crate::read::png_safe_rust_read_end(png_ptr, info_ptr));
+        longjmp_on_zero(
+            png_ptr,
+            crate::read::png_safe_rust_read_end(png_ptr, info_ptr),
+        );
     });
 }
 
@@ -565,12 +582,8 @@ pub unsafe extern "C" fn png_set_crc_action(
                 core.flags |= PNG_FLAG_CRC_CRITICAL_USE | PNG_FLAG_CRC_CRITICAL_IGNORE;
             }
             PNG_CRC_WARN_DISCARD => {
-                let _ = unsafe {
-                    call_warning(
-                        png_ptr,
-                        b"Can't discard critical data on CRC error\0",
-                    )
-                };
+                let _ =
+                    unsafe { call_warning(png_ptr, b"Can't discard critical data on CRC error\0") };
                 core.flags &= !PNG_FLAG_CRC_CRITICAL_MASK;
             }
             PNG_CRC_ERROR_QUIT | PNG_CRC_DEFAULT => {
@@ -723,7 +736,9 @@ pub unsafe extern "C" fn png_get_pixel_aspect_ratio_fixed(
 ) -> png_fixed_point {
     crate::abi_guard!(png_ptr.cast_mut(), {
         read_phys(png_ptr, info_ptr)
-            .filter(|(x, y, _)| *x != 0 && *y != 0 && *x <= PNG_UINT_31_MAX && *y <= PNG_UINT_31_MAX)
+            .filter(|(x, y, _)| {
+                *x != 0 && *y != 0 && *x <= PNG_UINT_31_MAX && *y <= PNG_UINT_31_MAX
+            })
             .and_then(|(x, y, _)| {
                 let numerator = i128::from(y) * i128::from(PNG_FP_1);
                 let rounded = (numerator + i128::from(x) / 2) / i128::from(x);
@@ -918,7 +933,9 @@ pub unsafe extern "C" fn png_read_png(
         if usize::try_from(height).unwrap_or(usize::MAX) > max_height {
             crate::error::png_error(
                 png_ptr,
-                b"Image is too high to process with png_read_png()\0".as_ptr().cast(),
+                b"Image is too high to process with png_read_png()\0"
+                    .as_ptr()
+                    .cast(),
             );
         }
 
@@ -958,7 +975,9 @@ pub unsafe extern "C" fn png_get_pixels_per_inch(
     png_ptr: png_const_structrp,
     info_ptr: png_const_inforp,
 ) -> png_uint_32 {
-    crate::abi_guard!(png_ptr.cast_mut(), { ppi_from_ppm(png_get_pixels_per_meter(png_ptr, info_ptr)) })
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        ppi_from_ppm(png_get_pixels_per_meter(png_ptr, info_ptr))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -966,7 +985,9 @@ pub unsafe extern "C" fn png_get_x_pixels_per_inch(
     png_ptr: png_const_structrp,
     info_ptr: png_const_inforp,
 ) -> png_uint_32 {
-    crate::abi_guard!(png_ptr.cast_mut(), { ppi_from_ppm(png_get_x_pixels_per_meter(png_ptr, info_ptr)) })
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        ppi_from_ppm(png_get_x_pixels_per_meter(png_ptr, info_ptr))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -974,7 +995,9 @@ pub unsafe extern "C" fn png_get_y_pixels_per_inch(
     png_ptr: png_const_structrp,
     info_ptr: png_const_inforp,
 ) -> png_uint_32 {
-    crate::abi_guard!(png_ptr.cast_mut(), { ppi_from_ppm(png_get_y_pixels_per_meter(png_ptr, info_ptr)) })
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        ppi_from_ppm(png_get_y_pixels_per_meter(png_ptr, info_ptr))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -982,7 +1005,9 @@ pub unsafe extern "C" fn png_get_x_offset_inches_fixed(
     png_ptr: png_const_structrp,
     info_ptr: png_const_inforp,
 ) -> png_fixed_point {
-    crate::abi_guard!(png_ptr.cast_mut(), { fixed_inches_from_microns(png_get_x_offset_microns(png_ptr, info_ptr)) })
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        fixed_inches_from_microns(png_get_x_offset_microns(png_ptr, info_ptr))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -990,7 +1015,9 @@ pub unsafe extern "C" fn png_get_y_offset_inches_fixed(
     png_ptr: png_const_structrp,
     info_ptr: png_const_inforp,
 ) -> png_fixed_point {
-    crate::abi_guard!(png_ptr.cast_mut(), { fixed_inches_from_microns(png_get_y_offset_microns(png_ptr, info_ptr)) })
+    crate::abi_guard!(png_ptr.cast_mut(), {
+        fixed_inches_from_microns(png_get_y_offset_microns(png_ptr, info_ptr))
+    })
 }
 
 #[unsafe(no_mangle)]

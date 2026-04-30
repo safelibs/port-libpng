@@ -4,6 +4,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 pub mod abi_exports;
+mod bridge_ffi;
 mod chunks;
 mod colorspace;
 mod common;
@@ -13,7 +14,6 @@ mod get;
 mod interlace;
 mod io;
 mod memory;
-mod bridge_ffi;
 mod read;
 mod read_progressive;
 mod read_transform;
