@@ -339,8 +339,46 @@ static void run_gamma_output_case(const char *path) {
     free(buffer);
 }
 
+static void run_gamma_gray_alpha_preserves_samples_case(const char *path) {
+    png_image gray_image;
+    memset(&gray_image, 0, sizeof gray_image);
+    gray_image.version = PNG_IMAGE_VERSION;
+
+    assert(png_image_begin_read_from_file(&gray_image, path) != 0);
+    gray_image.format = PNG_FORMAT_GRAY;
+
+    size_t gray_size = PNG_IMAGE_SIZE(gray_image);
+    png_bytep gray = (png_bytep)malloc(gray_size);
+    assert(gray != NULL);
+    assert(png_image_finish_read(&gray_image, NULL, gray, 0, NULL) != 0);
+
+    png_image alpha_image;
+    memset(&alpha_image, 0, sizeof alpha_image);
+    alpha_image.version = PNG_IMAGE_VERSION;
+
+    assert(png_image_begin_read_from_file(&alpha_image, path) != 0);
+    alpha_image.format = PNG_FORMAT_GA;
+
+    size_t alpha_size = PNG_IMAGE_SIZE(alpha_image);
+    png_bytep alpha = (png_bytep)malloc(alpha_size);
+    assert(alpha != NULL);
+    assert(png_image_finish_read(&alpha_image, NULL, alpha, 0, NULL) != 0);
+
+    assert(gray_image.width == alpha_image.width);
+    assert(gray_image.height == alpha_image.height);
+    assert(alpha_size == gray_size * 2U);
+
+    for (size_t i = 0; i < gray_size; ++i) {
+        assert(alpha[i * 2U] == gray[i]);
+        assert(alpha[i * 2U + 1U] == 255);
+    }
+
+    free(gray);
+    free(alpha);
+}
+
 int main(int argc, char **argv) {
-    assert(argc == 6);
+    assert(argc == 7);
 
     run_entrypoint_consistency_case(argv[1]);
     run_message_semantics_case(argv[1]);
@@ -351,5 +389,6 @@ int main(int argc, char **argv) {
     run_grayscale_output_case(argv[3]);
     run_colormap_output_case(argv[4]);
     run_gamma_output_case(argv[5]);
+    run_gamma_gray_alpha_preserves_samples_case(argv[6]);
     return 0;
 }

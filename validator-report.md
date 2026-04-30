@@ -183,9 +183,9 @@ Deferred failure markers for later implementation phases:
 
 - Validator commit: `cc99047419226144eec3c1ab87873052bd9abedc`.
 - Assignment source: `validator-case-inventory.json` Phase 2 source/API IDs `chunk-metadata-inspection` and `read-write-c-api-smoke`.
-- Root cause: no source-facing C API or metadata validator regression exists in the recorded Phase 1 artifacts or in the fresh rerun. Both assigned source/API cases passed before this phase, so there was no failing behavior to minimize into a local C regression driver.
-- Tests added: none. `safe/tools/run-validator-regressions.sh` was not created because no validator-specific source/API regression test was needed.
-- Fixes applied: no behavioral source/API fix was needed. Rust sources were normalized with `cargo fmt` to satisfy the phase check gate, and package/source artifacts were rebuilt from the formatted tree.
+- Root cause: the assigned validator source/API cases still pass, but the verifier exposed a source-facing simplified C API regression through upstream `pngstest` wrappers. The simplified read runtime applied file `gAMA` transfer to 8-bit non-linear output paths, so adding opaque alpha to `gray-*-1.8.png` changed stored grayscale samples instead of preserving the encoded sRGB bytes expected by libpng's simplified API.
+- Tests added: `safe/tests/read-transforms/simplified_read_driver.c` now compares `PNG_FORMAT_GRAY` and `PNG_FORMAT_GA` reads of `original/contrib/testpngs/gray-2-1.8.png` and asserts the grayscale byte is preserved while alpha is filled with `255`. This reproduces the pre-fix `gray-2-1.8.png` mismatch reported by `safe/tools/run-write-tests.sh pngstest-1.8`.
+- Fixes applied: `safe/src/simplified_runtime.rs` now treats 8-bit simplified non-linear sources as sRGB-encoded samples, keeps 16-bit gamma handling intact, and allows the 8-bit direct read path to preserve samples when adding opaque alpha. `safe/tools/check-read-transforms.sh` was updated to pass the new gamma grayscale fixture to the existing read-transform smoke driver.
 - Refreshed validator artifacts: `validator/artifacts/libpng-safe-source-api/`.
 
 Validation commands:
@@ -195,14 +195,16 @@ cargo fmt --check
 cargo test
 safe/tools/check-exports.sh
 safe/tools/check-headers.sh
-safe/tools/check-package-artifacts.sh
 safe/tools/check-core-smoke.sh
 safe/tools/check-read-core.sh
 safe/tools/check-read-transforms.sh
 safe/tools/run-read-tests.sh
+safe/tools/run-write-tests.sh pngstest-1.8 pngstest-1.8-alpha pngstest-linear pngstest-linear-alpha pngstest-none pngstest-none-alpha pngstest-sRGB pngstest-sRGB-alpha pngstest-large-stride
 safe/tools/run-upstream-tests.sh
+safe/tools/check-link-compat.sh
 cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa
 cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+safe/tools/check-package-artifacts.sh
 cd validator && bash test.sh --config repositories.yml --tests-root tests --artifact-root "$PWD/artifacts/libpng-safe-source-api" --mode original --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides --library libpng --record-casts
 ```
 
@@ -212,14 +214,16 @@ Validation results:
 - `cargo test`: exit code `0`.
 - `safe/tools/check-exports.sh`: exit code `0`.
 - `safe/tools/check-headers.sh`: exit code `0`.
-- `safe/tools/check-package-artifacts.sh`: exit code `0`; package artifacts still match the current safe packaging tree and source snapshot.
 - `safe/tools/check-core-smoke.sh`: exit code `0`.
 - `safe/tools/check-read-core.sh`: exit code `0`.
 - `safe/tools/check-read-transforms.sh`: exit code `0`.
 - `safe/tools/run-read-tests.sh`: exit code `0`.
+- `safe/tools/run-write-tests.sh pngstest-1.8 pngstest-1.8-alpha pngstest-linear pngstest-linear-alpha pngstest-none pngstest-none-alpha pngstest-sRGB pngstest-sRGB-alpha pngstest-large-stride`: exit code `0`; the reported `gray-2-1.8.png`, `gray-4-1.8.png`, and `gray-8-1.8.png` opaque component mismatches are fixed.
 - `safe/tools/run-upstream-tests.sh`: exit code `0`; `pngvalid-standard` passed, covering the upstream grayscale read validation matrix.
+- `safe/tools/check-link-compat.sh`: exit code `0`.
 - Source package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa` exit code `0`.
 - Binary package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b` exit code `0`.
+- `safe/tools/check-package-artifacts.sh`: exit code `0`; package artifacts match the current safe packaging tree and source snapshot.
 - Full validator rerun: exit code `1`, with 77/105 passed, 28 failed, and 105 casts recorded.
 - Source cases in the rerun: 5/5 passed. `chunk-metadata-inspection` and `read-write-c-api-smoke` both have `status: passed` and `exit_code: 0` in `validator/artifacts/libpng-safe-source-api/results/libpng/`.
 

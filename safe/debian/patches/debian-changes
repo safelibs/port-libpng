@@ -35310,8 +35310,6 @@ Forwarded: not-needed
 +    line_size: usize,
 +    color_type: PngColorType,
 +    bit_depth: PngBitDepth,
-+    is_srgb: bool,
-+    file_gamma: Option<f64>,
 +    transfer: Transfer,
 +    nonlinear_encode: Transfer,
 +    direct_transfer: Transfer,
@@ -35569,7 +35567,9 @@ Forwarded: not-needed
 +}
 +
 +fn source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
-+    if info.srgb.is_some() {
++    if info.bit_depth != PngBitDepth::Sixteen {
++        Transfer::Srgb
++    } else if info.srgb.is_some() {
 +        Transfer::Srgb
 +    } else if let Some(gamma) = info_gamma(info) {
 +        Transfer::Gamma(gamma)
@@ -35585,7 +35585,9 @@ Forwarded: not-needed
 +}
 +
 +fn direct_source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
-+    if info.srgb.is_some() {
++    if info.bit_depth != PngBitDepth::Sixteen {
++        Transfer::Srgb
++    } else if info.srgb.is_some() {
 +        Transfer::Srgb
 +    } else if let Some(gamma) = info_gamma(info) {
 +        Transfer::Gamma(gamma)
@@ -35608,7 +35610,6 @@ Forwarded: not-needed
 +    let transfer = source_transfer(info, image_flags);
 +    let direct_transfer = direct_source_transfer(info, image_flags);
 +    let is_srgb = info.srgb.is_some();
-+    let file_gamma = info_gamma(info);
 +    let nonlinear_encode = Transfer::Srgb;
 +    let direct_nonlinear_encode = if info.bit_depth == PngBitDepth::Sixteen
 +        && !is_srgb
@@ -35635,8 +35636,6 @@ Forwarded: not-needed
 +        line_size: output.line_size,
 +        color_type: output.color_type,
 +        bit_depth: output.bit_depth,
-+        is_srgb,
-+        file_gamma,
 +        transfer,
 +        nonlinear_encode,
 +        direct_transfer,
@@ -36155,7 +36154,6 @@ Forwarded: not-needed
 +            != 0
 +        || source_has_color != target_has_color
 +        || (source_has_alpha && !target_has_alpha)
-+        || !(decoded.file_gamma.is_none() || decoded.is_srgb)
 +        || matches!(decoded.color_type, PngColorType::Indexed)
 +    {
 +        return false;
@@ -37041,6 +37039,8 @@ Forwarded: not-needed
 +            let source = if use_direct_gray_linear {
 +                decoded_direct_gray_linear_pixel(decoded, x, y)
 +                    .unwrap_or_else(|| decoded_direct_pixel(decoded, x, y))
++            } else if !target_linear && decoded.bit_depth == PngBitDepth::Eight {
++                decoded_pixel_with_transfer(decoded, Transfer::Srgb, x, y)
 +            } else {
 +                decoded_direct_pixel(decoded, x, y)
 +            };
@@ -40171,7 +40171,53 @@ Forwarded: not-needed
  static void run_grayscale_output_case(const char *path) {
      png_image image;
      memset(&image, 0, sizeof image);
-@@ -327,6 +346,7 @@ int main(int argc, char **argv) {
+@@ -320,16 +339,56 @@ static void run_gamma_output_case(const
+     free(buffer);
+ }
+ 
++static void run_gamma_gray_alpha_preserves_samples_case(const char *path) {
++    png_image gray_image;
++    memset(&gray_image, 0, sizeof gray_image);
++    gray_image.version = PNG_IMAGE_VERSION;
++
++    assert(png_image_begin_read_from_file(&gray_image, path) != 0);
++    gray_image.format = PNG_FORMAT_GRAY;
++
++    size_t gray_size = PNG_IMAGE_SIZE(gray_image);
++    png_bytep gray = (png_bytep)malloc(gray_size);
++    assert(gray != NULL);
++    assert(png_image_finish_read(&gray_image, NULL, gray, 0, NULL) != 0);
++
++    png_image alpha_image;
++    memset(&alpha_image, 0, sizeof alpha_image);
++    alpha_image.version = PNG_IMAGE_VERSION;
++
++    assert(png_image_begin_read_from_file(&alpha_image, path) != 0);
++    alpha_image.format = PNG_FORMAT_GA;
++
++    size_t alpha_size = PNG_IMAGE_SIZE(alpha_image);
++    png_bytep alpha = (png_bytep)malloc(alpha_size);
++    assert(alpha != NULL);
++    assert(png_image_finish_read(&alpha_image, NULL, alpha, 0, NULL) != 0);
++
++    assert(gray_image.width == alpha_image.width);
++    assert(gray_image.height == alpha_image.height);
++    assert(alpha_size == gray_size * 2U);
++
++    for (size_t i = 0; i < gray_size; ++i) {
++        assert(alpha[i * 2U] == gray[i]);
++        assert(alpha[i * 2U + 1U] == 255);
++    }
++
++    free(gray);
++    free(alpha);
++}
++
+ int main(int argc, char **argv) {
+-    assert(argc == 6);
++    assert(argc == 7);
+ 
+     run_entrypoint_consistency_case(argv[1]);
      run_message_semantics_case(argv[1]);
      run_image_free_case(argv[1]);
      run_stride_regression_case(argv[2]);
@@ -40179,6 +40225,10 @@ Forwarded: not-needed
      run_linear_output_case(argv[2]);
      run_grayscale_output_case(argv[3]);
      run_colormap_output_case(argv[4]);
+     run_gamma_output_case(argv[5]);
++    run_gamma_gray_alpha_preserves_samples_case(argv[6]);
+     return 0;
+ }
 --- /dev/null
 +++ libpng1.6-1.6.43/tools/build_support/build_support.rs
 @@ -0,0 +1,8 @@
@@ -85238,3 +85288,14 @@ Forwarded: not-needed
 +
 +    return 0;
 +}
+--- libpng1.6-1.6.43.orig/tools/check-read-transforms.sh
++++ libpng1.6-1.6.43/tools/check-read-transforms.sh
+@@ -61,6 +61,7 @@ done
+   "$repo_root/original/contrib/pngsuite/ibasn6a16.png" \
+   "$repo_root/original/contrib/testpngs/gray-2-sRGB-tRNS.png" \
+   "$repo_root/original/contrib/testpngs/palette-1-sRGB-tRNS.png" \
+-  "$repo_root/original/contrib/testpngs/rgb-16-1.8.png"
++  "$repo_root/original/contrib/testpngs/rgb-16-1.8.png" \
++  "$repo_root/original/contrib/testpngs/gray-2-1.8.png"
+ 
+ printf 'read-transform and simplified-read smoke drivers passed against the staged safe libpng build\n'

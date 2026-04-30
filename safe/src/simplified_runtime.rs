@@ -72,8 +72,6 @@ struct DecodedImage {
     line_size: usize,
     color_type: PngColorType,
     bit_depth: PngBitDepth,
-    is_srgb: bool,
-    file_gamma: Option<f64>,
     transfer: Transfer,
     nonlinear_encode: Transfer,
     direct_transfer: Transfer,
@@ -331,7 +329,9 @@ fn info_gamma(info: &png::Info<'_>) -> Option<f64> {
 }
 
 fn source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
-    if info.srgb.is_some() {
+    if info.bit_depth != PngBitDepth::Sixteen {
+        Transfer::Srgb
+    } else if info.srgb.is_some() {
         Transfer::Srgb
     } else if let Some(gamma) = info_gamma(info) {
         Transfer::Gamma(gamma)
@@ -347,7 +347,9 @@ fn source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
 }
 
 fn direct_source_transfer(info: &png::Info<'_>, image_flags: png_uint_32) -> Transfer {
-    if info.srgb.is_some() {
+    if info.bit_depth != PngBitDepth::Sixteen {
+        Transfer::Srgb
+    } else if info.srgb.is_some() {
         Transfer::Srgb
     } else if let Some(gamma) = info_gamma(info) {
         Transfer::Gamma(gamma)
@@ -370,7 +372,6 @@ fn decode_png(bytes: &[u8], image_flags: png_uint_32) -> Result<DecodedImage, St
     let transfer = source_transfer(info, image_flags);
     let direct_transfer = direct_source_transfer(info, image_flags);
     let is_srgb = info.srgb.is_some();
-    let file_gamma = info_gamma(info);
     let nonlinear_encode = Transfer::Srgb;
     let direct_nonlinear_encode = if info.bit_depth == PngBitDepth::Sixteen
         && !is_srgb
@@ -397,8 +398,6 @@ fn decode_png(bytes: &[u8], image_flags: png_uint_32) -> Result<DecodedImage, St
         line_size: output.line_size,
         color_type: output.color_type,
         bit_depth: output.bit_depth,
-        is_srgb,
-        file_gamma,
         transfer,
         nonlinear_encode,
         direct_transfer,
@@ -917,7 +916,6 @@ fn finish_direct_read_nonlinear_8bit(
             != 0
         || source_has_color != target_has_color
         || (source_has_alpha && !target_has_alpha)
-        || !(decoded.file_gamma.is_none() || decoded.is_srgb)
         || matches!(decoded.color_type, PngColorType::Indexed)
     {
         return false;
@@ -1803,6 +1801,8 @@ fn finish_direct_read(
             let source = if use_direct_gray_linear {
                 decoded_direct_gray_linear_pixel(decoded, x, y)
                     .unwrap_or_else(|| decoded_direct_pixel(decoded, x, y))
+            } else if !target_linear && decoded.bit_depth == PngBitDepth::Eight {
+                decoded_pixel_with_transfer(decoded, Transfer::Srgb, x, y)
             } else {
                 decoded_direct_pixel(decoded, x, y)
             };
