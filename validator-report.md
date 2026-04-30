@@ -295,3 +295,59 @@ Validation results:
 - Full validator rerun: exit code `0`, with 105/105 passed, 0 failed, and 105 casts recorded.
 - Source cases in the rerun: 5/5 passed.
 - Usage cases in the rerun: 100/100 passed, including the 26 Netpbm and 2 pngquant cases that failed in `validator/artifacts/libpng-safe-cli-source/`.
+
+## Phase `impl-catch-all-remaining`
+
+- Validator commit: `cc99047419226144eec3c1ab87873052bd9abedc`.
+- Assignment source: latest full validator artifacts from `validator/artifacts/libpng-safe-usage-client/results/libpng/` and the catch-all phase source.
+- Classification: no residual validator failures were present. The latest usage-client artifacts already had 105/105 passed, and this phase's independent catch-all rerun also passed 105/105.
+- Tests added: none. There was no failing behavior left to reproduce.
+- Fixes applied: none in `safe/`. No validator testcase was edited or skipped.
+- Validator bug exceptions: none.
+- Refreshed validator artifacts: `validator/artifacts/libpng-safe-catch-all/`.
+- Residual failure table: none remain.
+
+Package SHA-256 after catch-all refresh:
+
+- `e4284ee097a820e934d154675179140d49417276f80fed273b223ce16ab9c8d8`  `libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb`
+- `410e64ccf940aa321584d670326876a3a61406003d44fa30f8c40e94fa1a3886`  `libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb`
+- `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7`  `libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb`
+- Override `.deb` SHA-256 values match the root package artifacts for all three packages.
+
+Validation commands:
+
+```bash
+cd safe && cargo fmt --check
+cd safe && cargo test
+safe/tools/check-exports.sh
+safe/tools/check-headers.sh
+safe/tools/check-core-smoke.sh
+safe/tools/check-read-core.sh
+safe/tools/check-read-transforms.sh
+safe/tools/run-read-tests.sh
+safe/tools/run-write-tests.sh pngstest-1.8 pngstest-1.8-alpha pngstest-linear pngstest-linear-alpha pngstest-none pngstest-none-alpha pngstest-sRGB pngstest-sRGB-alpha pngstest-large-stride
+safe/tools/run-upstream-tests.sh
+safe/tools/check-link-compat.sh
+safe/tools/check-examples-and-tools.sh
+safe/tools/run-dependent-regressions.sh
+safe/tools/run-cve-regressions.sh
+safe/tools/check-install-surface.sh
+safe/tools/check-build-layout.sh
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+install -m0644 libpng*.deb validator-overrides/libpng/
+bash safe/tools/refresh-source-snapshot.sh
+safe/tools/check-package-artifacts.sh
+cd validator && bash test.sh --config repositories.yml --tests-root tests --artifact-root "$PWD/artifacts/libpng-safe-catch-all" --mode original --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides --library libpng --record-casts
+```
+
+Validation results:
+
+- Local safe battery: exit code `0`; formatting, Rust tests, export/header checks, core/read/read-transform smokes, read/write upstream wrapper tests, upstream tests, link compatibility, examples/tools, dependent regressions, CVE regressions, install-surface, and build-layout checks passed.
+- Source package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa` exit code `0`.
+- Binary package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b` exit code `0`; package-time upstream smoke and link-compat checks passed.
+- Source snapshot refresh: `bash safe/tools/refresh-source-snapshot.sh` exit code `0`.
+- `safe/tools/check-package-artifacts.sh`: exit code `0`; package artifacts match the current safe packaging tree, the safe source snapshot tar matches the current tracked safe tree, and `libpng-dev` examples are preserved.
+- Full validator rerun: exit code `0`, with 105/105 passed, 0 failed, and 105 casts recorded.
+- Source cases in the rerun: 5/5 passed.
+- Usage cases in the rerun: 100/100 passed.
