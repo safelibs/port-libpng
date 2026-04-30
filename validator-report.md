@@ -187,6 +187,128 @@ Remaining failure classification after this phase:
 | pngquant usage | none |
 | Other/catch-all | none |
 
+## CLI/Source Validator Fix Phase
+
+- Phase: `impl-cli-source-validator-failures`.
+- Baseline CLI/source fixture status: no CLI/source failures in the current
+  source/API run. `malformed-png-rejection`, `palette-fixture-handling`, and
+  `pngfix-fixture-handling` all passed in
+  `validator/artifacts/libpng-safe-source-api/results/libpng/`.
+- Local regression updates added: none. The requested CLI/source validator
+  cases already passed against the staged safe build and override packages.
+- Safe source, tool, and packaging files changed: none.
+- Local verifier battery passed:
+  `safe/tests/upstream/pngfix.sh`,
+  `safe/tools/check-examples-and-tools.sh`, and a targeted temporary pngfix
+  fixture check covering non-PNG rejection, `basn3p08.png` output creation,
+  and `basn2c08.png` readable PNG output using fixtures from
+  `original/contrib/pngsuite/`.
+- Package rebuild: completed with
+  `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b`; the rebuilt
+  runtime, dev, and tools debs were refreshed into
+  `validator-overrides/libpng/`. SHA-256 values remained unchanged.
+- Package artifact gate: `safe/tools/check-package-artifacts.sh` passed.
+- Fresh full validator artifact root:
+  `validator/artifacts/libpng-safe-cli-source/`.
+- CLI/source phase validator exit code:
+  `validator/artifacts/libpng-safe-cli-source/validator.exit-code` contains
+  `0`.
+
+Commands executed for this phase:
+
+```bash
+safe/tests/upstream/pngfix.sh
+safe/tools/check-examples-and-tools.sh
+bash -lc 'set -euo pipefail
+source safe/tests/upstream/common.sh
+build_dir="$(mktemp -d)"
+trap "rm -rf \"$build_dir\"" EXIT
+build_pngfix_consumer "$build_dir"
+printf "not png\n" >"$build_dir/bad.png"
+if "$build_dir/pngfix" --out="$build_dir/bad-out.png" "$build_dir/bad.png" >"$build_dir/bad.log" 2>&1; then
+  cat "$build_dir/bad.log"
+  printf "pngfix unexpectedly accepted non-PNG input\n" >&2
+  exit 1
+fi
+if [[ -s "$build_dir/bad-out.png" ]] && file "$build_dir/bad-out.png" | grep -q "PNG image data"; then
+  printf "pngfix produced a valid PNG for malformed input\n" >&2
+  exit 1
+fi
+"$build_dir/pngfix" --out="$build_dir/basn3p08-out.png" original/contrib/pngsuite/basn3p08.png >/dev/null
+[[ -s "$build_dir/basn3p08-out.png" ]]
+"$build_dir/pngfix" --out="$build_dir/basn2c08-out.png" original/contrib/pngsuite/basn2c08.png >/dev/null
+file "$build_dir/basn2c08-out.png" | grep -q "PNG image data"
+printf "targeted local pngfix fixture checks passed\n"'
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+cp -f libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb \
+  libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb \
+  libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb \
+  validator-overrides/libpng/
+safe/tools/check-package-artifacts.sh
+cd validator && bash test.sh --config repositories.yml --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-cli-source" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+```
+
+CLI/source phase package artifact SHA-256 values:
+
+| SHA-256 | Artifact |
+| --- | --- |
+| `e4284ee097a820e934d154675179140d49417276f80fed273b223ce16ab9c8d8` | `libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `410e64ccf940aa321584d670326876a3a61406003d44fa30f8c40e94fa1a3886` | `libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7` | `libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `1c567d67fbc99e6a32015d434895edb5bd2bbcdeb810a749d80e5f4745dcce4b` | `libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb` |
+| `0b0697d920eba71496e56b3be1c175be60b7df2835ea7f5f3de7ef933db82b6e` | `libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb` |
+| `f07558cabbc0cf6d369cb695d040dfdb207326d0ac5b0be1eabb7575e34fdc97` | `libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb` |
+| `392eb0ea6445677ec3954013362ba1bb594f09ed40b14190098b318c487cc1a9` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.buildinfo` |
+| `9006ea70acb6ac634dbe640739600f5faea2fdad6262a5666afb46d60561b6cd` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.changes` |
+
+CLI/source phase override SHA-256 values:
+
+| SHA-256 | Override artifact |
+| --- | --- |
+| `e4284ee097a820e934d154675179140d49417276f80fed273b223ce16ab9c8d8` | `validator-overrides/libpng/libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `410e64ccf940aa321584d670326876a3a61406003d44fa30f8c40e94fa1a3886` | `validator-overrides/libpng/libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7` | `validator-overrides/libpng/libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+
+CLI/source phase summary:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 135,
+  "source_cases": 5,
+  "usage_cases": 130,
+  "passed": 135,
+  "failed": 0,
+  "casts": 135,
+  "duration_seconds": 0.0
+}
+```
+
+The specific CLI/source validator cases remain green in the fresh run:
+
+| Testcase ID | Status | Exit code |
+| --- | --- | --- |
+| `malformed-png-rejection` | passed | 0 |
+| `palette-fixture-handling` | passed | 0 |
+| `pngfix-fixture-handling` | passed | 0 |
+
+Remaining failure classification after this phase:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
+
 ## Inventory And Proof Notes
 
 `validator-case-inventory.json` was recomputed from the validator libpng
