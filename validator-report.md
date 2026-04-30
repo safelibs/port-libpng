@@ -1,59 +1,49 @@
-# Validator Report: libpng-safe Final Clean Validation
+# Validator Report: libpng-safe Initial Baseline
 
 ## Summary
 
-- Phase: `impl-final-clean-validation-and-report`.
+- Phase: `impl-validator-baseline`.
 - Validator checkout: `validator/`.
-- Validator commit: `cc99047419226144eec3c1ab87873052bd9abedc`.
+- Validator commit: `5d908be26e33f071e119ffe1a52e3149f1e5ec4e`.
 - Mode: validator `original` mode with local safe `.deb` overrides from `validator-overrides/libpng/`.
-- Final unfiltered artifact root: `validator/artifacts/libpng-safe-final/`.
-- Final validator exit code: `0`.
-- Final result: 105/105 passed, 0 failed, 105 casts recorded.
-- Inventory match: 105 total cases, 5 source cases, 100 usage cases, matching `validator-case-inventory.json`.
-- Validator bug exceptions: none. No filtered exception run was needed.
+- Initial artifact root: `validator/artifacts/libpng-safe-initial/`.
+- Initial validator exit code: `0`.
+- Initial result: 135/135 passed, 0 failed, 135 casts recorded.
+- Inventory match: 135 total cases, 5 source cases, 130 usage cases, matching `validator-case-inventory.json`.
 - Validator source changes: none; the validator checkout is clean apart from ignored generated artifacts.
 
 ## Checks Executed
 
-All commands below completed with exit code `0` in this final phase.
+The required validator and package checks completed successfully:
 
 ```bash
-cargo fmt --check --manifest-path safe/Cargo.toml
-cargo test --manifest-path safe/Cargo.toml
-safe/tools/check-core-smoke.sh
-safe/tools/check-read-core.sh
-safe/tools/check-read-transforms.sh
-safe/tools/run-cve-regressions.sh --mode all
-safe/tools/run-dependent-regressions.sh
-safe/tools/run-read-tests.sh
-safe/tools/run-write-tests.sh \
-  pngstest-1.8 \
-  pngstest-1.8-alpha \
-  pngstest-large-stride \
-  pngstest-linear \
-  pngstest-linear-alpha \
-  pngstest-none \
-  pngstest-none-alpha \
-  pngstest-sRGB \
-  pngstest-sRGB-alpha
-safe/tools/run-upstream-tests.sh
-safe/tools/check-examples-and-tools.sh
-safe/tools/check-link-compat.sh
-safe/tools/check-exports.sh
-safe/tools/check-headers.sh
-safe/tools/check-install-surface.sh
-safe/tools/check-build-layout.sh
+git -C validator pull --ff-only
+git -C validator rev-parse HEAD
+cd validator && make unit
+cd validator && make check-testcases
 cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
 safe/tools/check-package-artifacts.sh
 cd validator && bash test.sh --config repositories.yml --tests-root tests \
-  --artifact-root "$PWD/artifacts/libpng-safe-final" \
+  --artifact-root "$PWD/artifacts/libpng-safe-initial" \
   --mode original \
   --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
   --library libpng \
   --record-casts
 ```
 
-The package rebuild refreshed the binary build metadata. `safe/tools/check-package-artifacts.sh` confirmed that the package artifacts match the current safe packaging tree, the safe source snapshot tar matches the tracked safe tree, and the `libpng-dev` examples are preserved.
+`safe/tools/check-package-artifacts.sh` initially detected that the safe source
+snapshot omitted tracked `safe/PORT.md`. The package snapshot manifest was
+updated to include `PORT.md`, then source package artifacts were refreshed with:
+
+```bash
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa
+safe/tools/check-package-artifacts.sh
+```
+
+The final package gate confirmed that package artifacts passed, the source
+package artifacts match the current safe packaging tree, the safe source
+snapshot tar matches the current tracked safe tree, and `libpng-dev` examples
+are preserved.
 
 ## Package Artifacts
 
@@ -67,14 +57,14 @@ Root package artifact SHA-256 values:
 | `0b0697d920eba71496e56b3be1c175be60b7df2835ea7f5f3de7ef933db82b6e` | `libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb` |
 | `1c567d67fbc99e6a32015d434895edb5bd2bbcdeb810a749d80e5f4745dcce4b` | `libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb` |
 | `f07558cabbc0cf6d369cb695d040dfdb207326d0ac5b0be1eabb7575e34fdc97` | `libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb` |
-| `7818e89e54a7f1697ade4dd9db6ab64af62ad4f7f819bbd4ce7a32f4cf37ab21` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc` |
-| `a4769982b43c3b071cce54a565b27f6e52a26ceedaca252585a61f0d0ef647f2` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz` |
-| `110429cefa2093b1080296a9634296059818553aaa3d00229b0923edfc9bedd7` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.tar.xz` |
+| `e4cbab99737e5e2bc4b7a402e5f292db0ad3342b40029310be5745cc0ac8cb74` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc` |
+| `e1771f5eb16560c498ea7327663ff07cb1768a1d84fc461048bf9ad04d1545c8` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz` |
+| `ec6a4c651d068f83c4c41527f737ab5bab70a78ed01ddf3c3632ca720510a9bc` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.tar.xz` |
 | `245573d767b5374b12e0d261b69d38c48236b15581c5cf3de8b46caa494e4ba5` | `libpng1.6_1.6.43.orig.tar.xz` |
 | `392eb0ea6445677ec3954013362ba1bb594f09ed40b14190098b318c487cc1a9` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.buildinfo` |
 | `9006ea70acb6ac634dbe640739600f5faea2fdad6262a5666afb46d60561b6cd` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.changes` |
-| `daa4459755f48ed01f8a72149dd534bbc7ac3f0cba5d74ca502c399e0677da8b` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo` |
-| `a84204147c1c70398206729012941d925c2cda3b0dcf4f1154df9ec396e53ce0` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.changes` |
+| `c836307b908defdd17c1e944ec024a72806682ff75e5537559ba91668f52366f` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo` |
+| `dfd534231d2cf5f42a449a9501fbc2018ea0d55b335ec667238bf33dd2da7589` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.changes` |
 
 Local validator override SHA-256 values:
 
@@ -84,60 +74,63 @@ Local validator override SHA-256 values:
 | `410e64ccf940aa321584d670326876a3a61406003d44fa30f8c40e94fa1a3886` | `validator-overrides/libpng/libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
 | `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7` | `validator-overrides/libpng/libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
 
-## Final Validator Results
+## Initial Validator Results
 
-- Summary JSON: `validator/artifacts/libpng-safe-final/results/libpng/summary.json`.
-- Validator exit code file: `validator/artifacts/libpng-safe-final/validator.exit-code`.
-- Result JSON files: 105 testcase files plus `summary.json`.
-- Cast files: 105, one per testcase.
-- Testcase logs: 105, one per testcase, plus `docker-build.log`.
+- Summary JSON: `validator/artifacts/libpng-safe-initial/results/libpng/summary.json`.
+- Validator exit code file: `validator/artifacts/libpng-safe-initial/validator.exit-code`.
+- Result JSON files: 135 testcase files plus `summary.json`.
+- Cast files: 135, one per testcase.
+- Testcase logs: 135, one per testcase, plus `docker-build.log`.
 - Source cases: 5/5 passed.
-- Usage cases: 100/100 passed.
+- Usage cases: 130/130 passed.
 - Artifact consistency check: every testcase ID from `validator-case-inventory.json` has a matching result JSON, cast, and testcase log; every per-case result has `status: passed`, `exit_code: 0`, `mode: original`, and `override_debs_installed: true`.
 
-Final summary:
+Initial summary:
 
 ```json
 {
   "schema_version": 2,
   "library": "libpng",
   "mode": "original",
-  "cases": 105,
+  "cases": 135,
   "source_cases": 5,
-  "usage_cases": 100,
-  "passed": 105,
+  "usage_cases": 130,
+  "passed": 135,
   "failed": 0,
-  "casts": 105,
+  "casts": 135,
   "duration_seconds": 0.0
 }
 ```
 
-## Failures Found
+## Initial Failure Classification
 
-- Initial validator setup run (`b48cd1a`) found 28 usage-case failures: 26 Netpbm client failures and 2 pngquant client failures.
-- Source/API assignment reruns found no active validator source-case failures.
-- CLI/source assignment reruns found no active source fixture, `pngfix`, malformed input, palette, package-installation, or missing-binary failures.
-- Final unfiltered run found no failures.
+No testcase failed in the initial full validator run.
 
-## Fixes Applied And Regression Tests
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
 
-| Commit | Scope | Regression test | Verification command |
-| --- | --- | --- | --- |
-| `419ffdd` | Fixed simplified 8-bit non-linear read/write gamma handling so adding opaque alpha preserves encoded grayscale samples. | `safe/tests/read-transforms/simplified_read_driver.c` compares `PNG_FORMAT_GRAY` and `PNG_FORMAT_GA` reads of `original/contrib/testpngs/gray-2-1.8.png`; `safe/tools/check-read-transforms.sh` runs the fixture. | `safe/tools/check-read-transforms.sh`; `safe/tools/run-write-tests.sh pngstest-1.8 pngstest-1.8-alpha pngstest-linear pngstest-linear-alpha pngstest-none pngstest-none-alpha pngstest-sRGB pngstest-sRGB-alpha pngstest-large-stride`; `safe/tools/run-upstream-tests.sh`. |
-| `ca94b46` | Fixed write runtime row handling so clients using `png_set_packing` pass unpacked row input and receive correctly packed PNG output. | `safe/tests/dependents/write_packing_indices.c` writes a 3x3 4-bit palette PNG with unpacked indices plus `png_set_packing`, then reads back the exact index grid. | `safe/tools/run-dependent-regressions.sh`; full validator reruns under `validator/artifacts/libpng-safe-usage-client/`, `validator/artifacts/libpng-safe-catch-all/`, and `validator/artifacts/libpng-safe-final/`. |
-| `52c42ec` | Confirmed assigned CLI/source validator cases already passed; no `safe/` compatibility fix was needed. | None added because no failing behavior was present to reproduce. | `safe/tools/check-examples-and-tools.sh`; `safe/tools/run-upstream-tests.sh`; `safe/tests/upstream/pngfix.sh`; full validator rerun under `validator/artifacts/libpng-safe-cli-source/`. |
-| `dd6c8e3` | Confirmed no residual validator failures remained after the usage-client fix. | None added because the catch-all rerun was already clean. | Full local battery and full validator rerun under `validator/artifacts/libpng-safe-catch-all/`. |
+The explicit mapping for future failed IDs is:
+`chunk-metadata-inspection` and `read-write-c-api-smoke` are Source/API;
+`malformed-png-rejection`, `palette-fixture-handling`, and
+`pngfix-fixture-handling` are CLI/source fixtures; IDs beginning
+`usage-netpbm-` are Netpbm usage; IDs beginning `usage-pngquant-` are pngquant
+usage; every other failing ID is Other/catch-all.
 
-Packaging metadata-only refreshes were committed separately where needed, including `a7830d2` and this final phase's binary build metadata refresh.
+## Inventory And Proof Notes
 
-## Validator Bug Exceptions
+`validator-case-inventory.json` was recomputed from the validator libpng
+testcase files after the validator update. The inventory records 5 source
+cases, 130 usage cases, and validator commit
+`5d908be26e33f071e119ffe1a52e3149f1e5ec4e`.
 
-No libpng validator testcase was classified as a validator bug, no testcase was skipped, and no `validator-exception-tests/` or `validator/artifacts/libpng-safe-final-filtered/` output was needed.
-
-The only validator tooling limitation recorded for this workflow is proof/site generation for original-mode local override results, described below. It is not a testcase exception and was not used to skip any libpng matrix check.
-
-## Local Override Proof Tooling
-
-`validator-case-inventory.json` records `proof_rejects_original_override: true` for validator commit `cc99047419226144eec3c1ab87873052bd9abedc`. The checked-out proof tooling rejects original-mode result JSON when `override_debs_installed` is `true`; this validation intentionally installs local override `.deb` packages, and the final per-case result JSON records `override_debs_installed: true`.
-
-Therefore proof and site targets were intentionally not run for the final local-override validation. Acceptance for this phase is based on the final result JSON, summary JSON, casts, logs, validator exit code, package hashes, and this report.
+`validator-case-inventory.json` records `original_mode_override_supported:
+true` because `test.sh --mode original --override-deb-root ...` installs the
+local override packages. It also records `proof_rejects_original_override:
+true`; at this validator commit, proof generation still rejects original-mode
+result JSON when `override_debs_installed` is `true`. Proof/site targets were
+not part of this baseline phase.
