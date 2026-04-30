@@ -1386,14 +1386,30 @@ pub(crate) unsafe fn begin_write_info(png_ptr: png_structrp, info_ptr: png_const
 
 fn maybe_transform_write_row(
     png_ptr: png_structrp,
-    rowbytes: usize,
+    output_rowbytes: usize,
     row: png_const_bytep,
-) -> Vec<u8> {
-    let mut out = if row.is_null() || rowbytes == 0 {
+) -> Option<Vec<u8>> {
+    let transform_spec = state::with_png(png_ptr, |png_state| {
+        png_state
+            .write_session
+            .as_ref()
+            .and_then(|session| session.header_info.as_ref())
+            .and_then(|info_state| write_transform_spec(png_state, info_state))
+    })
+    .flatten();
+    let input_rowbytes = transform_spec
+        .map(|spec| spec.input.rowbytes)
+        .unwrap_or(output_rowbytes);
+
+    let mut out = if row.is_null() || input_rowbytes == 0 {
         Vec::new()
     } else {
-        unsafe { slice::from_raw_parts(row, rowbytes) }.to_vec()
+        unsafe { slice::from_raw_parts(row, input_rowbytes) }.to_vec()
     };
+
+    if let Some(spec) = transform_spec {
+        out = transform_info_row(&out, spec)?;
+    }
 
     let transform = io::write_user_transform_registration(png_ptr);
     if let Some((callback, _, _, _)) = transform {
@@ -1401,7 +1417,7 @@ fn maybe_transform_write_row(
             let core = read_core(png_ptr);
             let mut row_info = png_row_info {
                 width: core.width,
-                rowbytes,
+                rowbytes: output_rowbytes,
                 color_type: core.color_type,
                 bit_depth: core.bit_depth,
                 channels: core.channels,
@@ -1413,7 +1429,7 @@ fn maybe_transform_write_row(
         }
     }
 
-    out
+    Some(out)
 }
 
 pub(crate) unsafe fn write_row(png_ptr: png_structrp, row: png_const_bytep) {
@@ -1429,7 +1445,9 @@ pub(crate) unsafe fn write_row(png_ptr: png_structrp, row: png_const_bytep) {
             .unwrap_or(png_state.core.rowbytes)
     })
     .unwrap_or(0);
-    let row_data = maybe_transform_write_row(png_ptr, rowbytes, row);
+    let Some(row_data) = maybe_transform_write_row(png_ptr, rowbytes, row) else {
+        png_error_message(png_ptr, b"write error\0");
+    };
 
     let callbacks = state::with_png_mut(png_ptr, |png_state| {
         let Some(session) = png_state.write_session.as_mut() else {
