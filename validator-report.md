@@ -178,3 +178,40 @@ Deferred failure markers for later implementation phases:
 - `tools/proof.py` rejects original-mode results when `override_debs_installed` is true.
 - Observed proof verification message: `override_debs_installed must be false for proof generation in /home/yans/safelibs/pipeline/ports/port-libpng/validator/artifacts/libpng-safe-initial/results/libpng/chunk-metadata-inspection.json`
 - Because this run intentionally uses original mode with local package overrides, acceptance for this phase is based on result JSON, summary JSON, casts, logs, and this report rather than proof or site targets.
+
+## Phase `impl-source-api-failures`
+
+- Validator commit: `cc99047419226144eec3c1ab87873052bd9abedc`.
+- Assignment source: `validator-case-inventory.json` Phase 2 source/API IDs `chunk-metadata-inspection` and `read-write-c-api-smoke`.
+- Root cause: no source-facing C API or metadata validator regression exists in the recorded Phase 1 artifacts or in the fresh rerun. Both assigned source/API cases passed before this phase, so there was no failing behavior to minimize into a local C regression driver.
+- Tests added: none. `safe/tools/run-validator-regressions.sh` was not created because no validator-specific source/API regression test was needed.
+- Fixes applied: none. `safe/` source, package artifacts, exports, and headers were left unchanged.
+- Refreshed validator artifacts: `validator/artifacts/libpng-safe-source-api/`.
+
+Validation commands:
+
+```bash
+cargo fmt --check
+cargo test
+safe/tools/check-package-artifacts.sh
+safe/tools/check-core-smoke.sh
+safe/tools/check-read-core.sh
+safe/tools/check-read-transforms.sh
+cd validator && bash test.sh --config repositories.yml --tests-root tests --artifact-root "$PWD/artifacts/libpng-safe-source-api" --mode original --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides --library libpng --record-casts
+```
+
+Validation results:
+
+- `cargo fmt --check`: exit code `1`; existing formatting drift was reported in the clean worktree, mainly in `safe/src/bridge_ffi.rs`, `safe/src/simplified_runtime.rs`, `safe/src/state.rs`, `safe/src/write.rs`, and `safe/src/write_runtime.rs`. No formatting rewrite was made because this no-op phase did not change safe source.
+- `cargo test`: exit code `0`.
+- `safe/tools/check-package-artifacts.sh`: exit code `0`; package artifacts still match the current safe packaging tree and source snapshot.
+- `safe/tools/check-core-smoke.sh`: exit code `0`.
+- `safe/tools/check-read-core.sh`: exit code `0`.
+- `safe/tools/check-read-transforms.sh`: exit code `0`.
+- Full validator rerun: exit code `1`, with 77/105 passed, 28 failed, and 105 casts recorded.
+- Source cases in the rerun: 5/5 passed. `chunk-metadata-inspection` and `read-write-c-api-smoke` both have `status: passed` and `exit_code: 0` in `validator/artifacts/libpng-safe-source-api/results/libpng/`.
+
+Remaining later-phase failures:
+
+- The 28 failed cases in `validator/artifacts/libpng-safe-source-api/results/libpng/` are the same deferred usage failures listed in the initial report: 26 Netpbm usage failures and 2 pngquant usage failures.
+- No validator bug exception is claimed for this phase.
