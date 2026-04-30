@@ -1,1 +1,6 @@
 pngout.png
+/validator/
+/validator-overrides/
+/validator-exception-tests/
+__pycache__/
+**/__pycache__/
