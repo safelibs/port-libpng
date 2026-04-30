@@ -1,0 +1,123 @@
+linear: true
+yaml_source_mode: inline-only
+verifier_encoding: explicit-phases
+phases:
+  - order: 1
+    id: impl-document-libpng-rust-port
+    type: implement
+    bounce_target: null
+    required_preexisting_inputs:
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe
+      - /home/yans/safelibs/pipeline/ports/port-libpng/original
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/Cargo.toml
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/Cargo.lock
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/src
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/build.rs
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/cshim/longjmp_bridge.c
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/cshim/read_phase_bridge.c
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/include/png.h
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/include/pngconf.h
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/include/pnglibconf.h
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/abi/exports.txt
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/abi/libpng.vers
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/abi/install-layout.txt
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/pkg/libpng.pc.in
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/pkg/libpng-config.in
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/pkg/source-snapshot-manifest.txt
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/tools
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/tools/build_support/build_support.rs
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/tests
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/tests/cve-regressions/coverage.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/debian/control
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/debian/rules
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/debian/changelog
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/debian/patches
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/UNSAFE.md
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/TODO
+      - /home/yans/safelibs/pipeline/ports/port-libpng/dependents.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/relevant_cves.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/all_cves.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator-case-inventory.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator-report.md
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator/artifacts/libpng-safe-final/results/libpng/summary.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides/libpng
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1.tar.xz
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43.orig.tar.xz
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.buildinfo
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.changes
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.changes
+  - order: 2
+    id: check-port-doc-structure-and-grounding
+    type: check
+    bounce_target: impl-document-libpng-rust-port
+    required_preexisting_inputs:
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/PORT.md
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe
+      - /home/yans/safelibs/pipeline/ports/port-libpng/original
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides/libpng
+  - order: 3
+    id: check-port-doc-evidence-and-commands
+    type: check
+    bounce_target: impl-document-libpng-rust-port
+    required_preexisting_inputs:
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/PORT.md
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/Cargo.toml
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/Cargo.lock
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/src
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/tools
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/tests
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/tests/cve-regressions/coverage.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/dependents.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/relevant_cves.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/all_cves.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator-case-inventory.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator-report.md
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator/artifacts/libpng-safe-final/results/libpng/summary.json
+      - /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides/libpng
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1.tar.xz
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43.orig.tar.xz
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.buildinfo
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.changes
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.changes
+  - order: 4
+    id: check-port-doc-final-git-state
+    type: check
+    bounce_target: impl-document-libpng-rust-port
+    required_preexisting_inputs:
+      - /home/yans/safelibs/pipeline/ports/port-libpng/safe/PORT.md
+      - /home/yans/safelibs/pipeline/ports/port-libpng/.git
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1.tar.xz
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43.orig.tar.xz
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.buildinfo
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.changes
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo
+      - /home/yans/safelibs/pipeline/ports/port-libpng/libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.changes
