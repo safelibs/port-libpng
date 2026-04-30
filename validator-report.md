@@ -309,6 +309,200 @@ Remaining failure classification after this phase:
 | pngquant usage | none |
 | Other/catch-all | none |
 
+## Netpbm Usage Validator Fix Phase
+
+- Phase: `impl-netpbm-usage-validator-failures`.
+- Consumed phase artifact root:
+  `validator/artifacts/libpng-safe-cli-source/`.
+- Baseline Netpbm status: no Netpbm usage failures were present in the
+  consumed CLI/source phase results. All 80 `usage-netpbm-*` testcase JSON
+  files had `status: passed` and `exit_code: 0`; the CLI/source phase
+  validator exit code was `0`.
+- Local Netpbm regressions added: none. There was no failing Netpbm behavior to
+  reduce to a C reproducer in this phase.
+- Safe source files changed: none.
+- Package rebuild: completed with
+  `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b`; the rebuilt
+  runtime, dev, and tools debs were refreshed into
+  `validator-overrides/libpng/`. SHA-256 values remained unchanged.
+- Package artifact gate: `safe/tools/check-package-artifacts.sh` passed.
+- Fresh full validator artifact root:
+  `validator/artifacts/libpng-safe-usage-netpbm/`.
+- Netpbm phase validator exit code:
+  `validator/artifacts/libpng-safe-usage-netpbm/validator.exit-code` contains
+  `0`.
+
+Commands executed for this phase:
+
+```bash
+jq -r 'select((.testcase_id? // "") | startswith("usage-netpbm-")) | select(.status != "passed") | [.testcase_id,.status,.exit_code] | @tsv' \
+  validator/artifacts/libpng-safe-cli-source/results/libpng/*.json
+cargo build --locked --release --manifest-path safe/Cargo.toml
+safe/tools/check-exports.sh
+safe/tools/check-headers.sh
+safe/tools/check-link-compat.sh
+safe/tools/check-install-surface.sh
+safe/tools/check-build-layout.sh
+safe/tools/check-core-smoke.sh
+safe/tools/check-read-core.sh
+safe/tools/check-read-transforms.sh
+safe/tools/run-read-tests.sh
+safe/tools/run-write-tests.sh \
+  pngstest-1.8 pngstest-1.8-alpha pngstest-large-stride \
+  pngstest-linear pngstest-linear-alpha pngstest-none \
+  pngstest-none-alpha pngstest-sRGB pngstest-sRGB-alpha
+safe/tools/run-upstream-tests.sh
+safe/tools/check-examples-and-tools.sh
+safe/tools/run-cve-regressions.sh --mode all
+safe/tools/run-dependent-regressions.sh
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+cp -f libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb \
+  libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb \
+  libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb \
+  validator-overrides/libpng/
+safe/tools/check-package-artifacts.sh
+rm -rf validator/artifacts/libpng-safe-usage-netpbm
+set +e
+cd validator
+bash test.sh --config repositories.yml --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-usage-netpbm" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+status=$?
+printf '%s\n' "$status" > "$PWD/artifacts/libpng-safe-usage-netpbm/validator.exit-code"
+exit "$status"
+```
+
+Netpbm phase package artifact SHA-256 values:
+
+| SHA-256 | Artifact |
+| --- | --- |
+| `e4284ee097a820e934d154675179140d49417276f80fed273b223ce16ab9c8d8` | `libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `410e64ccf940aa321584d670326876a3a61406003d44fa30f8c40e94fa1a3886` | `libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7` | `libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+
+Netpbm phase override SHA-256 values:
+
+| SHA-256 | Override artifact |
+| --- | --- |
+| `e4284ee097a820e934d154675179140d49417276f80fed273b223ce16ab9c8d8` | `validator-overrides/libpng/libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `410e64ccf940aa321584d670326876a3a61406003d44fa30f8c40e94fa1a3886` | `validator-overrides/libpng/libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7` | `validator-overrides/libpng/libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+
+Netpbm phase summary:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 135,
+  "source_cases": 5,
+  "usage_cases": 130,
+  "passed": 135,
+  "failed": 0,
+  "casts": 135,
+  "duration_seconds": 0.0
+}
+```
+
+All Netpbm usage cases passed in the fresh run:
+
+```text
+usage-netpbm-batch11-pamdeinterlace-height
+usage-netpbm-batch11-pamdice-tiles
+usage-netpbm-batch11-pamstretch-double
+usage-netpbm-batch11-pamthreshold-bw
+usage-netpbm-batch11-pngtopam-pamfile
+usage-netpbm-batch11-pnmarith-add
+usage-netpbm-batch11-pnmgamma-shape
+usage-netpbm-batch11-pnmnorm-shape
+usage-netpbm-batch11-pnmrotate-right-angle
+usage-netpbm-batch11-pnmshear-width
+usage-netpbm-pamarith-add-png
+usage-netpbm-pamarith-mean-png
+usage-netpbm-pamarith-multiply-png
+usage-netpbm-pamcat-lr-png-fixture
+usage-netpbm-pamcat-tb-png-fixture
+usage-netpbm-pamchannel-blue-generated-png
+usage-netpbm-pamchannel-blue-png
+usage-netpbm-pamchannel-green-png
+usage-netpbm-pamchannel-green-png-generated
+usage-netpbm-pamchannel-red-generated-png
+usage-netpbm-pamchannel-red-png
+usage-netpbm-pamchannel-red-png-generated
+usage-netpbm-pamcomp-align-center-png
+usage-netpbm-pamfile-png
+usage-netpbm-pamflip-ccw-grayscale-png
+usage-netpbm-pamflip-cw-png-generated
+usage-netpbm-pamflip-lr-png
+usage-netpbm-pamflip-png
+usage-netpbm-pamflip-tb-png
+usage-netpbm-pamfunc-multiplier-half-png
+usage-netpbm-pamlevels-brighten-png
+usage-netpbm-pampick-image-png
+usage-netpbm-pamslice-column-png
+usage-netpbm-pamtopnm-roundtrip-png
+usage-netpbm-pamundice-png
+usage-netpbm-pbmtoxbm-bilevel-png
+usage-netpbm-pgmnoise-seeded-png
+usage-netpbm-pngtopam
+usage-netpbm-pngtopnm
+usage-netpbm-pnmcat-leftright-png
+usage-netpbm-pnmcat-leftright-png-generated
+usage-netpbm-pnmcat-topbottom-png
+usage-netpbm-pnmcat-topbottom-png-generated
+usage-netpbm-pnmcrop-border-png
+usage-netpbm-pnmcut-bottom-row-png
+usage-netpbm-pnmcut-corner-png
+usage-netpbm-pnmcut-middle-column-png
+usage-netpbm-pnmcut-middle-row-png
+usage-netpbm-pnmcut-png
+usage-netpbm-pnmdepth-15-png-generated
+usage-netpbm-pnmdepth-63-png-generated
+usage-netpbm-pnmdepth-png
+usage-netpbm-pnmenlarge-png
+usage-netpbm-pnmfile-png
+usage-netpbm-pnmfile-roundtrip-png
+usage-netpbm-pnmflip-leftright-generated-png
+usage-netpbm-pnmflip-leftright-png-generated
+usage-netpbm-pnmflip-png
+usage-netpbm-pnmflip-r180-png
+usage-netpbm-pnmflip-rotate180-rgb-png
+usage-netpbm-pnmflip-topbottom-png
+usage-netpbm-pnmflip-topbottom-png-generated
+usage-netpbm-pnmflip-transpose-png
+usage-netpbm-pnmgamma-png
+usage-netpbm-pnminvert-png
+usage-netpbm-pnminvert-png-generated
+usage-netpbm-pnminvert-rgb-png-roundtrip
+usage-netpbm-pnmpaste-png
+usage-netpbm-pnmpsnr-png
+usage-netpbm-pnmscale-double-png
+usage-netpbm-pnmscale-double-png-generated
+usage-netpbm-pnmscale-half-png
+usage-netpbm-pnmscale-half-png-generated
+usage-netpbm-pnmscale-png
+usage-netpbm-pnmscale-triple-png
+usage-netpbm-pnmsmooth-png
+usage-netpbm-pnmtile-png
+usage-netpbm-pnmtopng
+usage-netpbm-ppmtoyuv-png
+usage-netpbm-roundtrip-png
+```
+
+Remaining failure classification after this phase:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
+
 ## Inventory And Proof Notes
 
 `validator-case-inventory.json` was recomputed from the validator libpng
