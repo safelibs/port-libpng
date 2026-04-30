@@ -175,7 +175,10 @@ fn current_height(info_core: &png_safe_info_core, png_core: &png_safe_read_core)
     }
 }
 
-fn current_rowbytes(info_core: &png_safe_info_core, png_core: &png_safe_read_core) -> Option<usize> {
+fn current_rowbytes(
+    info_core: &png_safe_info_core,
+    png_core: &png_safe_read_core,
+) -> Option<usize> {
     if info_core.rowbytes != 0 {
         return Some(info_core.rowbytes);
     }
@@ -189,7 +192,10 @@ fn current_rowbytes(info_core: &png_safe_info_core, png_core: &png_safe_read_cor
     checked_rowbytes_for_width(width, pixel_depth)
 }
 
-fn current_pixel_depth(info_core: &png_safe_info_core, png_core: &png_safe_read_core) -> Option<usize> {
+fn current_pixel_depth(
+    info_core: &png_safe_info_core,
+    png_core: &png_safe_read_core,
+) -> Option<usize> {
     if info_core.pixel_depth != 0 {
         return Some(usize::from(info_core.pixel_depth));
     }
@@ -208,9 +214,7 @@ fn current_pixel_depth(info_core: &png_safe_info_core, png_core: &png_safe_read_
         usize::from(png_core.bit_depth)
     };
 
-    channels
-        .checked_mul(bit_depth)
-        .filter(|depth| *depth != 0)
+    channels.checked_mul(bit_depth).filter(|depth| *depth != 0)
 }
 
 fn write_compression(settings: crate::common::WriteZlibSettings) -> PngCompression {
@@ -307,10 +311,12 @@ fn write_transform_spec(
 fn packswap_byte(value: u8, bit_depth: png_byte) -> u8 {
     match bit_depth {
         1 => value.reverse_bits(),
-        2 => ((value & 0b1100_0000) >> 6)
-            | ((value & 0b0011_0000) >> 2)
-            | ((value & 0b0000_1100) << 2)
-            | ((value & 0b0000_0011) << 6),
+        2 => {
+            ((value & 0b1100_0000) >> 6)
+                | ((value & 0b0011_0000) >> 2)
+                | ((value & 0b0000_1100) << 2)
+                | ((value & 0b0000_0011) << 6)
+        }
         4 => value.rotate_right(4),
         _ => value,
     }
@@ -397,10 +403,8 @@ fn pack_row(
         return None;
     }
 
-    let mut out = vec![
-        0u8;
-        checked_rowbytes_for_width(layout.width, usize::from(output_bit_depth))?
-    ];
+    let mut out =
+        vec![0u8; checked_rowbytes_for_width(layout.width, usize::from(output_bit_depth))?];
 
     match output_bit_depth {
         1 => {
@@ -479,7 +483,10 @@ fn apply_write_shift(row: &mut [u8], layout: WriteRowLayout, shift: &png_color_8
         return;
     };
 
-    if channel_depths.iter().any(|&depth| depth == 0 || depth > layout.bit_depth) {
+    if channel_depths
+        .iter()
+        .any(|&depth| depth == 0 || depth > layout.bit_depth)
+    {
         return;
     }
 
@@ -747,9 +754,7 @@ fn validated_sbit_data(
                 || sig.blue == 0
                 || sig.blue > max_bits
         }
-        4 => {
-            sig.gray == 0 || sig.gray > max_bits || sig.alpha == 0 || sig.alpha > max_bits
-        }
+        4 => sig.gray == 0 || sig.gray > max_bits || sig.alpha == 0 || sig.alpha > max_bits,
         6 => {
             sig.red == 0
                 || sig.red > max_bits
@@ -930,7 +935,10 @@ fn write_pre_idat_chunks(
         if chunk.location == 0x08 {
             continue;
         }
-        writer.write_chunk(ChunkType(chunk.name[..4].try_into().unwrap_or(*b"uNkN")), &chunk.data)?;
+        writer.write_chunk(
+            ChunkType(chunk.name[..4].try_into().unwrap_or(*b"uNkN")),
+            &chunk.data,
+        )?;
     }
 
     Ok(())
@@ -959,7 +967,10 @@ fn write_post_idat_chunks(
 
     for chunk in &info_state.unknown_chunks {
         if chunk.location == 0x08 {
-            writer.write_chunk(ChunkType(chunk.name[..4].try_into().unwrap_or(*b"uNkN")), &chunk.data)?;
+            writer.write_chunk(
+                ChunkType(chunk.name[..4].try_into().unwrap_or(*b"uNkN")),
+                &chunk.data,
+            )?;
         }
     }
 
@@ -1023,7 +1034,11 @@ fn build_png_info(
     }
 
     if let Some((res_x, res_y, unit_type)) = info_state.phys {
-        let unit = if unit_type == 1 { Unit::Meter } else { Unit::Unspecified };
+        let unit = if unit_type == 1 {
+            Unit::Meter
+        } else {
+            Unit::Unspecified
+        };
         info.pixel_dims = Some(PixelDimensions {
             xppu: res_x,
             yppu: res_y,
@@ -1036,8 +1051,12 @@ fn build_png_info(
             info.srgb = Some(intent);
         }
     } else {
-        if (info_state.core.valid & crate::common::PNG_INFO_gAMA) != 0 && info_state.core.colorspace.gamma > 0 {
-            info.source_gamma = Some(ScaledFloat::from_scaled(info_state.core.colorspace.gamma as u32));
+        if (info_state.core.valid & crate::common::PNG_INFO_gAMA) != 0
+            && info_state.core.colorspace.gamma > 0
+        {
+            info.source_gamma = Some(ScaledFloat::from_scaled(
+                info_state.core.colorspace.gamma as u32,
+            ));
         }
         if (info_state.core.valid & crate::common::PNG_INFO_cHRM) != 0 {
             let xy = info_state.core.colorspace.end_points_xy;
@@ -1062,7 +1081,11 @@ fn build_png_info(
         }
     }
 
-    for text in info_state.text_chunks.iter().take(session.header_text_count) {
+    for text in info_state
+        .text_chunks
+        .iter()
+        .take(session.header_text_count)
+    {
         match text.compression {
             PNG_TEXT_COMPRESSION_NONE_WR | PNG_TEXT_COMPRESSION_NONE => {
                 info.uncompressed_latin1_text
@@ -1138,7 +1161,8 @@ fn filtered_scanlines(
     session: &WriteSessionState,
 ) -> Result<Vec<u8>, &'static [u8]> {
     let width = usize::try_from(info_state.core.width).map_err(|_| b"write error\0".as_slice())?;
-    let height = usize::try_from(info_state.core.height).map_err(|_| b"write error\0".as_slice())?;
+    let height =
+        usize::try_from(info_state.core.height).map_err(|_| b"write error\0".as_slice())?;
     let rowbytes = session.rowbytes;
     let pixel_depth = current_pixel_depth(&info_state.core, &png_safe_read_core::default())
         .ok_or(b"write error\0".as_slice())?;
@@ -1437,11 +1461,10 @@ pub(crate) unsafe fn write_row(png_ptr: png_structrp, row: png_const_bytep) {
         }
         if manual_adam7 {
             let pass = usize::try_from(png_state.core.pass).unwrap_or(0);
-            let pass_width = adam7_pass_width(usize::try_from(png_state.core.width).unwrap_or(0), pass);
-            let pass_rowbytes = checked_rowbytes_for_width(
-                pass_width,
-                usize::from(png_state.core.pixel_depth),
-            )?;
+            let pass_width =
+                adam7_pass_width(usize::try_from(png_state.core.width).unwrap_or(0), pass);
+            let pass_rowbytes =
+                checked_rowbytes_for_width(pass_width, usize::from(png_state.core.pixel_depth))?;
             if row_data.len() < pass_rowbytes {
                 return None;
             }
@@ -1489,11 +1512,7 @@ pub(crate) unsafe fn write_row(png_ptr: png_structrp, row: png_const_bytep) {
     }
 }
 
-pub(crate) unsafe fn write_rows(
-    png_ptr: png_structrp,
-    rows: png_bytepp,
-    num_rows: png_uint_32,
-) {
+pub(crate) unsafe fn write_rows(png_ptr: png_structrp, rows: png_bytepp, num_rows: png_uint_32) {
     if png_ptr.is_null() || rows.is_null() {
         return;
     }
@@ -1578,15 +1597,16 @@ pub(crate) unsafe fn write_end(png_ptr: png_structrp, info_ptr: png_inforp) -> b
         unsafe { begin_write_info(png_ptr, fallback_info) };
     }
 
-    let mut session = match state::with_png(png_ptr, |png_state| png_state.write_session.clone()).flatten() {
-        Some(session) => session,
-        None => return false,
-    };
-    let header_info_state = match session
-        .header_info
-        .clone()
-        .or_else(|| (!info_ptr.is_null()).then(|| state::get_info(info_ptr)).flatten())
-    {
+    let mut session =
+        match state::with_png(png_ptr, |png_state| png_state.write_session.clone()).flatten() {
+            Some(session) => session,
+            None => return false,
+        };
+    let header_info_state = match session.header_info.clone().or_else(|| {
+        (!info_ptr.is_null())
+            .then(|| state::get_info(info_ptr))
+            .flatten()
+    }) {
         Some(info_state) => info_state,
         None => return false,
     };
@@ -1618,7 +1638,11 @@ pub(crate) unsafe fn write_end(png_ptr: png_structrp, info_ptr: png_inforp) -> b
     let write_trailer_time = !same_info_ptr || !session.wrote_time_in_header;
     let write_trailer_exif = !same_info_ptr || !session.wrote_exif_in_header;
 
-    if crate::bridge_ffi::passthrough_png_if_rows_match(png_ptr, &session.image_data, session.rowbytes) {
+    if crate::bridge_ffi::passthrough_png_if_rows_match(
+        png_ptr,
+        &session.image_data,
+        session.rowbytes,
+    ) {
         state::update_png(png_ptr, |png_state| {
             png_state.passthrough_written = true;
             png_state.write_session = Some(session);

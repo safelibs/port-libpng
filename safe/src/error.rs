@@ -7,7 +7,14 @@ const INTERNAL_PANIC_MESSAGE: &[u8] = b"libpng safe internal panic\0";
 
 fn callback_or_default(
     png_ptr: png_const_structrp,
-) -> (png_voidp, png_error_ptr, png_error_ptr, png_longjmp_ptr, *mut JmpBuf, usize) {
+) -> (
+    png_voidp,
+    png_error_ptr,
+    png_error_ptr,
+    png_longjmp_ptr,
+    *mut JmpBuf,
+    usize,
+) {
     state::with_png(png_ptr.cast_mut(), |png_state| {
         (
             png_state.error_ptr,
@@ -126,7 +133,8 @@ pub unsafe extern "C" fn png_set_error_fn(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_get_error_ptr(png_ptr: png_const_structrp) -> png_voidp {
     crate::abi_guard!(png_ptr.cast_mut(), {
-        state::with_png(png_ptr.cast_mut(), |png_state| png_state.error_ptr).unwrap_or(ptr::null_mut())
+        state::with_png(png_ptr.cast_mut(), |png_state| png_state.error_ptr)
+            .unwrap_or(ptr::null_mut())
     })
 }
 
@@ -141,8 +149,10 @@ pub unsafe extern "C" fn png_set_longjmp_fn(
             return ptr::null_mut();
         }
 
-        let existing = state::with_png(png_ptr, |png_state| (png_state.jmp_buf_ptr, png_state.jmp_buf_size))
-            .unwrap_or((ptr::null_mut(), 0));
+        let existing = state::with_png(png_ptr, |png_state| {
+            (png_state.jmp_buf_ptr, png_state.jmp_buf_size)
+        })
+        .unwrap_or((ptr::null_mut(), 0));
 
         let buffer = if existing.0.is_null() {
             crate::memory::png_malloc_warn(png_ptr, jmp_buf_size).cast::<JmpBuf>()

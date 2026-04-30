@@ -1,5 +1,5 @@
-use crate::state;
 use crate::bridge_ffi::*;
+use crate::state;
 use crate::types::*;
 
 fn prepare_write_call(png_ptr: png_structrp) {
@@ -16,10 +16,7 @@ fn prepare_write_call(png_ptr: png_structrp) {
     });
 }
 
-unsafe fn dispatch_write_info_before_palette(
-    png_ptr: png_structrp,
-    info_ptr: png_const_inforp,
-) {
+unsafe fn dispatch_write_info_before_palette(png_ptr: png_structrp, info_ptr: png_const_inforp) {
     prepare_write_call(png_ptr);
     unsafe {
         write_info_before_palette(png_ptr, info_ptr);
@@ -40,11 +37,7 @@ unsafe fn dispatch_write_row(png_ptr: png_structrp, row: png_const_bytep) {
     }
 }
 
-unsafe fn dispatch_write_rows(
-    png_ptr: png_structrp,
-    row: png_bytepp,
-    num_rows: png_uint_32,
-) {
+unsafe fn dispatch_write_rows(png_ptr: png_structrp, row: png_bytepp, num_rows: png_uint_32) {
     prepare_write_call(png_ptr);
     unsafe {
         write_rows(png_ptr, row, num_rows);

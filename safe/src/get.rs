@@ -10,8 +10,7 @@ unsafe extern "C" {
         flag: png_uint_32,
     ) -> png_uint_32;
     fn bridge_png_get_rowbytes(png_ptr: png_const_structrp, info_ptr: png_const_inforp) -> usize;
-    fn bridge_png_get_rows(png_ptr: png_const_structrp, info_ptr: png_const_inforp)
-    -> png_bytepp;
+    fn bridge_png_get_rows(png_ptr: png_const_structrp, info_ptr: png_const_inforp) -> png_bytepp;
     fn bridge_png_get_image_width(
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
@@ -40,10 +39,8 @@ unsafe extern "C" {
         png_ptr: png_const_structrp,
         info_ptr: png_const_inforp,
     ) -> png_byte;
-    fn bridge_png_get_channels(
-        png_ptr: png_const_structrp,
-        info_ptr: png_const_inforp,
-    ) -> png_byte;
+    fn bridge_png_get_channels(png_ptr: png_const_structrp, info_ptr: png_const_inforp)
+    -> png_byte;
     fn bridge_png_get_user_width_max(png_ptr: png_const_structrp) -> png_uint_32;
     fn bridge_png_get_user_height_max(png_ptr: png_const_structrp) -> png_uint_32;
     fn bridge_png_get_chunk_cache_max(png_ptr: png_const_structrp) -> png_uint_32;

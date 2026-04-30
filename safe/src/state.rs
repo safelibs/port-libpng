@@ -153,14 +153,8 @@ impl PngStructState {
         malloc_fn: png_malloc_ptr,
         free_fn: png_free_ptr,
     ) -> Self {
-        let mut state = Self::new_read(
-            error_ptr,
-            error_fn,
-            warning_fn,
-            mem_ptr,
-            malloc_fn,
-            free_fn,
-        );
+        let mut state =
+            Self::new_read(error_ptr, error_fn, warning_fn, mem_ptr, malloc_fn, free_fn);
         state.is_read_struct = false;
         state.core.mode &= !PNG_IS_READ_STRUCT;
         state.benign_errors = 0;
@@ -293,10 +287,12 @@ fn sync_latest_passthrough_for(png_ptr: png_structrp) {
 }
 
 fn seed_captured_signature_prefix(state: &mut PngStructState) {
-    let prefix_len = usize::try_from(state.sig_bytes.clamp(0, PNG_SIGNATURE.len() as c_int))
-        .unwrap_or(0);
+    let prefix_len =
+        usize::try_from(state.sig_bytes.clamp(0, PNG_SIGNATURE.len() as c_int)).unwrap_or(0);
     state.captured_input.clear();
-    state.captured_input.extend_from_slice(&PNG_SIGNATURE[..prefix_len]);
+    state
+        .captured_input
+        .extend_from_slice(&PNG_SIGNATURE[..prefix_len]);
 }
 
 fn lock_recover<T>(mutex: &'static Mutex<T>) -> MutexGuard<'static, T> {
@@ -335,7 +331,10 @@ pub(crate) fn update_png(png_ptr: png_structrp, update: impl FnOnce(&mut PngStru
     }
 }
 
-pub(crate) fn with_png<R>(png_ptr: png_structrp, read: impl FnOnce(&PngStructState) -> R) -> Option<R> {
+pub(crate) fn with_png<R>(
+    png_ptr: png_structrp,
+    read: impl FnOnce(&PngStructState) -> R,
+) -> Option<R> {
     let key = png_key(png_ptr)?;
     let states = lock_recover(png_struct_states());
     states.get(&key).map(read)
@@ -380,7 +379,10 @@ pub(crate) fn update_info(info_ptr: png_infop, update: impl FnOnce(&mut PngInfoS
     }
 }
 
-pub(crate) fn with_info<R>(info_ptr: png_infop, read: impl FnOnce(&PngInfoState) -> R) -> Option<R> {
+pub(crate) fn with_info<R>(
+    info_ptr: png_infop,
+    read: impl FnOnce(&PngInfoState) -> R,
+) -> Option<R> {
     let key = info_key(info_ptr)?;
     let states = lock_recover(png_info_states());
     states.get(&key).map(read)

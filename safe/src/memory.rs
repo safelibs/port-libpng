@@ -53,8 +53,10 @@ unsafe fn alloc_impl(
     let (malloc_fn, _mem_ptr) = if use_default {
         (None, ptr::null_mut())
     } else {
-        state::with_png(png_ptr.cast_mut(), |png_state| (png_state.malloc_fn, png_state.mem_ptr))
-            .unwrap_or((None, ptr::null_mut()))
+        state::with_png(png_ptr.cast_mut(), |png_state| {
+            (png_state.malloc_fn, png_state.mem_ptr)
+        })
+        .unwrap_or((None, ptr::null_mut()))
     };
 
     let allocation = if let Some(callback) = malloc_fn {
@@ -195,14 +197,8 @@ unsafe fn allocate_png_handle_with_callbacks(
     {
         let _ = (error_ptr, error_fn, warn_fn, mem_ptr, free_fn);
         unsafe {
-            let png_ptr = alloc_impl(
-                ptr::null_mut(),
-                size_of::<png_struct>(),
-                false,
-                false,
-                true,
-            )
-            .cast::<png_struct>();
+            let png_ptr = alloc_impl(ptr::null_mut(), size_of::<png_struct>(), false, false, true)
+                .cast::<png_struct>();
             if !png_ptr.is_null() {
                 ptr::write_bytes(png_ptr.cast::<u8>(), 0, size_of::<png_struct>());
             }
@@ -249,7 +245,11 @@ unsafe fn destroy_png_handle(png_ptr: png_structp) {
         }
     }
 
-    let free_context = if proxy_ptr.is_null() { png_ptr } else { proxy_ptr };
+    let free_context = if proxy_ptr.is_null() {
+        png_ptr
+    } else {
+        proxy_ptr
+    };
     unsafe { free_impl(free_context, png_ptr.cast(), false) };
     if !png_state.jmp_buf_ptr.is_null() {
         unsafe { free_impl(free_context, png_state.jmp_buf_ptr.cast(), false) };
@@ -267,7 +267,9 @@ pub unsafe extern "C" fn png_calloc(
     png_ptr: png_const_structrp,
     size: png_alloc_size_t,
 ) -> png_voidp {
-    crate::abi_guard!(png_ptr.cast_mut(), unsafe { alloc_impl(png_ptr, size, true, false, false) })
+    crate::abi_guard!(png_ptr.cast_mut(), unsafe {
+        alloc_impl(png_ptr, size, true, false, false)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -333,7 +335,8 @@ pub unsafe extern "C" fn png_set_mem_fn(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn png_get_mem_ptr(png_ptr: png_const_structrp) -> png_voidp {
     crate::abi_guard!(png_ptr.cast_mut(), {
-        state::with_png(png_ptr.cast_mut(), |png_state| png_state.mem_ptr).unwrap_or(ptr::null_mut())
+        state::with_png(png_ptr.cast_mut(), |png_state| png_state.mem_ptr)
+            .unwrap_or(ptr::null_mut())
     })
 }
 

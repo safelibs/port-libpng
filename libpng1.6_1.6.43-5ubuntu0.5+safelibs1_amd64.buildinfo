@@ -4,27 +4,27 @@ Binary: libpng-dev libpng-tools libpng-tools-dbgsym libpng16-16-udeb libpng16-16
 Architecture: amd64
 Version: 1.6.43-5ubuntu0.5+safelibs1
 Checksums-Md5:
- ec042e3cdec4ee8ab81fb6cd5321bbbc 3980964 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
- 1975a5ef4b3644a6a8525f1e77ef0516 51738 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 601b4ef096bb5d56be65005a258d8670 27266 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
- 751e1c8751d886efa1edd22c30a42fca 677892 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
- 8037fe4d34c8ec22b5db3286f564e5d6 1173698 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 51b68566daadf2f735cb7c7cd906cae8 825568 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 0a61614899a80c0910a9c1cf22ae5acb 3980882 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ c8ecf8bc79a79b4a061d9b52936ee9e8 51212 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+ 5fd86e77345e0f98bfb53760339aba7d 27024 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 0a6913e2c60d7ed38a4cb3a12dbab503 677752 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
+ 01dee1036edc1d5efd50e5c064166e83 1173712 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+ 04c4644bf66fe74a0899572fb8f7798f 824886 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
 Checksums-Sha1:
- 0e879abf69b7101811530e8dabe27aa1fbe318f2 3980964 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
- 9ad79d02545af5ff82e8262758546a2ef4509451 51738 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 65f1b60086b76489d72f0df8ec7b14f3a3ee25cc 27266 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
- 79a57aba7ac247f53d7eb62643423bea86e30140 677892 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
- 1d290a836a6e456ab40130394099161480b47e34 1173698 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 9ceab5e0389919090221a21490150fa0c74f2b13 825568 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ f18194c6bf2fb50148695df56e0a231bc5bc9d19 3980882 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 3d98436b539fd656ac13545424a1306bdb13294f 51212 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+ e866e18959107387fbc2eebfb3996b758a72276b 27024 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 7e012fa58941c3d1064f7310f9fdbfc30b684683 677752 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
+ 41035639c5ae636f7f36ec67ffb1c8c6b01a6d1a 1173712 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+ b771514d23cd05150dde04759ce70875462634bc 824886 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
 Checksums-Sha256:
- c8e64907925b5ac67855774195bbe74c86dd67724887ad4646958e4aea449d1e 3980964 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
- 091430c948539ca485bbff959bd2fe3346a7d62f517e9c26d2d0e606076e47ef 51738 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 69b42ea87177886a0e6ba458ea4768ab3fc165d60ee6e21a15f1d74e38ac6944 27266 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
- c042a39b9515011fc0e390daf4869b1a847161966171a2cfb41e7ed979f639c9 677892 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
- 784c2894d7673eeea7345d6c0c58de95766b6be40ad2e40f81e5756c591a9239 1173698 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
- 082c66f62ca76e9dbca80a3455940b5a55ed1189d1ea8dbcf13df50646b29a53 825568 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
-Build-Origin: Ubuntu
+ 347c32b5bfc90f7ed5fee67cf810b49e70b21b3771f4a27337495f853e4ca62f 3980882 libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 1c567d67fbc99e6a32015d434895edb5bd2bbcdeb810a749d80e5f4745dcce4b 51212 libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+ 9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7 27024 libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+ 1135a733cfdb427fa799755a21e515f9c003be9aeae9fa5bfc8aabaf7bac8a24 677752 libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb
+ 83083260c555f3fdd6ddfcc4fae6a9de741b3d70e2c9e9821159dca9f3ed5c1e 1173712 libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb
+ 9dca24d9f2af015c6df5d865b9e3c2685e34184529d802e0525b410ca457f7ba 824886 libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb
+Build-Origin: Debian
 Build-Architecture: amd64
 Build-Date: Tue, 31 Mar 2026 22:17:27 -0700
 Build-Tainted-By:
@@ -44,7 +44,7 @@ Installed-Build-Depends:
  bsdutils (= 1:2.39.3-9ubuntu6.5),
  build-essential (= 12.10ubuntu1),
  bzip2 (= 1.0.8-5.1build0.1),
- cargo (= 1.75.0+dfsg0ubuntu1-0ubuntu7.1),
+ cargo (= 1.75.0+dfsg0ubuntu1-0ubuntu7.4),
  clang (= 1:18.0-59~exp2),
  clang-14 (= 1:14.0.6-19build4),
  clang-15 (= 1:15.0.7-14build3),
@@ -105,7 +105,7 @@ Installed-Build-Depends:
  libc6 (= 2.39-0ubuntu8.7),
  libc6-dev (= 2.39-0ubuntu8.7),
  libcap-ng0 (= 0.8.4-2build2),
- libcap2 (= 1:2.66-5ubuntu2.2),
+ libcap2 (= 1:2.66-5ubuntu2.4),
  libcc1-0 (= 14.2.0-4ubuntu2~24.04.1),
  libclang-common-14-dev (= 1:14.0.6-19build4),
  libclang-common-15-dev (= 1:15.0.7-14build3),
@@ -155,7 +155,7 @@ Installed-Build-Depends:
  libidn2-0 (= 2.3.7-2build1.1),
  libisl23 (= 0.26-3build1.1),
  libitm1 (= 14.2.0-4ubuntu2~24.04.1),
- libjansson4 (= 2.14-2build2),
+ libjansson4 (= 2.14-2build2+safe1),
  libk5crypto3 (= 1.20.1-6ubuntu2.6),
  libkeyutils1 (= 1.6.3-3build1),
  libkrb5-3 (= 1.20.1-6ubuntu2.6),
@@ -189,8 +189,8 @@ Installed-Build-Depends:
  libpipeline1 (= 1.5.7-2),
  libpsl5t64 (= 0.21.2-1.1build1),
  libpython3-stdlib (= 3.12.3-0ubuntu2.1),
- libpython3.12-minimal (= 3.12.3-1ubuntu0.12),
- libpython3.12-stdlib (= 3.12.3-1ubuntu0.12),
+ libpython3.12-minimal (= 3.12.3-1ubuntu0.13),
+ libpython3.12-stdlib (= 3.12.3-1ubuntu0.13),
  libquadmath0 (= 14.2.0-4ubuntu2~24.04.1),
  libreadline8t64 (= 8.2-4build1),
  librtmp1 (= 2.4+20151223.gitfa8646d.1-2build7),
@@ -204,9 +204,9 @@ Installed-Build-Depends:
  libsqlite3-0 (= 3.45.1-1ubuntu2.5),
  libssh-4 (= 0.10.6-2ubuntu0.4),
  libssh2-1t64 (= 1.11.0-4.1build2),
- libssl3t64 (= 3.0.13-0ubuntu3.7),
- libstd-rust-1.75 (= 1.75.0+dfsg0ubuntu1-0ubuntu7.1),
- libstd-rust-dev (= 1.75.0+dfsg0ubuntu1-0ubuntu7.1),
+ libssl3t64 (= 3.0.13-0ubuntu3.9),
+ libstd-rust-1.75 (= 1.75.0+dfsg0ubuntu1-0ubuntu7.4),
+ libstd-rust-dev (= 1.75.0+dfsg0ubuntu1-0ubuntu7.4),
  libstdc++-13-dev (= 13.3.0-6ubuntu2~24.04.1),
  libstdc++6 (= 14.2.0-4ubuntu2~24.04.1),
  libsub-override-perl (= 0.10-1),
@@ -222,7 +222,7 @@ Installed-Build-Depends:
  libuuid1 (= 2.39.3-9ubuntu6.5),
  libxml2 (= 2.9.14+dfsg-1.3ubuntu3.7),
  libzstd1 (= 1.5.5+dfsg2-2build1.1),
- linux-libc-dev (= 6.8.0-106.106),
+ linux-libc-dev (= 6.8.0-110.110),
  llvm-14-linker-tools (= 1:14.0.6-19build4),
  llvm-15-linker-tools (= 1:15.0.7-14build3),
  llvm-17-linker-tools (= 1:17.0.6-9ubuntu1),
@@ -244,16 +244,16 @@ Installed-Build-Depends:
  po-debconf (= 1.0.21+nmu1),
  python3 (= 3.12.3-0ubuntu2.1),
  python3-minimal (= 3.12.3-0ubuntu2.1),
- python3.12 (= 3.12.3-1ubuntu0.12),
- python3.12-minimal (= 3.12.3-1ubuntu0.12),
+ python3.12 (= 3.12.3-1ubuntu0.13),
+ python3.12-minimal (= 3.12.3-1ubuntu0.13),
  readline-common (= 8.2-4build1),
  rpcsvc-proto (= 1.4.2-0ubuntu7),
- rustc (= 1.75.0+dfsg0ubuntu1-0ubuntu7.1),
+ rustc (= 1.75.0+dfsg0ubuntu1-0ubuntu7.4),
  sed (= 4.9-2build1),
  sensible-utils (= 0.0.22),
  sysvinit-utils (= 3.08-6ubuntu3),
  tar (= 1.35+dfsg-3build1),
- tzdata (= 2025b-0ubuntu0.24.04.1),
+ tzdata (= 2026a-0ubuntu0.24.04.1),
  util-linux (= 2.39.3-9ubuntu6.5),
  xz-utils (= 5.6.1+really5.4.5-1ubuntu0.2),
  zlib1g (= 1:1.3.dfsg-3.1ubuntu2.1),
@@ -261,5 +261,6 @@ Installed-Build-Depends:
 Environment:
  DEB_BUILD_OPTIONS="parallel=24"
  DEB_BUILD_PROFILES=""
- LANG="en_US.UTF-8"
+ DEB_VENDOR="Debian"
+ LANG="C.UTF-8"
  SOURCE_DATE_EPOCH="1775020647"

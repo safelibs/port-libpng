@@ -133,7 +133,10 @@ fn validate_write_args(
         return Err(image_error(image, b"png_image_write: invalid argument\0"));
     }
     if row_stride == i32::MIN {
-        return Err(image_error(image, b"png_image_write: row_stride too large\0"));
+        return Err(image_error(
+            image,
+            b"png_image_write: row_stride too large\0",
+        ));
     }
 
     Ok(())
@@ -378,14 +381,7 @@ pub unsafe extern "C" fn png_image_write_to_stdio(
             return result;
         }
 
-        image_write_to_stdio(
-            image,
-            file,
-            convert_to_8bit,
-            buffer,
-            row_stride,
-            colormap,
-        )
+        image_write_to_stdio(image, file, convert_to_8bit, buffer, row_stride, colormap)
     })
 }
 
@@ -400,8 +396,7 @@ pub unsafe extern "C" fn png_image_write_to_memory(
     colormap: png_const_voidp,
 ) -> c_int {
     crate::abi_guard_no_png!(unsafe {
-        if let Err(result) =
-            validate_write_to_memory_args(image, memory_bytes, buffer, row_stride)
+        if let Err(result) = validate_write_to_memory_args(image, memory_bytes, buffer, row_stride)
         {
             return result;
         }

@@ -16,8 +16,8 @@ use core::ffi::{c_char, c_int};
 use core::ptr;
 use libc::FILE;
 use png::{
-    expand_interlaced_row, Adam7Info, BitDepth as PngBitDepth, ColorType as PngColorType, Decoder,
-    Transformations,
+    Adam7Info, BitDepth as PngBitDepth, ColorType as PngColorType, Decoder, Transformations,
+    expand_interlaced_row,
 };
 use std::io::Cursor;
 
@@ -252,12 +252,7 @@ fn clear_scal(info_state: &mut state::PngInfoState) {
     info_state.core.free_me &= !PNG_FREE_SCAL;
 }
 
-fn store_scal(
-    info_state: &mut state::PngInfoState,
-    unit: c_int,
-    width: Vec<u8>,
-    height: Vec<u8>,
-) {
+fn store_scal(info_state: &mut state::PngInfoState, unit: c_int, width: Vec<u8>, height: Vec<u8>) {
     info_state.scal_unit = unit;
     info_state.scal_width = width;
     info_state.scal_height = height;
@@ -548,7 +543,11 @@ fn write_pixel_from_model(pixel: &mut [u8], format: png_uint_32, model: Simplifi
             [model.red, model.green, model.blue]
         };
         for component in components {
-            write_component(&mut pixel[offset..offset + component_size], component_size, component);
+            write_component(
+                &mut pixel[offset..offset + component_size],
+                component_size,
+                component,
+            );
             offset += component_size;
         }
     } else {
@@ -1046,7 +1045,10 @@ impl RowLayout {
     }
 
     fn has_alpha(self) -> bool {
-        matches!(self.color_type, PngColorType::GrayscaleAlpha | PngColorType::Rgba)
+        matches!(
+            self.color_type,
+            PngColorType::GrayscaleAlpha | PngColorType::Rgba
+        )
     }
 
     fn has_color(self) -> bool {
@@ -1054,7 +1056,10 @@ impl RowLayout {
     }
 
     fn rowbytes(self, width: usize) -> Option<usize> {
-        checked_rowbytes_for_width(width, self.channels().checked_mul(usize::from(self.bit_depth))?)
+        checked_rowbytes_for_width(
+            width,
+            self.channels().checked_mul(usize::from(self.bit_depth))?,
+        )
     }
 }
 
@@ -1167,11 +1172,7 @@ fn decode_file_sample(sample: u16, bit_depth: png_byte, significant_bits: png_by
     }
 }
 
-fn quantize_sample(
-    normalized: f64,
-    bit_depth: png_byte,
-    accurate_rounding: bool,
-) -> Option<u16> {
+fn quantize_sample(normalized: f64, bit_depth: png_byte, accurate_rounding: bool) -> Option<u16> {
     let max_value = sample_max(bit_depth)? as f64;
     let scaled = normalized.clamp(0.0, 1.0) * max_value;
     let quantized = if accurate_rounding {
@@ -1199,9 +1200,7 @@ fn scale_sample_depth(sample: u16, from_depth: png_byte, to_depth: png_byte) -> 
 fn background_sample_depth(core: &png_safe_read_core) -> png_byte {
     if (core.transformations & PNG_EXPAND_16) != 0 || core.bit_depth == 16 {
         16
-    } else if core.color_type == 0
-        && core.bit_depth < 8
-        && (core.transformations & PNG_EXPAND) == 0
+    } else if core.color_type == 0 && core.bit_depth < 8 && (core.transformations & PNG_EXPAND) == 0
     {
         core.bit_depth
     } else {
@@ -1260,7 +1259,9 @@ fn linear_background_component(
         PNG_BACKGROUND_GAMMA_UNIQUE => Some(1.0 / background_gamma.max(1e-5)),
         _ => None,
     };
-    if let Some(gamma) = decode_gamma.filter(|gamma: &f64| gamma.is_finite() && significant_gamma(*gamma)) {
+    if let Some(gamma) =
+        decode_gamma.filter(|gamma: &f64| gamma.is_finite() && significant_gamma(*gamma))
+    {
         normalized = normalized.powf(gamma);
     }
 
@@ -1268,7 +1269,11 @@ fn linear_background_component(
 }
 
 fn active_channel_sbit(core: &png_safe_read_core, layout: RowLayout, channel: usize) -> png_byte {
-    let default_bits = if layout.is_indexed() { 8 } else { layout.bit_depth };
+    let default_bits = if layout.is_indexed() {
+        8
+    } else {
+        layout.bit_depth
+    };
     if (core.transformations & PNG_SHIFT) == 0 {
         return default_bits;
     }
@@ -1318,11 +1323,12 @@ fn output_layout(
 
     if (core.transformations & PNG_EXPAND) != 0 {
         if layout.is_indexed() {
-            layout.color_type = if has_trns && info_state.is_some_and(|info| info.core.num_trans != 0) {
-                PngColorType::Rgba
-            } else {
-                PngColorType::Rgb
-            };
+            layout.color_type =
+                if has_trns && info_state.is_some_and(|info| info.core.num_trans != 0) {
+                    PngColorType::Rgba
+                } else {
+                    PngColorType::Rgb
+                };
             layout.bit_depth = 8;
         } else {
             if layout.bit_depth < 8 {
@@ -1358,9 +1364,7 @@ fn output_layout(
         layout.color_type = add_alpha(layout.color_type);
     }
 
-    if (core.transformations & PNG_EXPAND_16) != 0
-        && layout.bit_depth == 8
-        && !layout.is_indexed()
+    if (core.transformations & PNG_EXPAND_16) != 0 && layout.bit_depth == 8 && !layout.is_indexed()
     {
         layout.bit_depth = 16;
     }
@@ -1379,10 +1383,12 @@ fn output_layout(
 fn packswap_byte(value: u8, bit_depth: png_byte) -> u8 {
     match bit_depth {
         1 => value.reverse_bits(),
-        2 => ((value & 0b1100_0000) >> 6)
-            | ((value & 0b0011_0000) >> 2)
-            | ((value & 0b0000_1100) << 2)
-            | ((value & 0b0000_0011) << 6),
+        2 => {
+            ((value & 0b1100_0000) >> 6)
+                | ((value & 0b0011_0000) >> 2)
+                | ((value & 0b0000_1100) << 2)
+                | ((value & 0b0000_0011) << 6)
+        }
         4 => value.rotate_right(4),
         _ => value,
     }
@@ -1468,7 +1474,12 @@ fn decode_row_samples(row: &[u8], width: usize, layout: RowLayout) -> Option<Vec
             if row.len() < expected {
                 return None;
             }
-            Some(row.iter().take(expected).map(|&sample| u16::from(sample)).collect())
+            Some(
+                row.iter()
+                    .take(expected)
+                    .map(|&sample| u16::from(sample))
+                    .collect(),
+            )
         }
         (_, 16) => {
             let expected = width.checked_mul(channels)?.checked_mul(2)?;
@@ -1566,7 +1577,11 @@ pub(crate) fn copy_packed_row_preserving_padding(
 fn palette_color(info_state: Option<&state::PngInfoState>, index: usize) -> Option<[u16; 3]> {
     let info_state = info_state?;
     let color = info_state.palette.get(index)?;
-    Some([u16::from(color.red), u16::from(color.green), u16::from(color.blue)])
+    Some([
+        u16::from(color.red),
+        u16::from(color.green),
+        u16::from(color.blue),
+    ])
 }
 
 fn palette_alpha(info_state: Option<&state::PngInfoState>, index: usize) -> u16 {
@@ -1592,7 +1607,11 @@ fn background_composed_palette(
         .iter()
         .enumerate()
         .map(|(index, color)| {
-            let alpha = info_state.trans_alpha.get(index).copied().unwrap_or(u8::MAX);
+            let alpha = info_state
+                .trans_alpha
+                .get(index)
+                .copied()
+                .unwrap_or(u8::MAX);
             png_color {
                 red: compose_palette_sample(color.red, core.background.red, alpha),
                 green: compose_palette_sample(color.green, core.background.green, alpha),
@@ -1627,14 +1646,16 @@ fn trns_alpha(
             let red = *pixel_samples.first()?;
             let green = *pixel_samples.get(1)?;
             let blue = *pixel_samples.get(2)?;
-            Some(if matches_trns(red, info_state.core.trans_color.red)
-                && matches_trns(green, info_state.core.trans_color.green)
-                && matches_trns(blue, info_state.core.trans_color.blue)
-            {
-                0
-            } else {
-                u16::try_from(sample_max(source_layout.bit_depth)?).ok()?
-            })
+            Some(
+                if matches_trns(red, info_state.core.trans_color.red)
+                    && matches_trns(green, info_state.core.trans_color.green)
+                    && matches_trns(blue, info_state.core.trans_color.blue)
+                {
+                    0
+                } else {
+                    u16::try_from(sample_max(source_layout.bit_depth)?).ok()?
+                },
+            )
         }
         _ => None,
     }
@@ -1696,8 +1717,7 @@ fn transform_row(
     let rgb_to_gray = (core.transformations & PNG_RGB_TO_GRAY) != 0
         && (source_layout.has_color() || source_layout.is_indexed())
         && !dest_layout.has_color();
-    let (rgb_to_gray_red, rgb_to_gray_green, rgb_to_gray_blue) =
-        rgb_to_gray_coefficients(core);
+    let (rgb_to_gray_red, rgb_to_gray_green, rgb_to_gray_blue) = rgb_to_gray_coefficients(core);
 
     for pixel in 0..width {
         let src_index = pixel.checked_mul(source_layout.channels())?;
@@ -1763,10 +1783,10 @@ fn transform_row(
         } else {
             source_layout.bit_depth
         };
-        let filler_alpha = if source_alpha.is_none()
-            && uses_filler_alpha
-        {
-            filler.map(|filler| filler.value & (sample_max(dest_layout.bit_depth).unwrap_or(255) as u16))
+        let filler_alpha = if source_alpha.is_none() && uses_filler_alpha {
+            filler.map(|filler| {
+                filler.value & (sample_max(dest_layout.bit_depth).unwrap_or(255) as u16)
+            })
         } else {
             None
         };
@@ -1787,13 +1807,16 @@ fn transform_row(
         let strip_alpha = (core.transformations & PNG_STRIP_ALPHA) != 0;
         let optimize_alpha = (core.flags & PNG_FLAG_OPTIMIZE_ALPHA) != 0;
         let encode_alpha = (core.transformations & PNG_ENCODE_ALPHA) != 0;
-        let alpha_before =
-            ((core.transformations & PNG_SWAP_ALPHA) != 0 && source_alpha.is_some())
-                || (filler.is_some_and(|filler| !filler.after) && filler_alpha.is_some());
+        let alpha_before = ((core.transformations & PNG_SWAP_ALPHA) != 0 && source_alpha.is_some())
+            || (filler.is_some_and(|filler| !filler.after) && filler_alpha.is_some());
         let mut pixel_outputs = Vec::with_capacity(dest_channels);
 
         if rgb_to_gray {
-            let source_bit_depth = if source_layout.is_indexed() { 8 } else { source_layout.bit_depth };
+            let source_bit_depth = if source_layout.is_indexed() {
+                8
+            } else {
+                source_layout.bit_depth
+            };
             let red = decode_file_sample(
                 color[0],
                 source_bit_depth,
@@ -1830,7 +1853,11 @@ fn transform_row(
             if let Some(screen_inverse) = gamma.screen_inverse {
                 gray = gray.powf(screen_inverse);
             }
-            pixel_outputs.push(quantize_sample(gray, dest_layout.bit_depth, accurate_quantization)?);
+            pixel_outputs.push(quantize_sample(
+                gray,
+                dest_layout.bit_depth,
+                accurate_quantization,
+            )?);
         } else {
             for channel in 0..color_channels(dest_layout.color_type) {
                 let source_channel = if source_layout.has_color() || source_layout.is_indexed() {
@@ -1838,14 +1865,14 @@ fn transform_row(
                 } else {
                     0
                 };
-                let source_bit_depth =
-                    if source_layout.is_indexed() { 8 } else { source_layout.bit_depth };
+                let source_bit_depth = if source_layout.is_indexed() {
+                    8
+                } else {
+                    source_layout.bit_depth
+                };
                 let active_sbit = active_channel_sbit(core, source_layout, source_channel);
-                let input = decode_file_sample(
-                    color[source_channel],
-                    source_bit_depth,
-                    active_sbit,
-                );
+                let input =
+                    decode_file_sample(color[source_channel], source_bit_depth, active_sbit);
 
                 let output = if compose {
                     let mut linear = if let Some(file_inverse) = gamma.file_inverse {
@@ -1915,12 +1942,10 @@ fn transform_row(
         }
 
         if dest_layout.has_alpha() {
-            let alpha_sample = source_alpha
-                .or(filler_alpha)
-                .unwrap_or_else(|| {
-                    u16::try_from(sample_max(source_layout.bit_depth.max(8)).unwrap_or(255))
-                        .unwrap_or(u16::MAX)
-                });
+            let alpha_sample = source_alpha.or(filler_alpha).unwrap_or_else(|| {
+                u16::try_from(sample_max(source_layout.bit_depth.max(8)).unwrap_or(255))
+                    .unwrap_or(u16::MAX)
+            });
             let mut alpha_normalized = if source_alpha.is_some() {
                 decode_file_sample(alpha_sample, alpha_sample_depth, alpha_bits.max(1))
             } else if filler_alpha.is_some() {
@@ -1944,7 +1969,11 @@ fn transform_row(
                 };
                 quantize_sample(encoded, dest_layout.bit_depth, accurate_quantization)?
             } else {
-                quantize_sample(alpha_normalized, dest_layout.bit_depth, accurate_quantization)?
+                quantize_sample(
+                    alpha_normalized,
+                    dest_layout.bit_depth,
+                    accurate_quantization,
+                )?
             };
 
             if alpha_before {
@@ -2005,7 +2034,8 @@ fn decode_rows_from_bytes(
     let handled_interlace =
         reader.info().interlaced && (core.transformations & PNG_INTERLACE_TRANSFORM) != 0;
     let rows = if handled_interlace {
-        let raw_bits_per_pixel = usize::from(source_layout.bit_depth).checked_mul(source_layout.channels())?;
+        let raw_bits_per_pixel =
+            usize::from(source_layout.bit_depth).checked_mul(source_layout.channels())?;
         let raw_rowbytes = checked_rowbytes_for_width(width, raw_bits_per_pixel)?;
         let mut canvas = vec![0u8; raw_rowbytes.checked_mul(height)?];
         let mut rows = Vec::with_capacity(height.checked_mul(7)?);
@@ -2016,7 +2046,10 @@ fn decode_rows_from_bytes(
             let pass_samples = adam7_pass_samples(output_width, pass);
             let mut line_in_pass = 0u32;
             for y in 0..output_height {
-                if pass_samples != 0 && line_in_pass < pass_lines && y == adam7_pass_y(pass, line_in_pass) {
+                if pass_samples != 0
+                    && line_in_pass < pass_lines
+                    && y == adam7_pass_y(pass, line_in_pass)
+                {
                     let row = actual_row?;
                     expand_interlaced_row(
                         &mut canvas,
@@ -2057,7 +2090,15 @@ fn decode_rows_from_bytes(
             .chunks(output.line_size)
             .take(height)
             .map(|raw_row| {
-                transform_row(raw_row, width, source_layout, dest_layout, core, info_state, filler)
+                transform_row(
+                    raw_row,
+                    width,
+                    source_layout,
+                    dest_layout,
+                    core,
+                    info_state,
+                    filler,
+                )
             })
             .collect::<Option<Vec<_>>>()?
     };
@@ -2182,13 +2223,18 @@ fn extract_adam7_pass_row(full_row: &[u8], core: &png_safe_read_core) -> Option<
     let mut pass_samples = Vec::with_capacity(pass_width.checked_mul(channels)?);
 
     for index in 0..pass_width {
-        let x = usize::try_from(x_offset).ok()?.checked_add(index.checked_mul(usize::try_from(x_sampling).ok()?)?)?;
+        let x = usize::try_from(x_offset)
+            .ok()?
+            .checked_add(index.checked_mul(usize::try_from(x_sampling).ok()?)?)?;
         let start = x.checked_mul(channels)?;
         let end = start.checked_add(channels)?;
         pass_samples.extend_from_slice(source_samples.get(start..end)?);
     }
 
-    Some((encode_row_samples(&pass_samples, pass_width, layout)?, pass_width))
+    Some((
+        encode_row_samples(&pass_samples, pass_width, layout)?,
+        pass_width,
+    ))
 }
 
 fn decodable_png_bytes(bytes: &[png_byte]) -> Vec<png_byte> {
@@ -2306,26 +2352,28 @@ fn max_palette_index_in_row(row: &[png_byte], bit_depth: png_byte, width: usize)
 }
 
 fn ensure_decoded_read_image(png_ptr: png_structrp) -> Option<state::DecodedReadImage> {
-    if let Some(image) = state::with_png(png_ptr, |png_state| png_state.decoded_read_image.clone()).flatten() {
+    if let Some(image) =
+        state::with_png(png_ptr, |png_state| png_state.decoded_read_image.clone()).flatten()
+    {
         return Some(image);
     }
 
     let (bytes, core, options, info_ptr, info_state, filler) =
         state::with_png(png_ptr, |png_state| {
-        (
-            png_state.captured_input.clone(),
-            png_state.core,
-            png_state.options,
-            png_state.read_info_ptr,
-            png_state.read_source_info.clone(),
-            ((png_state.core.transformations & (PNG_FILLER | PNG_ADD_ALPHA)) != 0).then_some(
-                FillerTransform {
-                    value: png_state.filler,
-                    after: (png_state.core.flags & PNG_FLAG_FILLER_AFTER) != 0,
-                },
-            ),
-        )
-    })?;
+            (
+                png_state.captured_input.clone(),
+                png_state.core,
+                png_state.options,
+                png_state.read_info_ptr,
+                png_state.read_source_info.clone(),
+                ((png_state.core.transformations & (PNG_FILLER | PNG_ADD_ALPHA)) != 0).then_some(
+                    FillerTransform {
+                        value: png_state.filler,
+                        after: (png_state.core.flags & PNG_FLAG_FILLER_AFTER) != 0,
+                    },
+                ),
+            )
+        })?;
     if bytes.is_empty() {
         return None;
     }
@@ -2335,9 +2383,13 @@ fn ensure_decoded_read_image(png_ptr: png_structrp) -> Option<state::DecodedRead
         fill_missing_trns_from_bytes(&bytes, core.color_type, info);
     }
     let decodable_bytes = decodable_png_bytes(&bytes);
-    let Some((image, updated_core)) =
-        decode_rows_from_bytes(&decodable_bytes, &core, options, info_state.as_ref(), filler)
-    else {
+    let Some((image, updated_core)) = decode_rows_from_bytes(
+        &decodable_bytes,
+        &core,
+        options,
+        info_state.as_ref(),
+        filler,
+    ) else {
         return None;
     };
     state::update_png(png_ptr, |png_state| {
@@ -2611,8 +2663,9 @@ fn drain_idat_stream(png_ptr: png_structrp) -> bool {
             }
         }
 
-        let has_pending_header = state::with_png(png_ptr, |png_state| png_state.has_pending_chunk_header)
-            .unwrap_or(false);
+        let has_pending_header =
+            state::with_png(png_ptr, |png_state| png_state.has_pending_chunk_header)
+                .unwrap_or(false);
         if has_pending_header {
             return true;
         }
@@ -2908,14 +2961,20 @@ pub unsafe extern "C" fn bridge_png_get_user_height_max(
 pub unsafe extern "C" fn bridge_png_get_chunk_cache_max(
     png_ptr: png_const_structrp,
 ) -> png_uint_32 {
-    state::with_png(png_ptr.cast_mut(), |png_state| png_state.user_chunk_cache_max).unwrap_or(0)
+    state::with_png(png_ptr.cast_mut(), |png_state| {
+        png_state.user_chunk_cache_max
+    })
+    .unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bridge_png_get_chunk_malloc_max(
     png_ptr: png_const_structrp,
 ) -> png_alloc_size_t {
-    state::with_png(png_ptr.cast_mut(), |png_state| png_state.user_chunk_malloc_max).unwrap_or(0)
+    state::with_png(png_ptr.cast_mut(), |png_state| {
+        png_state.user_chunk_malloc_max
+    })
+    .unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
@@ -3158,7 +3217,11 @@ pub unsafe extern "C" fn bridge_png_get_IHDR(
             *filter_method = c_int::from(core.filter_type);
         }
     }
-    if core.width != 0 && core.height != 0 { 1 } else { 0 }
+    if core.width != 0 && core.height != 0 {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -3671,7 +3734,8 @@ pub unsafe extern "C" fn bridge_png_set_eXIf(
         return;
     }
     state::update_info(info_ptr, |info_state| {
-        info_state.exif = unsafe { core::slice::from_raw_parts(exif, info_state.exif.len()) }.to_vec();
+        info_state.exif =
+            unsafe { core::slice::from_raw_parts(exif, info_state.exif.len()) }.to_vec();
         info_state.core.valid |= PNG_INFO_eXIf;
     });
 }
@@ -3901,7 +3965,8 @@ pub unsafe extern "C" fn bridge_png_set_iCCP(
     }
     let name_len = unsafe { libc::strlen(name) };
     state::update_info(info_ptr, |info_state| {
-        info_state.iccp_name = unsafe { core::slice::from_raw_parts(name.cast::<u8>(), name_len + 1) }.to_vec();
+        info_state.iccp_name =
+            unsafe { core::slice::from_raw_parts(name.cast::<u8>(), name_len + 1) }.to_vec();
         info_state.iccp_profile =
             unsafe { core::slice::from_raw_parts(profile, proflen as usize) }.to_vec();
         info_state.core.valid |= PNG_INFO_iCCP;
@@ -4175,7 +4240,9 @@ pub unsafe extern "C" fn png_safe_set_unknown_chunks(
     unknowns: png_unknown_chunkp,
     num_unknowns: c_int,
 ) -> c_int {
-    unsafe { crate::compat_exports::store_unknown_chunks_impl(png_ptr, info_ptr, unknowns, num_unknowns) };
+    unsafe {
+        crate::compat_exports::store_unknown_chunks_impl(png_ptr, info_ptr, unknowns, num_unknowns)
+    };
     1
 }
 
@@ -4248,10 +4315,9 @@ pub unsafe extern "C" fn png_safe_call_read_data(
     let callback = state::with_png(png_ptr, |png_state| png_state.read_data_fn).flatten();
     if let Some(callback) = callback {
         unsafe { callback(png_ptr, buffer, size) };
-        let progressive_short_read = state::with_png(png_ptr, |png_state| {
-            png_state.progressive_state.short_read
-        })
-        .unwrap_or(false);
+        let progressive_short_read =
+            state::with_png(png_ptr, |png_state| png_state.progressive_state.short_read)
+                .unwrap_or(false);
         if progressive_short_read {
             return 0;
         }
@@ -4298,7 +4364,8 @@ pub unsafe extern "C" fn png_safe_call_read_transform_info(
     png_ptr: png_structrp,
     info_ptr: png_inforp,
 ) -> c_int {
-    let source_info = state::with_png(png_ptr, |png_state| png_state.read_source_info.clone()).flatten();
+    let source_info =
+        state::with_png(png_ptr, |png_state| png_state.read_source_info.clone()).flatten();
     let core = transformed_output_core(read_core(png_ptr), source_info.as_ref());
     if !info_ptr.is_null() {
         state::update_info(info_ptr, |info_state| {
@@ -4327,7 +4394,8 @@ pub unsafe extern "C" fn png_safe_call_read_transform_info(
                 if (read_core(png_ptr).transformations & PNG_COMPOSE) != 0
                     && read_core(png_ptr).color_type == 3
                 {
-                    info_state.palette = background_composed_palette(source_info, &read_core(png_ptr));
+                    info_state.palette =
+                        background_composed_palette(source_info, &read_core(png_ptr));
                     info_state.trans_alpha.clear();
                     info_state.core.num_trans = 0;
                     info_state.core.valid &= !PNG_INFO_tRNS;
@@ -4447,7 +4515,9 @@ pub unsafe extern "C" fn png_safe_progressive_buffer_read_bridge(
     out: png_bytep,
     length: usize,
 ) {
-    let _ = unsafe { crate::read_progressive::png_safe_rust_progressive_buffer_read(png_ptr, out, length) };
+    let _ = unsafe {
+        crate::read_progressive::png_safe_rust_progressive_buffer_read(png_ptr, out, length)
+    };
 }
 
 #[unsafe(no_mangle)]
@@ -4467,7 +4537,10 @@ pub unsafe extern "C" fn bridge_png_process_data_pause(
     png_ptr: png_structrp,
     _save: c_int,
 ) -> usize {
-    state::with_png(png_ptr, |png_state| png_state.progressive_state.last_pause_bytes).unwrap_or(0)
+    state::with_png(png_ptr, |png_state| {
+        png_state.progressive_state.last_pause_bytes
+    })
+    .unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
@@ -4475,8 +4548,7 @@ pub unsafe extern "C" fn bridge_png_process_data_skip(png_ptr: png_structrp) -> 
     unsafe {
         crate::error::png_warning(
             png_ptr,
-            c"png_process_data_skip is not implemented in any current version of libpng"
-                .as_ptr(),
+            c"png_process_data_skip is not implemented in any current version of libpng".as_ptr(),
         );
     }
     0
@@ -4491,10 +4563,7 @@ pub unsafe extern "C" fn bridge_png_write_info_before_PLTE(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn bridge_png_write_info(
-    png_ptr: png_structrp,
-    info_ptr: png_const_inforp,
-) {
+pub unsafe extern "C" fn bridge_png_write_info(png_ptr: png_structrp, info_ptr: png_const_inforp) {
     unsafe { crate::write_runtime::begin_write_info(png_ptr, info_ptr) };
 }
 
@@ -4531,7 +4600,9 @@ pub unsafe extern "C" fn bridge_png_write_end(png_ptr: png_structrp, _info_ptr: 
         unsafe {
             crate::error::png_benign_error(
                 png_ptr,
-                b"Wrote palette index exceeding num_palette\0".as_ptr().cast(),
+                b"Wrote palette index exceeding num_palette\0"
+                    .as_ptr()
+                    .cast(),
             );
         }
     }
@@ -4664,7 +4735,8 @@ pub unsafe extern "C" fn bridge_png_write_chunk(
     emit_write_bytes(png_ptr, &len);
     emit_write_bytes(png_ptr, name);
     emit_write_bytes(png_ptr, payload);
-    let crc = crate::read_util::png_crc32([name[0], name[1], name[2], name[3]], payload).to_be_bytes();
+    let crc =
+        crate::read_util::png_crc32([name[0], name[1], name[2], name[3]], payload).to_be_bytes();
     emit_write_bytes(png_ptr, &crc);
 }
 
@@ -4864,7 +4936,9 @@ pub unsafe extern "C" fn bridge_png_image_finish_read(
     row_stride: png_int_32,
     colormap: png_voidp,
 ) -> c_int {
-    unsafe { crate::simplified_runtime::finish_read(image, _background, buffer, row_stride, colormap) }
+    unsafe {
+        crate::simplified_runtime::finish_read(image, _background, buffer, row_stride, colormap)
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -5173,14 +5247,7 @@ pub(crate) unsafe fn image_write_to_stdio(
     colormap: png_const_voidp,
 ) -> c_int {
     unsafe {
-        bridge_png_image_write_to_stdio(
-            image,
-            file,
-            convert_to_8bit,
-            buffer,
-            row_stride,
-            colormap,
-        )
+        bridge_png_image_write_to_stdio(image, file, convert_to_8bit, buffer, row_stride, colormap)
     }
 }
 
