@@ -231,3 +231,48 @@ Remaining later-phase failures:
 
 - The 28 failed cases in `validator/artifacts/libpng-safe-source-api/results/libpng/` are the same deferred usage failures listed in the initial report: 26 Netpbm usage failures and 2 pngquant usage failures.
 - No validator bug exception is claimed for this phase.
+
+## Phase `impl-cli-source-failures`
+
+- Validator commit: `cc99047419226144eec3c1ab87873052bd9abedc`.
+- Assignment source: `validator-case-inventory.json` Phase 3 source case IDs `malformed-png-rejection`, `palette-fixture-handling`, and `pngfix-fixture-handling`.
+- Classification: no source fixture, `pngfix`, malformed-input, palette, package-installation, or missing-binary regression was found in the latest artifacts or in this phase's rerun. The three assigned source cases passed before changes and passed again after package refresh.
+- Tests added: none. Because the assigned source and CLI/package surfaces already pass, adding a new regression would duplicate the validator/source smoke coverage instead of reproducing a failing behavior.
+- Fixes applied: none in `safe/`. No validator testcase was edited or skipped.
+- Package refresh: rebuilt source and binary packages, refreshed `safe/pkg/source-snapshot-manifest.txt` through the package build, and synced rebuilt `.deb` files into `validator-overrides/libpng/`.
+- Refreshed validator artifacts: `validator/artifacts/libpng-safe-cli-source/`.
+
+Package SHA-256 after refresh:
+
+- `c33e9b9f76778ac1a3756e051ee7bbf3dd56392c76b45e74c3737ec20f97463d`  `libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb`
+- `815db9bc70d48856419182db5066964d75e15a7382e0631d94f9c1434c636060`  `libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb`
+- `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7`  `libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb`
+
+Validation commands:
+
+```bash
+safe/tools/check-examples-and-tools.sh
+safe/tools/run-upstream-tests.sh
+safe/tests/upstream/pngfix.sh
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+install -m0644 libpng*.deb validator-overrides/libpng/
+safe/tools/check-package-artifacts.sh
+cd validator && bash test.sh --config repositories.yml --tests-root tests --artifact-root "$PWD/artifacts/libpng-safe-cli-source" --mode original --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides --library libpng --record-casts
+```
+
+Validation results:
+
+- `safe/tools/check-examples-and-tools.sh`: exit code `0`; `pngcp`, `pngfix`, `timepng`, `pngtopng`, and packaged `png-fix-itxt` smokes passed.
+- `safe/tools/run-upstream-tests.sh`: exit code `0`; upstream smoke matrix and explicit `pngfix` consumer smoke passed.
+- `safe/tests/upstream/pngfix.sh`: exit code `0`.
+- Source package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa` exit code `0`.
+- Binary package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b` exit code `0`.
+- `safe/tools/check-package-artifacts.sh`: exit code `0`; package artifacts match the current safe packaging tree and source snapshot, and examples are present in `libpng-dev`.
+- Full validator rerun: exit code `1`, with 77/105 passed, 28 failed, and 105 casts recorded.
+- Source cases in the rerun: 5/5 passed. The assigned phase-3 cases `malformed-png-rejection`, `palette-fixture-handling`, and `pngfix-fixture-handling` each have `status: passed` and `exit_code: 0` in `validator/artifacts/libpng-safe-cli-source/results/libpng/`.
+
+Remaining later-phase failures:
+
+- The remaining 28 failed cases in `validator/artifacts/libpng-safe-cli-source/results/libpng/` are the same deferred usage failures already listed above: 26 Netpbm usage failures and 2 pngquant usage failures.
+- No validator bug exception is claimed for this phase.
