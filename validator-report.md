@@ -121,6 +121,72 @@ The explicit mapping for future failed IDs is:
 `usage-netpbm-` are Netpbm usage; IDs beginning `usage-pngquant-` are pngquant
 usage; every other failing ID is Other/catch-all.
 
+## Source/API Validator Fix Phase
+
+- Phase: `impl-source-api-validator-failures`.
+- Baseline source/API status: no source/API failures in the current run.
+  `chunk-metadata-inspection` and `read-write-c-api-smoke` both passed in
+  `validator/artifacts/libpng-safe-initial/results/libpng/`.
+- Local source/API reproducers added: none. The requested validator cases
+  already passed against the staged headers and override packages.
+- Safe source files changed: none.
+- Package rebuild: completed with
+  `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b`; the rebuilt
+  runtime, dev, and tools debs were refreshed into
+  `validator-overrides/libpng/`. SHA-256 values remained unchanged from the
+  initial baseline.
+- Package artifact gate: `safe/tools/check-package-artifacts.sh` passed.
+- Local verifier battery passed:
+  `cargo build --locked --release --manifest-path safe/Cargo.toml`,
+  `safe/tools/check-exports.sh`, `safe/tools/check-headers.sh`,
+  `safe/tools/check-link-compat.sh`, `safe/tools/check-install-surface.sh`,
+  `safe/tools/check-build-layout.sh`, `safe/tools/check-core-smoke.sh`,
+  `safe/tools/check-read-core.sh`, `safe/tools/check-read-transforms.sh`,
+  `safe/tools/run-read-tests.sh`, the required `safe/tools/run-write-tests.sh`
+  `pngstest-*` matrix, `safe/tools/run-upstream-tests.sh`,
+  `safe/tools/check-examples-and-tools.sh`,
+  `safe/tools/run-cve-regressions.sh --mode all`, and
+  `safe/tools/run-dependent-regressions.sh`.
+- Fresh full validator artifact root:
+  `validator/artifacts/libpng-safe-source-api/`.
+- Source/API phase validator exit code:
+  `validator/artifacts/libpng-safe-source-api/validator.exit-code` contains
+  `0`.
+
+Source/API phase summary:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 135,
+  "source_cases": 5,
+  "usage_cases": 130,
+  "passed": 135,
+  "failed": 0,
+  "casts": 135,
+  "duration_seconds": 0.0
+}
+```
+
+The specific source/API validator cases remain green in the fresh run:
+
+| Testcase ID | Status | Exit code |
+| --- | --- | --- |
+| `chunk-metadata-inspection` | passed | 0 |
+| `read-write-c-api-smoke` | passed | 0 |
+
+Remaining failure classification after this phase:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
+
 ## Inventory And Proof Notes
 
 `validator-case-inventory.json` was recomputed from the validator libpng
