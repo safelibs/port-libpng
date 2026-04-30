@@ -503,6 +503,175 @@ Remaining failure classification after this phase:
 | pngquant usage | none |
 | Other/catch-all | none |
 
+## pngquant Usage Validator Fix Phase
+
+- Phase: `impl-pngquant-usage-validator-failures`.
+- Consumed phase artifact root:
+  `validator/artifacts/libpng-safe-usage-netpbm/`.
+- Baseline pngquant status: no pngquant usage failures were present in the
+  consumed Netpbm phase results. All 50 `usage-pngquant-*` testcase JSON files
+  had `status: passed` and `exit_code: 0`; the Netpbm phase validator exit code
+  was `0`.
+- Local pngquant regressions added: none. There was no failing pngquant
+  behavior to reduce to a C reproducer in this phase.
+- Safe source files changed: none.
+- Package rebuild: completed with
+  `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b`; the rebuilt
+  runtime, dev, and tools debs were refreshed into
+  `validator-overrides/libpng/`. SHA-256 values remained unchanged.
+- Package artifact gate: `safe/tools/check-package-artifacts.sh` passed.
+- Fresh full validator artifact root:
+  `validator/artifacts/libpng-safe-usage-pngquant/`.
+- pngquant phase validator exit code:
+  `validator/artifacts/libpng-safe-usage-pngquant/validator.exit-code`
+  contains `0`.
+
+Commands executed for this phase:
+
+```bash
+jq -r 'select(.status != "passed") | input_filename + "\t" + (.status|tostring) + "\t" + (.reason // .error // .message // "")' \
+  validator/artifacts/libpng-safe-usage-netpbm/results/libpng/usage-pngquant-*.json
+cargo build --locked --release --manifest-path safe/Cargo.toml
+safe/tools/check-exports.sh
+safe/tools/check-headers.sh
+safe/tools/check-link-compat.sh
+safe/tools/check-install-surface.sh
+safe/tools/check-build-layout.sh
+safe/tools/check-core-smoke.sh
+safe/tools/check-read-core.sh
+safe/tools/check-read-transforms.sh
+safe/tools/run-read-tests.sh
+safe/tools/run-write-tests.sh \
+  pngstest-1.8 pngstest-1.8-alpha pngstest-large-stride \
+  pngstest-linear pngstest-linear-alpha pngstest-none \
+  pngstest-none-alpha pngstest-sRGB pngstest-sRGB-alpha
+safe/tools/run-upstream-tests.sh
+safe/tools/check-examples-and-tools.sh
+safe/tools/run-cve-regressions.sh --mode all
+safe/tools/run-dependent-regressions.sh
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+cp -f libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb \
+  libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb \
+  libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb \
+  validator-overrides/libpng/
+safe/tools/check-package-artifacts.sh
+rm -rf validator/artifacts/libpng-safe-usage-pngquant
+set +e
+cd validator
+bash test.sh --config repositories.yml --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-usage-pngquant" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+status=$?
+printf '%s\n' "$status" > "$PWD/artifacts/libpng-safe-usage-pngquant/validator.exit-code"
+exit "$status"
+```
+
+pngquant phase package artifact SHA-256 values:
+
+| SHA-256 | Artifact |
+| --- | --- |
+| `e4284ee097a820e934d154675179140d49417276f80fed273b223ce16ab9c8d8` | `libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `410e64ccf940aa321584d670326876a3a61406003d44fa30f8c40e94fa1a3886` | `libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7` | `libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `1c567d67fbc99e6a32015d434895edb5bd2bbcdeb810a749d80e5f4745dcce4b` | `libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb` |
+| `0b0697d920eba71496e56b3be1c175be60b7df2835ea7f5f3de7ef933db82b6e` | `libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb` |
+| `f07558cabbc0cf6d369cb695d040dfdb207326d0ac5b0be1eabb7575e34fdc97` | `libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb` |
+| `392eb0ea6445677ec3954013362ba1bb594f09ed40b14190098b318c487cc1a9` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.buildinfo` |
+| `9006ea70acb6ac634dbe640739600f5faea2fdad6262a5666afb46d60561b6cd` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.changes` |
+
+pngquant phase override SHA-256 values:
+
+| SHA-256 | Override artifact |
+| --- | --- |
+| `e4284ee097a820e934d154675179140d49417276f80fed273b223ce16ab9c8d8` | `validator-overrides/libpng/libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `410e64ccf940aa321584d670326876a3a61406003d44fa30f8c40e94fa1a3886` | `validator-overrides/libpng/libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7` | `validator-overrides/libpng/libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+
+pngquant phase summary:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 135,
+  "source_cases": 5,
+  "usage_cases": 130,
+  "passed": 135,
+  "failed": 0,
+  "casts": 135,
+  "duration_seconds": 0.0
+}
+```
+
+All pngquant usage cases passed in the fresh run:
+
+```text
+usage-pngquant-cant-open-input-png
+usage-pngquant-colors-256-png
+usage-pngquant-colors-eight-png
+usage-pngquant-colors-eight-png-generated
+usage-pngquant-colors-four-png
+usage-pngquant-colors-four-png-generated
+usage-pngquant-colors-sixteen-png
+usage-pngquant-colors-sixtyfour-png
+usage-pngquant-colors-three-png
+usage-pngquant-colors-two-png
+usage-pngquant-compress-png
+usage-pngquant-ext-png
+usage-pngquant-floyd-png
+usage-pngquant-floyd-zero-png
+usage-pngquant-iebug-png
+usage-pngquant-map-palette-png
+usage-pngquant-nofs-png
+usage-pngquant-nofs-png-generated
+usage-pngquant-posterize-one-png
+usage-pngquant-posterize-png
+usage-pngquant-posterize-two-png
+usage-pngquant-quality-high-png
+usage-pngquant-quality-low-png
+usage-pngquant-quality-low-png-generated
+usage-pngquant-quality-mid-fixture-png
+usage-pngquant-quality-mid-png
+usage-pngquant-quality-min-only-png
+usage-pngquant-quality-png
+usage-pngquant-quality-range-png
+usage-pngquant-quality-seventy-ninety-png
+usage-pngquant-skip-if-larger-noop-png
+usage-pngquant-skip-if-larger-png
+usage-pngquant-skip-if-larger-trigger-png
+usage-pngquant-speed-eleven-png
+usage-pngquant-speed-extremes-png
+usage-pngquant-speed-five-png
+usage-pngquant-speed-four-png
+usage-pngquant-speed-one-png
+usage-pngquant-speed-one-png-generated
+usage-pngquant-speed-png
+usage-pngquant-speed-six-png
+usage-pngquant-speed-three-png
+usage-pngquant-stdin-input-png
+usage-pngquant-stdout-png
+usage-pngquant-strip-png
+usage-pngquant-strip-verify-png
+usage-pngquant-tiny-1x1-png
+usage-pngquant-transbug-png
+usage-pngquant-verbose-png
+usage-pngquant-verbose-stderr-png
+```
+
+Remaining failure classification after this phase:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
+
 ## Inventory And Proof Notes
 
 `validator-case-inventory.json` was recomputed from the validator libpng
