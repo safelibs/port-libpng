@@ -105,6 +105,7 @@ tests/cve-regressions/write/cve_2016_10087_text_remove_readd.c
 tests/cve-regressions/write/simplified_write_negative_stride_large_stride.c
 tests/dependents/palette_expand_shift.c
 tests/dependents/png_set_sig_bytes_custom_error.c
+tests/dependents/write_packing_indices.c
 tests/read-core/limit_rejects.c
 tests/read-core/progressive_read.c
 tests/read-core/sequential_read.c

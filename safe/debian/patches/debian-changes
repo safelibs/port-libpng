@@ -37987,7 +37987,7 @@ Forwarded: not-needed
 +}
 --- /dev/null
 +++ libpng1.6-1.6.43/src/write_runtime.rs
-@@ -0,0 +1,1676 @@
+@@ -0,0 +1,1694 @@
 +use crate::chunks::{read_core, read_info_core};
 +use crate::common::{
 +    PNG_INFO_bKGD, PNG_INFO_hIST, PNG_INFO_iCCP, PNG_INFO_oFFs, PNG_INFO_sBIT, PNG_INFO_sCAL,
@@ -39376,14 +39376,30 @@ Forwarded: not-needed
 +
 +fn maybe_transform_write_row(
 +    png_ptr: png_structrp,
-+    rowbytes: usize,
++    output_rowbytes: usize,
 +    row: png_const_bytep,
-+) -> Vec<u8> {
-+    let mut out = if row.is_null() || rowbytes == 0 {
++) -> Option<Vec<u8>> {
++    let transform_spec = state::with_png(png_ptr, |png_state| {
++        png_state
++            .write_session
++            .as_ref()
++            .and_then(|session| session.header_info.as_ref())
++            .and_then(|info_state| write_transform_spec(png_state, info_state))
++    })
++    .flatten();
++    let input_rowbytes = transform_spec
++        .map(|spec| spec.input.rowbytes)
++        .unwrap_or(output_rowbytes);
++
++    let mut out = if row.is_null() || input_rowbytes == 0 {
 +        Vec::new()
 +    } else {
-+        unsafe { slice::from_raw_parts(row, rowbytes) }.to_vec()
++        unsafe { slice::from_raw_parts(row, input_rowbytes) }.to_vec()
 +    };
++
++    if let Some(spec) = transform_spec {
++        out = transform_info_row(&out, spec)?;
++    }
 +
 +    let transform = io::write_user_transform_registration(png_ptr);
 +    if let Some((callback, _, _, _)) = transform {
@@ -39391,7 +39407,7 @@ Forwarded: not-needed
 +            let core = read_core(png_ptr);
 +            let mut row_info = png_row_info {
 +                width: core.width,
-+                rowbytes,
++                rowbytes: output_rowbytes,
 +                color_type: core.color_type,
 +                bit_depth: core.bit_depth,
 +                channels: core.channels,
@@ -39403,7 +39419,7 @@ Forwarded: not-needed
 +        }
 +    }
 +
-+    out
++    Some(out)
 +}
 +
 +pub(crate) unsafe fn write_row(png_ptr: png_structrp, row: png_const_bytep) {
@@ -39419,7 +39435,9 @@ Forwarded: not-needed
 +            .unwrap_or(png_state.core.rowbytes)
 +    })
 +    .unwrap_or(0);
-+    let row_data = maybe_transform_write_row(png_ptr, rowbytes, row);
++    let Some(row_data) = maybe_transform_write_row(png_ptr, rowbytes, row) else {
++        png_error_message(png_ptr, b"write error\0");
++    };
 +
 +    let callbacks = state::with_png_mut(png_ptr, |png_state| {
 +        let Some(session) = png_state.write_session.as_mut() else {
@@ -40783,7 +40801,7 @@ Forwarded: not-needed
 +exec "$safe_dir/tools/dpkg-genchanges-wrapper.sh" "$@"
 --- /dev/null
 +++ libpng1.6-1.6.43/pkg/source-snapshot-manifest.txt
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,149 @@
 +.gitignore
 +ANNOUNCE
 +CHANGES
@@ -40891,6 +40909,7 @@ Forwarded: not-needed
 +tests/cve-regressions/write/simplified_write_negative_stride_large_stride.c
 +tests/dependents/palette_expand_shift.c
 +tests/dependents/png_set_sig_bytes_custom_error.c
++tests/dependents/write_packing_indices.c
 +tests/read-core/limit_rejects.c
 +tests/read-core/progressive_read.c
 +tests/read-core/sequential_read.c
@@ -85299,3 +85318,164 @@ Forwarded: not-needed
 +  "$repo_root/original/contrib/testpngs/gray-2-1.8.png"
  
  printf 'read-transform and simplified-read smoke drivers passed against the staged safe libpng build\n'
+--- /dev/null
++++ libpng1.6-1.6.43/tests/dependents/write_packing_indices.c
+@@ -0,0 +1,158 @@
++#define _POSIX_C_SOURCE 200809L
++
++#include <png.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++static int write_fixture(const char *path) {
++    FILE *fp = fopen(path, "wb");
++    if (fp == NULL) {
++        perror("fopen");
++        return 1;
++    }
++
++    png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
++    if (png_ptr == NULL) {
++        fclose(fp);
++        fprintf(stderr, "png_create_write_struct failed\n");
++        return 1;
++    }
++
++    png_infop info_ptr = png_create_info_struct(png_ptr);
++    if (info_ptr == NULL) {
++        png_destroy_write_struct(&png_ptr, NULL);
++        fclose(fp);
++        fprintf(stderr, "png_create_info_struct failed\n");
++        return 1;
++    }
++
++    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
++        png_destroy_write_struct(&png_ptr, &info_ptr);
++        fclose(fp);
++        fprintf(stderr, "libpng signalled an error while writing packed fixture\n");
++        return 1;
++    }
++
++    png_color palette[9];
++    for (int i = 0; i < 9; ++i) {
++        palette[i].red = (png_byte)(60 + i * 8);
++        palette[i].green = (png_byte)(70 + i * 8);
++        palette[i].blue = (png_byte)(80 + i * 8);
++    }
++
++    png_init_io(png_ptr, fp);
++    png_set_IHDR(
++        png_ptr,
++        info_ptr,
++        3,
++        3,
++        4,
++        PNG_COLOR_TYPE_PALETTE,
++        PNG_INTERLACE_NONE,
++        PNG_COMPRESSION_TYPE_DEFAULT,
++        PNG_FILTER_TYPE_DEFAULT);
++    png_set_PLTE(png_ptr, info_ptr, palette, 9);
++    png_set_packing(png_ptr);
++    png_write_info(png_ptr, info_ptr);
++
++    png_byte row0[3] = {0, 1, 2};
++    png_byte row1[3] = {3, 4, 5};
++    png_byte row2[3] = {6, 7, 8};
++    png_bytep rows[3] = {row0, row1, row2};
++    png_write_image(png_ptr, rows);
++    png_write_end(png_ptr, info_ptr);
++
++    png_destroy_write_struct(&png_ptr, &info_ptr);
++    fclose(fp);
++    return 0;
++}
++
++static int read_and_check_fixture(const char *path) {
++    static const png_byte expected[9] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
++
++    FILE *fp = fopen(path, "rb");
++    if (fp == NULL) {
++        perror("fopen");
++        return 1;
++    }
++
++    png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
++    if (png_ptr == NULL) {
++        fclose(fp);
++        fprintf(stderr, "png_create_read_struct failed\n");
++        return 1;
++    }
++
++    png_infop info_ptr = png_create_info_struct(png_ptr);
++    if (info_ptr == NULL) {
++        png_destroy_read_struct(&png_ptr, NULL, NULL);
++        fclose(fp);
++        fprintf(stderr, "png_create_info_struct failed\n");
++        return 1;
++    }
++
++    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        fprintf(stderr, "libpng signalled an error while reading packed fixture\n");
++        return 1;
++    }
++
++    png_init_io(png_ptr, fp);
++    png_read_info(png_ptr, info_ptr);
++
++    if (png_get_image_width(png_ptr, info_ptr) != 3 ||
++        png_get_image_height(png_ptr, info_ptr) != 3 ||
++        png_get_color_type(png_ptr, info_ptr) != PNG_COLOR_TYPE_PALETTE ||
++        png_get_bit_depth(png_ptr, info_ptr) != 4) {
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        fprintf(stderr, "unexpected packed fixture metadata\n");
++        return 1;
++    }
++
++    png_set_packing(png_ptr);
++    png_read_update_info(png_ptr, info_ptr);
++
++    png_byte rows[3][3] = {{0}};
++    png_bytep row_ptrs[3] = {rows[0], rows[1], rows[2]};
++    png_read_image(png_ptr, row_ptrs);
++    png_read_end(png_ptr, NULL);
++
++    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++    fclose(fp);
++
++    if (memcmp(rows, expected, sizeof(expected)) != 0) {
++        fprintf(stderr, "packed write indices were not preserved:");
++        for (size_t i = 0; i < sizeof(expected); ++i) {
++            fprintf(stderr, " %u", (unsigned)((png_byte *)rows)[i]);
++        }
++        fprintf(stderr, "\n");
++        return 1;
++    }
++
++    return 0;
++}
++
++int main(int argc, char **argv) {
++    (void)argc;
++    (void)argv;
++
++    char path[] = "/tmp/libpng-safe-write-packing-XXXXXX";
++    int fd = mkstemp(path);
++    if (fd < 0) {
++        perror("mkstemp");
++        return 1;
++    }
++    close(fd);
++
++    int status = write_fixture(path);
++    if (status == 0) {
++        status = read_and_check_fixture(path);
++    }
++    unlink(path);
++
++    return status;
++}

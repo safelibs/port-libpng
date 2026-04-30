@@ -125,35 +125,7 @@ cd validator && python3 tools/verify_proof_artifacts.py --config repositories.ym
 | `usage-pngquant-quality-high-png` | `pngquant` | `testcase command exited with status 1` | `too few colors: 3` |
 | `usage-pngquant-speed-five-png` | `pngquant` | `testcase command exited with status 1` | `too few colors: 3` |
 
-Deferred failure markers for later implementation phases:
-- Deferred to catch-all: usage-netpbm-pamarith-add-png
-- Deferred to catch-all: usage-netpbm-pamchannel-blue-generated-png
-- Deferred to catch-all: usage-netpbm-pamchannel-green-png-generated
-- Deferred to catch-all: usage-netpbm-pamchannel-green-png
-- Deferred to catch-all: usage-netpbm-pamchannel-red-generated-png
-- Deferred to catch-all: usage-netpbm-pamchannel-red-png-generated
-- Deferred to catch-all: usage-netpbm-pamflip-ccw-grayscale-png
-- Deferred to catch-all: usage-netpbm-pamflip-cw-png-generated
-- Deferred to catch-all: usage-netpbm-pnmcat-leftright-png
-- Deferred to catch-all: usage-netpbm-pnmcat-topbottom-png
-- Deferred to catch-all: usage-netpbm-pnmcrop-border-png
-- Deferred to catch-all: usage-netpbm-pnmcut-bottom-row-png
-- Deferred to catch-all: usage-netpbm-pnmcut-corner-png
-- Deferred to catch-all: usage-netpbm-pnmcut-middle-column-png
-- Deferred to catch-all: usage-netpbm-pnmcut-middle-row-png
-- Deferred to catch-all: usage-netpbm-pnmfile-roundtrip-png
-- Deferred to catch-all: usage-netpbm-pnmflip-leftright-generated-png
-- Deferred to catch-all: usage-netpbm-pnmflip-leftright-png-generated
-- Deferred to catch-all: usage-netpbm-pnmflip-r180-png
-- Deferred to catch-all: usage-netpbm-pnmflip-rotate180-rgb-png
-- Deferred to catch-all: usage-netpbm-pnmflip-topbottom-png-generated
-- Deferred to catch-all: usage-netpbm-pnmflip-topbottom-png
-- Deferred to catch-all: usage-netpbm-pnmflip-transpose-png
-- Deferred to catch-all: usage-netpbm-pnminvert-png-generated
-- Deferred to catch-all: usage-netpbm-pnminvert-png
-- Deferred to catch-all: usage-netpbm-pnminvert-rgb-png-roundtrip
-- Deferred to catch-all: usage-pngquant-quality-high-png
-- Deferred to catch-all: usage-pngquant-speed-five-png
+Historical deferred failures for later implementation phases: the 28 initial usage failures listed above were resolved in Phase `impl-usage-client-failures`. There are no active catch-all deferrals after that phase.
 
 ## Fix Log
 
@@ -276,3 +248,50 @@ Remaining later-phase failures:
 
 - The remaining 28 failed cases in `validator/artifacts/libpng-safe-cli-source/results/libpng/` are the same deferred usage failures already listed above: 26 Netpbm usage failures and 2 pngquant usage failures.
 - No validator bug exception is claimed for this phase.
+
+## Phase `impl-usage-client-failures`
+
+- Validator commit: `cc99047419226144eec3c1ab87873052bd9abedc`.
+- Assignment source: latest usage failures from `validator/artifacts/libpng-safe-cli-source/results/libpng/`, restricted to the recorded `netpbm` and `pngquant` client cases.
+- Root cause: the write runtime initialized storage with packed PNG rowbytes but `png_write_row` copied only that packed byte count from client rows and did not apply internal write transforms. Clients such as `pnmtopng` write 1/2/4-bit grayscale or palette PNGs by passing one unpacked byte per sample after `png_set_packing`; libpng-safe truncated those rows and emitted unpacked index bytes as packed PNG data. That corrupted Netpbm pixel matrices and reduced the color diversity seen by pngquant usage cases.
+- Tests added: `safe/tests/dependents/write_packing_indices.c` writes a 3x3 4-bit palette PNG using unpacked indices plus `png_set_packing`, then reads it back and asserts the exact index grid. This reproduces the dependent-client corruption without depending on a specific downstream CLI.
+- Fixes applied: `safe/src/write_runtime.rs` now derives the active write-transform spec during `png_write_row`, copies the transform input row length, applies `transform_info_row`, and stores the packed output row. Existing user write transforms still see the final output row layout.
+- Package refresh: rebuilt source and binary packages, refreshed `safe/debian/patches/debian-changes`, refreshed root package artifacts, and synced rebuilt `.deb` files into `validator-overrides/libpng/`.
+- Refreshed validator artifacts: `validator/artifacts/libpng-safe-usage-client/`.
+- Residual usage failures: none. No catch-all deferrals are active after this phase.
+- Validator bug exceptions: none.
+
+Package SHA-256 after refresh:
+
+- `e4284ee097a820e934d154675179140d49417276f80fed273b223ce16ab9c8d8`  `libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb`
+- `410e64ccf940aa321584d670326876a3a61406003d44fa30f8c40e94fa1a3886`  `libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb`
+- `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7`  `libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb`
+- Override `.deb` SHA-256 values match the root package artifacts for all three packages.
+
+Validation commands:
+
+```bash
+cargo fmt --check
+cargo test
+safe/tools/run-dependent-regressions.sh
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+install -m0644 libpng*.deb validator-overrides/libpng/
+bash safe/tools/refresh-source-snapshot.sh
+safe/tools/check-package-artifacts.sh
+cd validator && bash test.sh --config repositories.yml --tests-root tests --artifact-root "$PWD/artifacts/libpng-safe-usage-client" --mode original --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides --library libpng --record-casts
+```
+
+Validation results:
+
+- `cargo fmt --check`: exit code `0`.
+- `cargo test`: exit code `0`.
+- `safe/tools/run-dependent-regressions.sh`: exit code `0`; `palette_expand_shift`, `png_set_sig_bytes_custom_error`, and `write_packing_indices` passed against the staged safe library.
+- Local Netpbm repros for the 4x4 grayscale matrix and 3x3 RGB color-diversity fixture passed with `LD_LIBRARY_PATH` pointed at the staged safe library.
+- Source package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa` exit code `0`.
+- Binary package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b` exit code `0`; package-time upstream smoke and link-compat checks passed.
+- Source snapshot refresh: `bash safe/tools/refresh-source-snapshot.sh` exit code `0`.
+- `safe/tools/check-package-artifacts.sh`: exit code `0`; package artifacts match the current safe packaging tree, and the safe source snapshot tar matches the tracked safe tree.
+- Full validator rerun: exit code `0`, with 105/105 passed, 0 failed, and 105 casts recorded.
+- Source cases in the rerun: 5/5 passed.
+- Usage cases in the rerun: 100/100 passed, including the 26 Netpbm and 2 pngquant cases that failed in `validator/artifacts/libpng-safe-cli-source/`.
