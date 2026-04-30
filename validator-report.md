@@ -199,6 +199,8 @@ safe/tools/check-package-artifacts.sh
 safe/tools/check-core-smoke.sh
 safe/tools/check-read-core.sh
 safe/tools/check-read-transforms.sh
+safe/tools/run-read-tests.sh
+safe/tools/run-upstream-tests.sh
 cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa
 cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
 cd validator && bash test.sh --config repositories.yml --tests-root tests --artifact-root "$PWD/artifacts/libpng-safe-source-api" --mode original --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides --library libpng --record-casts
@@ -214,6 +216,8 @@ Validation results:
 - `safe/tools/check-core-smoke.sh`: exit code `0`.
 - `safe/tools/check-read-core.sh`: exit code `0`.
 - `safe/tools/check-read-transforms.sh`: exit code `0`.
+- `safe/tools/run-read-tests.sh`: exit code `0`.
+- `safe/tools/run-upstream-tests.sh`: exit code `0`; `pngvalid-standard` passed, covering the upstream grayscale read validation matrix.
 - Source package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa` exit code `0`.
 - Binary package rebuild: `cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b` exit code `0`.
 - Full validator rerun: exit code `1`, with 77/105 passed, 28 failed, and 105 casts recorded.
