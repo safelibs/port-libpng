@@ -159,13 +159,100 @@ starting with `usage-pngquant-`; everything else falls into Other/catch-all.
 No failing testcases were observed in this initial run; the initial validator
 exit code is `0`. No validator suite files were modified.
 
+## Source/API Phase
+
+Phase: `impl-source-api-fixes`. Both source/API testcases
+(`chunk-metadata-inspection` and `read-write-c-api-smoke`) passed in the
+Phase 1 baseline at `validator/artifacts/libpng-safe-initial/`. No source/API
+failures exist in the current run, so no `safe/src/` changes, no new local C
+reproducers, and no validator suite edits were required for this phase. The
+existing source/API regressions are already covered by the local check
+batteries: `safe/tools/check-core-smoke.sh`,
+`safe/tools/check-read-core.sh`, and `safe/tools/check-read-transforms.sh`.
+Source files changed in this phase: none.
+
+Validator scripts referenced (read-only inputs):
+
+- `validator/tests/libpng/tests/cases/source/chunk-metadata-inspection.sh`
+- `validator/tests/libpng/tests/cases/source/read-write-c-api-smoke.sh`
+
+Source/API rerun commands, run from `/home/yans/safelibs/pipeline/ports/port-libpng`:
+
+```bash
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+safe/tools/check-package-artifacts.sh
+rm -f validator-overrides/libpng/*.deb
+cp libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+( cd safe && cargo fmt --check && cargo test --quiet )
+safe/tools/check-core-smoke.sh
+safe/tools/check-read-core.sh
+safe/tools/check-read-transforms.sh
+safe/tools/check-exports.sh
+safe/tools/check-headers.sh
+```
+
+Source/API validator rerun, run from `/home/yans/safelibs/pipeline/ports/port-libpng/validator`:
+
+```bash
+rm -rf artifacts/libpng-safe-source-api
+mkdir -p artifacts/libpng-safe-source-api
+set +e
+bash test.sh \
+  --config repositories.yml \
+  --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-source-api" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+status=$?
+printf '%s\n' "$status" > artifacts/libpng-safe-source-api/validator.exit-code
+exit "$status"
+```
+
+Source/API validator results:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 175,
+  "source_cases": 5,
+  "usage_cases": 170,
+  "passed": 175,
+  "failed": 0,
+  "casts": 175,
+  "duration_seconds": 0.0
+}
+```
+
+- Source/API summary JSON: `validator/artifacts/libpng-safe-source-api/results/libpng/summary.json`.
+- Source/API exit code file: `validator/artifacts/libpng-safe-source-api/validator.exit-code` (`0`).
+- `chunk-metadata-inspection`: `passed`.
+- `read-write-c-api-smoke`: `passed`.
+- Package SHA-256s match the Phase 1 baseline; rebuild is reproducible.
+
+Source/API rerun failures by class:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
+
 ## Artifact Gates
 
-The full-suite artifact gate was satisfied for the initial phase root:
+The full-suite artifact gate was satisfied for both phase roots:
 
 | Artifact root | Cases | Results | Logs | Casts | Exit code |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `validator/artifacts/libpng-safe-initial/` | 175 | 175 | 175 | 175 | 0 |
+| `validator/artifacts/libpng-safe-source-api/` | 175 | 175 | 175 | 175 | 0 |
 
 ## Proof And Exceptions
 
