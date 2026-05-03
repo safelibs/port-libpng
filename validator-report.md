@@ -354,6 +354,7 @@ Netpbm rerun commands, run from `/home/yans/safelibs/pipeline/ports/port-libpng`
 
 ```bash
 cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa
 safe/tools/check-package-artifacts.sh
 rm -f validator-overrides/libpng/*.deb
 cp libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
@@ -400,7 +401,16 @@ Netpbm validator results:
 - Netpbm summary JSON: `validator/artifacts/libpng-safe-usage-netpbm/results/libpng/summary.json`.
 - Netpbm exit code file: `validator/artifacts/libpng-safe-usage-netpbm/validator.exit-code` (`0`).
 - All 105 `usage-netpbm-*` testcases: `passed`.
-- Package SHA-256s match the Phase 1, Phase 2, and Phase 3 baselines; rebuild is reproducible.
+- Binary package SHA-256s (libpng16-16t64, libpng-dev, libpng-tools, dbgsyms, udeb, binary buildinfo, binary changes, orig.tar.xz) match the Phase 1, Phase 2, and Phase 3 baselines; binary rebuild is reproducible.
+- Source package SHA-256s (`libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc`, `.debian.tar.xz`, `.tar.xz`, `_source.buildinfo`, `_source.changes`) changed in this phase because the new dependent regression sources `safe/tests/dependents/validator_netpbm_palette_trns_color_pointer.c` and `safe/tests/dependents/validator_netpbm_text_chunk_empty.c` were added to `safe/pkg/source-snapshot-manifest.txt` and are now embedded in the safe source snapshot. Updated source SHA-256s:
+
+| SHA-256 | Source artifact |
+| --- | --- |
+| `4a76927c1d24fc1e061bb7d5a034700ff5bbde87ee5c665f69a591dc5eb4d418` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc` |
+| `13248ac375d630dc30fa3cbc25017706164a1c3df390145c8a548a4a3a88cd94` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz` |
+| `9a6522cf8fe4b4444684d462202684310055fa8458e3c22db9fee783a4814fdb` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.tar.xz` |
+| `cf8a88332f2c31100179e7c2c8108789179abba76405fbdc50f28e8caf521130` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo` |
+| `ad0ebf2ad46732b458525700d2f7bc37d006753a580b6372150ca19383f04f00` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.changes` |
 
 Netpbm rerun failures by class:
 
