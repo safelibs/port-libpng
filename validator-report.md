@@ -176,6 +176,87 @@ The full-suite artifact gate was satisfied for the initial phase root:
 | Artifact root | Cases | Results | Logs | Casts | Exit code |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `validator/artifacts/libpng-safe-initial/` | 175 | 175 | 175 | 175 | 1 |
+| `validator/artifacts/libpng-safe-source-api/` | 175 | 175 | 175 | 175 | 1 |
+
+## Source/API Phase: `impl-source-api-validator-failures`
+
+- Phase: `impl-source-api-validator-failures`.
+- Source/API testcases in scope: `chunk-metadata-inspection`, `read-write-c-api-smoke`.
+- Source/API result in baseline `validator/artifacts/libpng-safe-initial/`: both passed.
+- Source/API result in this phase root `validator/artifacts/libpng-safe-source-api/`: both passed.
+- No source/API failures in current run; this phase is documentation-only with a fresh full-suite rerun.
+- Reproducer paths: none added (no source/API failures to reproduce).
+- Safe source files changed: none.
+- Validator suite changes: none.
+
+Phase commands, run from `/home/yans/safelibs/pipeline/ports/port-libpng`:
+
+```bash
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+cd /home/yans/safelibs/pipeline/ports/port-libpng
+safe/tools/check-package-artifacts.sh
+rm -f validator-overrides/libpng/*.deb
+cp libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+safe/tools/check-headers.sh
+safe/tools/check-exports.sh
+safe/tools/check-core-smoke.sh
+safe/tools/check-read-core.sh
+safe/tools/check-read-transforms.sh
+```
+
+Source/API phase validator run, run from `/home/yans/safelibs/pipeline/ports/port-libpng/validator`:
+
+```bash
+rm -rf artifacts/libpng-safe-source-api
+mkdir -p artifacts/libpng-safe-source-api
+set +e
+bash test.sh \
+  --config repositories.yml \
+  --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-source-api" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+status=$?
+printf '%s\n' "$status" > artifacts/libpng-safe-source-api/validator.exit-code
+exit "$status"
+```
+
+Source/API phase validator summary (`validator/artifacts/libpng-safe-source-api/results/libpng/summary.json`):
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 175,
+  "source_cases": 5,
+  "usage_cases": 170,
+  "passed": 173,
+  "failed": 2,
+  "casts": 175,
+  "duration_seconds": 0.0
+}
+```
+
+Source/API phase validator exit code (`validator/artifacts/libpng-safe-source-api/validator.exit-code`): `1`.
+
+Remaining failures by class for this phase root:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | `usage-netpbm-pamtopng-text-chunk-png`, `usage-netpbm-pnmtopng-transparent-color-png` |
+| pngquant usage | none |
+| Other/catch-all | none |
+
+Package and override SHA-256 values are unchanged from the baseline rebuild
+recorded above; the source/API phase rebuild is byte-identical to the
+`impl-validator-baseline` rebuild.
 
 ## Proof And Exceptions
 
