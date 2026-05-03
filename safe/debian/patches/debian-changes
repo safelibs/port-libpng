@@ -28823,7 +28823,7 @@ Forwarded: not-needed
 -include!(concat!(env!("OUT_DIR"), "/abi_export_stubs.rs"));
 --- /dev/null
 +++ libpng1.6-1.6.43/src/bridge_ffi.rs
-@@ -0,0 +1,5278 @@
+@@ -0,0 +1,5296 @@
 +#![allow(dead_code)]
 +
 +use crate::chunks::{read_core, read_info_core, write_core, write_info_core};
@@ -32284,8 +32284,12 @@ Forwarded: not-needed
 +            if !num_trans.is_null() {
 +                unsafe { *num_trans = info_state.trans_alpha.len() as c_int };
 +            }
++            // Match upstream libpng: even for palette images the trans_color
++            // out-pointer is set to a stable, non-NULL location. Callers like
++            // netpbm pngx_trns dereference *trans_color unconditionally.
 +            if !trans_color.is_null() {
-+                unsafe { *trans_color = ptr::null_mut() };
++                *info_state.trns_color_cache = info_state.core.trans_color;
++                unsafe { *trans_color = &mut *info_state.trns_color_cache };
 +            }
 +        } else {
 +            if !trans_alpha.is_null() {
@@ -32878,8 +32882,22 @@ Forwarded: not-needed
 +                String::from_utf8_lossy(bytes).into_owned()
 +            };
 +
++            // Mirror libpng's png_set_text_2 normalization for empty payloads:
++            // an entry whose text body is empty is forced to an uncompressed
++            // chunk type so it round-trips as tEXt or uncompressed iTXt rather
++            // than zTXt. netpbm pamtopng relies on this when the user supplies
++            // a -text file whose payloads sit on continuation lines.
++            let mut compression = text.compression;
++            if content.is_empty() {
++                compression = if compression > 0 {
++                    PNG_ITXT_COMPRESSION_NONE
++                } else {
++                    PNG_TEXT_COMPRESSION_NONE
++                };
++            }
++
 +            info_state.text_chunks.push(state::OwnedTextChunk {
-+                compression: text.compression,
++                compression,
 +                keyword,
 +                text: content,
 +                language_tag,
@@ -85833,3 +85851,314 @@ Forwarded: not-needed
 +test "$validator_commit" = "$(jq -r '.validator_commit' validator-case-inventory.json)"
 +git diff --check -- safe/PORT.md
 +```
+--- /dev/null
++++ libpng1.6-1.6.43/tests/dependents/validator_netpbm_palette_trns_color_pointer.c
+@@ -0,0 +1,171 @@
++#define _POSIX_C_SOURCE 200809L
++
++#include <png.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++/*
++ * Reproduces the netpbm pngtopam -alphapam crash on a palette PNG with tRNS.
++ * pngx_trns() in netpbm calls png_get_tRNS and unconditionally dereferences
++ * the trans_color out-pointer. Upstream libpng always sets *trans_color to
++ * &info_ptr->trans_color (even for palette images, where the struct is
++ * effectively unused), so the dereference is safe. The safe wrapper used to
++ * write NULL into *trans_color, which segfaulted netpbm.
++ */
++
++static int write_palette_trns(const char *path) {
++    FILE *fp = fopen(path, "wb");
++    if (fp == NULL) {
++        perror("fopen");
++        return 1;
++    }
++    png_structp png_ptr =
++        png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
++    if (png_ptr == NULL) {
++        fclose(fp);
++        return 1;
++    }
++    png_infop info_ptr = png_create_info_struct(png_ptr);
++    if (info_ptr == NULL) {
++        png_destroy_write_struct(&png_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
++        png_destroy_write_struct(&png_ptr, &info_ptr);
++        fclose(fp);
++        return 1;
++    }
++
++    png_init_io(png_ptr, fp);
++    png_set_IHDR(png_ptr, info_ptr, 4, 4, 4, PNG_COLOR_TYPE_PALETTE,
++                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
++                 PNG_FILTER_TYPE_DEFAULT);
++
++    png_color palette[3];
++    memset(palette, 0, sizeof palette);
++    palette[0].red = 0;
++    palette[0].green = 0;
++    palette[0].blue = 0;
++    palette[1].red = 255;
++    palette[1].green = 255;
++    palette[1].blue = 255;
++    palette[2].red = 255;
++    palette[2].green = 0;
++    palette[2].blue = 255;
++    png_set_PLTE(png_ptr, info_ptr, palette, 3);
++
++    png_byte trans[3] = {255, 255, 0};
++    png_set_tRNS(png_ptr, info_ptr, trans, 3, NULL);
++
++    png_set_packing(png_ptr);
++    png_write_info(png_ptr, info_ptr);
++
++    png_byte row[4] = {0, 1, 2, 1};
++    for (int y = 0; y < 4; ++y) {
++        png_write_row(png_ptr, row);
++    }
++    png_write_end(png_ptr, NULL);
++    png_destroy_write_struct(&png_ptr, &info_ptr);
++    fclose(fp);
++    return 0;
++}
++
++static int read_and_call_get_trns_like_netpbm(const char *path) {
++    FILE *fp = fopen(path, "rb");
++    if (fp == NULL) {
++        perror("fopen");
++        return 1;
++    }
++    png_structp png_ptr =
++        png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
++    if (png_ptr == NULL) {
++        fclose(fp);
++        return 1;
++    }
++    png_infop info_ptr = png_create_info_struct(png_ptr);
++    if (info_ptr == NULL) {
++        png_destroy_read_struct(&png_ptr, NULL, NULL);
++        fclose(fp);
++        return 1;
++    }
++    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    png_init_io(png_ptr, fp);
++    png_read_info(png_ptr, info_ptr);
++
++    if (png_get_color_type(png_ptr, info_ptr) != PNG_COLOR_TYPE_PALETTE) {
++        fprintf(stderr, "fixture is not palette\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++    if ((png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS) & PNG_INFO_tRNS) == 0) {
++        fprintf(stderr, "fixture is missing tRNS\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    png_bytep trans_alpha = NULL;
++    int num_trans = 0;
++    png_color_16p trans_color = NULL;
++    png_get_tRNS(png_ptr, info_ptr, &trans_alpha, &num_trans, &trans_color);
++
++    /* netpbm dereferences trans_color unconditionally. Upstream libpng
++     * guarantees this pointer is non-NULL when tRNS is valid.
++     */
++    if (trans_color == NULL) {
++        fprintf(stderr, "png_get_tRNS returned NULL trans_color for palette image\n");
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++    png_color_16 deref = *trans_color;
++    (void)deref;
++
++    if (num_trans != 3 || trans_alpha == NULL) {
++        fprintf(stderr, "expected num_trans=3 and non-NULL trans_alpha, got %d %p\n",
++                num_trans, (void *)trans_alpha);
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++    if (trans_alpha[0] != 255 || trans_alpha[1] != 255 || trans_alpha[2] != 0) {
++        fprintf(stderr, "trans_alpha values were not preserved: %u %u %u\n",
++                trans_alpha[0], trans_alpha[1], trans_alpha[2]);
++        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++
++    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
++    fclose(fp);
++    return 0;
++}
++
++int main(int argc, char **argv) {
++    (void)argc;
++    (void)argv;
++
++    char path[] = "/tmp/libpng-safe-trns-color-XXXXXX";
++    int fd = mkstemp(path);
++    if (fd < 0) {
++        perror("mkstemp");
++        return 1;
++    }
++    close(fd);
++
++    int status = write_palette_trns(path);
++    if (status == 0) {
++        status = read_and_call_get_trns_like_netpbm(path);
++    }
++    unlink(path);
++    return status;
++}
+--- /dev/null
++++ libpng1.6-1.6.43/tests/dependents/validator_netpbm_text_chunk_empty.c
+@@ -0,0 +1,134 @@
++#define _POSIX_C_SOURCE 200809L
++
++#include <png.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++/*
++ * Reproduces the netpbm pamtopng -text usage failure. pamtopng builds an array
++ * of png_text entries with compression == PNG_TEXT_COMPRESSION_zTXt but with
++ * empty text bodies. Upstream png_set_text_2 normalizes those to
++ * PNG_TEXT_COMPRESSION_NONE so the chunks are emitted as tEXt; the validator
++ * test asserts on the resulting tEXt chunk count.
++ */
++
++static int count_chunks(const char *path, const char *want_type) {
++    FILE *fp = fopen(path, "rb");
++    if (fp == NULL) {
++        perror("fopen");
++        return -1;
++    }
++    unsigned char sig[8];
++    if (fread(sig, 1, sizeof sig, fp) != sizeof sig) {
++        fclose(fp);
++        return -1;
++    }
++    int count = 0;
++    for (;;) {
++        unsigned char hdr[8];
++        if (fread(hdr, 1, sizeof hdr, fp) != sizeof hdr) {
++            break;
++        }
++        unsigned long length =
++            ((unsigned long)hdr[0] << 24) | ((unsigned long)hdr[1] << 16) |
++            ((unsigned long)hdr[2] << 8) | (unsigned long)hdr[3];
++        char ctype[5] = {hdr[4], hdr[5], hdr[6], hdr[7], 0};
++        if (memcmp(ctype, want_type, 4) == 0) {
++            ++count;
++        }
++        if (fseek(fp, (long)(length + 4), SEEK_CUR) != 0) {
++            break;
++        }
++        if (memcmp(ctype, "IEND", 4) == 0) {
++            break;
++        }
++    }
++    fclose(fp);
++    return count;
++}
++
++static int write_fixture(const char *path) {
++    FILE *fp = fopen(path, "wb");
++    if (fp == NULL) {
++        perror("fopen");
++        return 1;
++    }
++    png_structp png_ptr =
++        png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
++    if (png_ptr == NULL) {
++        fclose(fp);
++        return 1;
++    }
++    png_infop info_ptr = png_create_info_struct(png_ptr);
++    if (info_ptr == NULL) {
++        png_destroy_write_struct(&png_ptr, NULL);
++        fclose(fp);
++        return 1;
++    }
++    if (setjmp(png_jmpbuf(png_ptr)) != 0) {
++        png_destroy_write_struct(&png_ptr, &info_ptr);
++        fclose(fp);
++        return 1;
++    }
++
++    png_init_io(png_ptr, fp);
++    png_set_IHDR(png_ptr, info_ptr, 4, 4, 8, PNG_COLOR_TYPE_RGB,
++                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
++                 PNG_FILTER_TYPE_DEFAULT);
++
++    /* Mirror what pamtopng does for an English -text file: every chunk is
++     * marked as zTXt but the body is empty because the netpbm parser puts the
++     * payload on a continuation line that has not been read yet. The validator
++     * counts the resulting chunks via raw byte inspection.
++     */
++    png_text texts[2];
++    memset(texts, 0, sizeof texts);
++    texts[0].compression = PNG_TEXT_COMPRESSION_zTXt;
++    texts[0].key = (png_charp)"Title";
++    texts[0].text = (png_charp)"";
++    texts[0].text_length = 0;
++    texts[1].compression = PNG_TEXT_COMPRESSION_zTXt;
++    texts[1].key = (png_charp)"Author";
++    texts[1].text = (png_charp)"";
++    texts[1].text_length = 0;
++    png_set_text(png_ptr, info_ptr, texts, 2);
++
++    png_write_info(png_ptr, info_ptr);
++    png_byte row[12] = {0};
++    for (int y = 0; y < 4; ++y) {
++        png_write_row(png_ptr, row);
++    }
++    png_write_end(png_ptr, NULL);
++    png_destroy_write_struct(&png_ptr, &info_ptr);
++    fclose(fp);
++    return 0;
++}
++
++int main(int argc, char **argv) {
++    (void)argc;
++    (void)argv;
++
++    char path[] = "/tmp/libpng-safe-text-empty-XXXXXX";
++    int fd = mkstemp(path);
++    if (fd < 0) {
++        perror("mkstemp");
++        return 1;
++    }
++    close(fd);
++
++    int status = write_fixture(path);
++    if (status == 0) {
++        int text_count = count_chunks(path, "tEXt");
++        int ztxt_count = count_chunks(path, "zTXt");
++        if (text_count != 2 || ztxt_count != 0) {
++            fprintf(stderr,
++                    "expected 2 tEXt and 0 zTXt chunks, got tEXt=%d zTXt=%d\n",
++                    text_count, ztxt_count);
++            status = 1;
++        }
++    }
++    unlink(path);
++    return status;
++}

@@ -3,12 +3,12 @@ Source: libpng1.6
 Architecture: source
 Version: 1.6.43-5ubuntu0.5+safelibs1
 Checksums-Md5:
- 4c3cb7b5f9e1e73517e9d5ac4f014260 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 8ec90f51bbba384d9e3abbb8cb998e85 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
 Checksums-Sha1:
- 1906bfa6f035bdf9b1cb32d198b8014dafa0e535 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+ 9c6d0057d8b52bea637041adf0b28cb978a463e4 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
 Checksums-Sha256:
- e4cbab99737e5e2bc4b7a402e5f292db0ad3342b40029310be5745cc0ac8cb74 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
-Build-Origin: Debian
+ 568780a251cb52f9bf127d3de3e47d50fd1006fd1ed57ceae3f04e687c9768b8 1553 libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc
+Build-Origin: Ubuntu
 Build-Architecture: amd64
 Build-Date: Tue, 31 Mar 2026 22:17:27 -0700
 Build-Tainted-By:
@@ -245,6 +245,5 @@ Installed-Build-Depends:
 Environment:
  DEB_BUILD_OPTIONS="parallel=24"
  DEB_BUILD_PROFILES=""
- DEB_VENDOR="Debian"
- LANG="C.UTF-8"
+ LANG="en_US.UTF-8"
  SOURCE_DATE_EPOCH="1775020647"

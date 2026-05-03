@@ -3458,8 +3458,12 @@ pub unsafe extern "C" fn bridge_png_get_tRNS(
             if !num_trans.is_null() {
                 unsafe { *num_trans = info_state.trans_alpha.len() as c_int };
             }
+            // Match upstream libpng: even for palette images the trans_color
+            // out-pointer is set to a stable, non-NULL location. Callers like
+            // netpbm pngx_trns dereference *trans_color unconditionally.
             if !trans_color.is_null() {
-                unsafe { *trans_color = ptr::null_mut() };
+                *info_state.trns_color_cache = info_state.core.trans_color;
+                unsafe { *trans_color = &mut *info_state.trns_color_cache };
             }
         } else {
             if !trans_alpha.is_null() {
@@ -4052,8 +4056,22 @@ pub unsafe extern "C" fn bridge_png_set_text(
                 String::from_utf8_lossy(bytes).into_owned()
             };
 
+            // Mirror libpng's png_set_text_2 normalization for empty payloads:
+            // an entry whose text body is empty is forced to an uncompressed
+            // chunk type so it round-trips as tEXt or uncompressed iTXt rather
+            // than zTXt. netpbm pamtopng relies on this when the user supplies
+            // a -text file whose payloads sit on continuation lines.
+            let mut compression = text.compression;
+            if content.is_empty() {
+                compression = if compression > 0 {
+                    PNG_ITXT_COMPRESSION_NONE
+                } else {
+                    PNG_TEXT_COMPRESSION_NONE
+                };
+            }
+
             info_state.text_chunks.push(state::OwnedTextChunk {
-                compression: text.compression,
+                compression,
                 keyword,
                 text: content,
                 language_tag,
