@@ -520,6 +520,92 @@ The full-suite artifact gate was satisfied for all phase roots:
 | `validator/artifacts/libpng-safe-cli-source/` | 175 | 175 | 175 | 175 | 0 |
 | `validator/artifacts/libpng-safe-usage-netpbm/` | 175 | 175 | 175 | 175 | 0 |
 | `validator/artifacts/libpng-safe-usage-pngquant/` | 175 | 175 | 175 | 175 | 0 |
+| `validator/artifacts/libpng-safe-catch-all/` | 175 | 175 | 175 | 175 | 0 |
+
+## Catch-All Phase
+
+Phase: `impl-catch-all-fixes`. All 175 testcases passed in the Phase 5
+pngquant rerun at `validator/artifacts/libpng-safe-usage-pngquant/`. Because
+the Phase 5 input contained zero failing cases, no residual failures fall
+into the catch-all bucket: no `safe/src/` changes, no new local regressions
+under `safe/tests/`, no packaging or `safe/debian/` edits, and no validator
+suite edits were required for this phase. Existing local regressions and
+check batteries (`safe/tools/check-core-smoke.sh`,
+`safe/tools/check-read-core.sh`, `safe/tools/check-read-transforms.sh`,
+`safe/tools/check-examples-and-tools.sh`, `safe/tools/check-package-artifacts.sh`,
+`safe/tools/check-exports.sh`, `safe/tools/check-headers.sh`,
+`safe/tests/upstream/pngfix.sh`, and the dependent regressions under
+`safe/tests/dependents/`) remain in place and continue to cover the
+source/API, CLI/source fixture, Netpbm usage, and pngquant usage surfaces
+exercised by the validator.
+Source files changed in this phase: none.
+
+Validator scripts referenced (read-only inputs): all 175 scripts under
+`validator/tests/libpng/tests/cases/source/` and
+`validator/tests/libpng/tests/cases/usage/`.
+
+Catch-all rerun commands, run from `/home/yans/safelibs/pipeline/ports/port-libpng`:
+
+```bash
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa
+safe/tools/check-package-artifacts.sh
+rm -f validator-overrides/libpng/*.deb
+cp libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+```
+
+Catch-all validator rerun, run from `/home/yans/safelibs/pipeline/ports/port-libpng/validator`:
+
+```bash
+rm -rf artifacts/libpng-safe-catch-all
+mkdir -p artifacts/libpng-safe-catch-all
+set +e
+bash test.sh \
+  --config repositories.yml \
+  --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-catch-all" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+status=$?
+printf '%s\n' "$status" > artifacts/libpng-safe-catch-all/validator.exit-code
+exit "$status"
+```
+
+Catch-all validator results:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 175,
+  "source_cases": 5,
+  "usage_cases": 170,
+  "passed": 175,
+  "failed": 0,
+  "casts": 175,
+  "duration_seconds": 0.0
+}
+```
+
+- Catch-all summary JSON: `validator/artifacts/libpng-safe-catch-all/results/libpng/summary.json`.
+- Catch-all exit code file: `validator/artifacts/libpng-safe-catch-all/validator.exit-code` (`0`).
+- All 175 testcases (5 source, 170 usage): `passed`.
+- Binary and source package SHA-256s match the Phase 4 Netpbm and Phase 5 pngquant baselines; rebuild is reproducible across phases.
+
+Catch-all rerun failures by class:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
 
 ## Proof And Exceptions
 
