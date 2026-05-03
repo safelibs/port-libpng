@@ -245,14 +245,97 @@ Source/API rerun failures by class:
 | pngquant usage | none |
 | Other/catch-all | none |
 
+## CLI/Source Phase
+
+Phase: `impl-cli-source-fixes`. The three CLI/source fixture testcases
+(`malformed-png-rejection`, `palette-fixture-handling`, and
+`pngfix-fixture-handling`) all passed in the Phase 2 source/API rerun at
+`validator/artifacts/libpng-safe-source-api/`. No CLI/source failures exist
+in the current run, so no `safe/contrib/tools/`, `safe/debian/`, packaging,
+or validator suite edits were required. The existing CLI/tool regressions
+remain covered by `safe/tests/upstream/pngfix.sh` and
+`safe/tools/check-examples-and-tools.sh`.
+Source files changed in this phase: none.
+
+Validator scripts referenced (read-only inputs):
+
+- `validator/tests/libpng/tests/cases/source/malformed-png-rejection.sh`
+- `validator/tests/libpng/tests/cases/source/palette-fixture-handling.sh`
+- `validator/tests/libpng/tests/cases/source/pngfix-fixture-handling.sh`
+
+CLI/source rerun commands, run from `/home/yans/safelibs/pipeline/ports/port-libpng`:
+
+```bash
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+safe/tools/check-package-artifacts.sh
+rm -f validator-overrides/libpng/*.deb
+cp libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+```
+
+CLI/source validator rerun, run from `/home/yans/safelibs/pipeline/ports/port-libpng/validator`:
+
+```bash
+rm -rf artifacts/libpng-safe-cli-source
+mkdir -p artifacts/libpng-safe-cli-source
+set +e
+bash test.sh \
+  --config repositories.yml \
+  --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-cli-source" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+status=$?
+printf '%s\n' "$status" > artifacts/libpng-safe-cli-source/validator.exit-code
+exit "$status"
+```
+
+CLI/source validator results:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 175,
+  "source_cases": 5,
+  "usage_cases": 170,
+  "passed": 175,
+  "failed": 0,
+  "casts": 175,
+  "duration_seconds": 0.0
+}
+```
+
+- CLI/source summary JSON: `validator/artifacts/libpng-safe-cli-source/results/libpng/summary.json`.
+- CLI/source exit code file: `validator/artifacts/libpng-safe-cli-source/validator.exit-code` (`0`).
+- `malformed-png-rejection`: `passed`.
+- `palette-fixture-handling`: `passed`.
+- `pngfix-fixture-handling`: `passed`.
+- Package SHA-256s match the Phase 1 and Phase 2 baselines; rebuild is reproducible.
+
+CLI/source rerun failures by class:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
+
 ## Artifact Gates
 
-The full-suite artifact gate was satisfied for both phase roots:
+The full-suite artifact gate was satisfied for all phase roots:
 
 | Artifact root | Cases | Results | Logs | Casts | Exit code |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `validator/artifacts/libpng-safe-initial/` | 175 | 175 | 175 | 175 | 0 |
 | `validator/artifacts/libpng-safe-source-api/` | 175 | 175 | 175 | 175 | 0 |
+| `validator/artifacts/libpng-safe-cli-source/` | 175 | 175 | 175 | 175 | 0 |
 
 ## Proof And Exceptions
 
