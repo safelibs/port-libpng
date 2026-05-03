@@ -422,6 +422,93 @@ Netpbm rerun failures by class:
 | pngquant usage | none |
 | Other/catch-all | none |
 
+## pngquant Usage Phase
+
+Phase: `impl-pngquant-usage-fixes`. All 65 `usage-pngquant-*` testcases passed
+in the Phase 4 Netpbm rerun at
+`validator/artifacts/libpng-safe-usage-netpbm/results/libpng/`. No pngquant
+failures exist in the current run, so no `safe/src/` changes, no new local C
+reproducers under `safe/tests/dependents/` or `safe/tests/read-transforms/`,
+and no validator suite edits were required for this phase. Existing dependent
+regressions (`safe/tests/dependents/palette_expand_shift.c`,
+`safe/tests/dependents/png_set_sig_bytes_custom_error.c`,
+`safe/tests/dependents/validator_netpbm_palette_trns_color_pointer.c`,
+`safe/tests/dependents/validator_netpbm_text_chunk_empty.c`,
+`safe/tests/dependents/write_packing_indices.c`) remain in place and continue
+to cover palette/alpha metadata handling, packed palette row writes, write-end
+chunk emission, and the read/write transform surfaces that pngquant exercises
+(palette quantisation input, PLTE/tRNS round trips, `--strip` metadata
+emission, `--skip-if-larger` byte-count comparison, packed write rows).
+Source files changed in this phase: none.
+
+Validator scripts referenced (read-only inputs): all 65 scripts under
+`validator/tests/libpng/tests/cases/usage/usage-pngquant-*.sh`. Dependent
+fixture file referenced (read-only):
+`validator/tests/libpng/tests/fixtures/dependents.json` (declares `pngquant`).
+
+pngquant rerun commands, run from `/home/yans/safelibs/pipeline/ports/port-libpng`:
+
+```bash
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -S -sa
+safe/tools/check-package-artifacts.sh
+rm -f validator-overrides/libpng/*.deb
+cp libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+```
+
+pngquant validator rerun, run from `/home/yans/safelibs/pipeline/ports/port-libpng/validator`:
+
+```bash
+rm -rf artifacts/libpng-safe-usage-pngquant
+mkdir -p artifacts/libpng-safe-usage-pngquant
+set +e
+bash test.sh \
+  --config repositories.yml \
+  --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-usage-pngquant" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+status=$?
+printf '%s\n' "$status" > artifacts/libpng-safe-usage-pngquant/validator.exit-code
+exit "$status"
+```
+
+pngquant validator results:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 175,
+  "source_cases": 5,
+  "usage_cases": 170,
+  "passed": 175,
+  "failed": 0,
+  "casts": 175,
+  "duration_seconds": 0.0
+}
+```
+
+- pngquant summary JSON: `validator/artifacts/libpng-safe-usage-pngquant/results/libpng/summary.json`.
+- pngquant exit code file: `validator/artifacts/libpng-safe-usage-pngquant/validator.exit-code` (`0`).
+- All 65 `usage-pngquant-*` testcases: `passed`.
+- Binary and source package SHA-256s (libpng16-16t64, libpng-dev, libpng-tools, dbgsyms, udeb, buildinfo, changes, dsc, debian.tar.xz, tar.xz, source buildinfo and changes) match the Phase 4 Netpbm baseline; rebuild is reproducible.
+
+pngquant rerun failures by class:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
+
 ## Artifact Gates
 
 The full-suite artifact gate was satisfied for all phase roots:
@@ -432,6 +519,7 @@ The full-suite artifact gate was satisfied for all phase roots:
 | `validator/artifacts/libpng-safe-source-api/` | 175 | 175 | 175 | 175 | 0 |
 | `validator/artifacts/libpng-safe-cli-source/` | 175 | 175 | 175 | 175 | 0 |
 | `validator/artifacts/libpng-safe-usage-netpbm/` | 175 | 175 | 175 | 175 | 0 |
+| `validator/artifacts/libpng-safe-usage-pngquant/` | 175 | 175 | 175 | 175 | 0 |
 
 ## Proof And Exceptions
 
