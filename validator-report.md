@@ -327,6 +327,91 @@ CLI/source rerun failures by class:
 | pngquant usage | none |
 | Other/catch-all | none |
 
+## Netpbm Usage Phase
+
+Phase: `impl-netpbm-usage-fixes`. All 105 `usage-netpbm-*` testcases passed in
+the Phase 3 CLI/source rerun at
+`validator/artifacts/libpng-safe-cli-source/results/libpng/`. No Netpbm
+failures exist in the current run, so no `safe/src/` changes, no new local C
+reproducers under `safe/tests/dependents/`, no edits to
+`safe/tests/read-transforms/`, and no validator suite edits were required for
+this phase. Existing dependent regressions
+(`safe/tests/dependents/palette_expand_shift.c`,
+`safe/tests/dependents/png_set_sig_bytes_custom_error.c`,
+`safe/tests/dependents/write_packing_indices.c`) remain in place, and the
+local read/write transform batteries
+(`safe/tools/check-read-core.sh`, `safe/tools/check-read-transforms.sh`)
+continue to cover the simplified read/write API, transforms, gamma/colorspace
+handling, palette expansion, transparency, packing, and shift surfaces.
+Source files changed in this phase: none.
+
+Validator scripts referenced (read-only inputs): all 105 scripts under
+`validator/tests/libpng/tests/cases/usage/usage-netpbm-*.sh`. Dependent
+fixture file referenced (read-only): `validator/tests/libpng/tests/fixtures/dependents.json`
+(declares `netpbm`).
+
+Netpbm rerun commands, run from `/home/yans/safelibs/pipeline/ports/port-libpng`:
+
+```bash
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+safe/tools/check-package-artifacts.sh
+rm -f validator-overrides/libpng/*.deb
+cp libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+```
+
+Netpbm validator rerun, run from `/home/yans/safelibs/pipeline/ports/port-libpng/validator`:
+
+```bash
+rm -rf artifacts/libpng-safe-usage-netpbm
+mkdir -p artifacts/libpng-safe-usage-netpbm
+set +e
+bash test.sh \
+  --config repositories.yml \
+  --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-usage-netpbm" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+status=$?
+printf '%s\n' "$status" > artifacts/libpng-safe-usage-netpbm/validator.exit-code
+exit "$status"
+```
+
+Netpbm validator results:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 175,
+  "source_cases": 5,
+  "usage_cases": 170,
+  "passed": 175,
+  "failed": 0,
+  "casts": 175,
+  "duration_seconds": 0.0
+}
+```
+
+- Netpbm summary JSON: `validator/artifacts/libpng-safe-usage-netpbm/results/libpng/summary.json`.
+- Netpbm exit code file: `validator/artifacts/libpng-safe-usage-netpbm/validator.exit-code` (`0`).
+- All 105 `usage-netpbm-*` testcases: `passed`.
+- Package SHA-256s match the Phase 1, Phase 2, and Phase 3 baselines; rebuild is reproducible.
+
+Netpbm rerun failures by class:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
+
 ## Artifact Gates
 
 The full-suite artifact gate was satisfied for all phase roots:
@@ -336,6 +421,7 @@ The full-suite artifact gate was satisfied for all phase roots:
 | `validator/artifacts/libpng-safe-initial/` | 175 | 175 | 175 | 175 | 0 |
 | `validator/artifacts/libpng-safe-source-api/` | 175 | 175 | 175 | 175 | 0 |
 | `validator/artifacts/libpng-safe-cli-source/` | 175 | 175 | 175 | 175 | 0 |
+| `validator/artifacts/libpng-safe-usage-netpbm/` | 175 | 175 | 175 | 175 | 0 |
 
 ## Proof And Exceptions
 
