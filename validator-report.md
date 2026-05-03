@@ -1,17 +1,23 @@
-# Validator Report: libpng-safe Initial
+# Validator Report: libpng-safe Final
 
 ## Summary
 
-- Phase: `impl-validator-baseline`.
+- Phase: `impl-final-clean-validator-run` (Phase 7).
 - Repository root: `/home/yans/safelibs/pipeline/ports/port-libpng`.
-- Validator checkout: `validator/` (already at upstream `main` head; `git pull --ff-only` reported "Already up to date.").
+- Validator checkout: `validator/` (at upstream `main` head; `git -C validator status` reported "nothing to commit, working tree clean").
 - Validator commit: `87b321fe728340d6fc6dd2f638583cca82c667c3`.
 - Mode: validator `original` mode with local safe `.deb` overrides from `validator-overrides/libpng/`.
-- Initial artifact root: `validator/artifacts/libpng-safe-initial/`.
-- Initial validator exit code: `0`.
-- Initial result: 175/175 passed, 0 failed, 175 casts recorded.
+- Final artifact root: `validator/artifacts/libpng-safe-final/`.
+- Final validator exit code: `0`.
+- Final result: 175/175 passed, 0 failed, 175 casts recorded; every per-case JSON has `status: "passed"`, `exit_code: 0`, and `override_debs_installed: true`.
 - Inventory match: 175 total cases, 5 source cases, 170 usage cases, matching `validator-case-inventory.json`.
 - Validator suite changes: none.
+- Local verification battery: all gates green (cargo fmt --check, cargo test, core-smoke, read-core, read-transforms, CVE regressions, dependent regressions, read-tests, write-tests, upstream-tests, examples-and-tools, link-compat, exports, headers, install-surface, build-layout, package-artifacts).
+- Proof tooling: skipped because `validator-case-inventory.json` records `proof_rejects_original_override: true`; documented under Proof And Exceptions.
+- Validator Bug Exceptions: none.
+
+This report retains the per-phase history below (Phases 1–6) for traceability;
+the Final Phase section captures Phase 7 evidence.
 
 ## Commands Executed
 
@@ -521,6 +527,7 @@ The full-suite artifact gate was satisfied for all phase roots:
 | `validator/artifacts/libpng-safe-usage-netpbm/` | 175 | 175 | 175 | 175 | 0 |
 | `validator/artifacts/libpng-safe-usage-pngquant/` | 175 | 175 | 175 | 175 | 0 |
 | `validator/artifacts/libpng-safe-catch-all/` | 175 | 175 | 175 | 175 | 0 |
+| `validator/artifacts/libpng-safe-final/` | 175 | 175 | 175 | 175 | 0 |
 
 ## Catch-All Phase
 
@@ -607,13 +614,181 @@ Catch-all rerun failures by class:
 | pngquant usage | none |
 | Other/catch-all | none |
 
+## Final Phase
+
+Phase: `impl-final-clean-validator-run` (Phase 7). Phase 6 catch-all rerun at
+`validator/artifacts/libpng-safe-catch-all/` reported 175/175 passing with no
+residual failures, so Phase 7 entered with zero open issues. Phase 7
+re-executed the full local verification battery, rebuilt the canonical
+packages, refreshed `validator-overrides/libpng/`, ran the validator suite a
+final time into `validator/artifacts/libpng-safe-final/`, and confirmed all
+acceptance gates remain green. No `safe/src/`, `safe/tests/`, `safe/debian/`,
+`safe/tools/`, `safe/pkg/`, or validator suite files were edited in this
+phase. Source files changed in this phase: none.
+
+Regressions added across all phases: `safe/tests/dependents/palette_expand_shift.c`,
+`safe/tests/dependents/png_set_sig_bytes_custom_error.c`,
+`safe/tests/dependents/write_packing_indices.c`,
+`safe/tests/dependents/validator_netpbm_palette_trns_color_pointer.c`,
+`safe/tests/dependents/validator_netpbm_text_chunk_empty.c`. Phase 7 added no
+new regressions; the final regression set is unchanged from Phase 5.
+
+Fixes applied across all phases (commit IDs from `git log --oneline`):
+
+| Commit | Title |
+| --- | --- |
+| `35f89cd` | validator: capture initial libpng-safe validator run |
+| `86db69c` | validator: document libpng source/API phase pass |
+| `1b81f4b` | validator: document libpng CLI/source phase pass |
+| `0209db2` | validator: document libpng Netpbm usage phase pass |
+| `5d1800f` | validator: include Netpbm dependent regressions in safe source snapshot |
+| `f795998` | validator: document libpng pngquant usage phase pass |
+| `71e97ee` | validator: document libpng catch-all phase pass |
+
+Phase 7 introduces zero `safe/src/` fixes; the final pass was achieved by
+reproducing the Phase 6 build and run with no code changes.
+
+Final phase commands, run from `/home/yans/safelibs/pipeline/ports/port-libpng`:
+
+```bash
+cargo fmt --check --manifest-path safe/Cargo.toml
+cargo test --manifest-path safe/Cargo.toml
+safe/tools/check-core-smoke.sh
+safe/tools/check-read-core.sh
+safe/tools/check-read-transforms.sh
+safe/tools/run-cve-regressions.sh --mode all
+safe/tools/run-dependent-regressions.sh
+safe/tools/run-read-tests.sh
+safe/tools/run-write-tests.sh \
+  pngstest-1.8 pngstest-1.8-alpha pngstest-large-stride \
+  pngstest-linear pngstest-linear-alpha pngstest-none \
+  pngstest-none-alpha pngstest-sRGB pngstest-sRGB-alpha
+safe/tools/run-upstream-tests.sh
+safe/tools/check-examples-and-tools.sh
+safe/tools/check-link-compat.sh
+safe/tools/check-exports.sh
+safe/tools/check-headers.sh
+safe/tools/check-install-surface.sh
+safe/tools/check-build-layout.sh
+cd safe && ./tools/dpkg-buildpackage-wrapper.sh -us -uc -b
+safe/tools/check-package-artifacts.sh
+rm -f validator-overrides/libpng/*.deb
+cp libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+cp libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb validator-overrides/libpng/
+```
+
+Final validator rerun, run from `/home/yans/safelibs/pipeline/ports/port-libpng/validator`:
+
+```bash
+rm -rf artifacts/libpng-safe-final
+mkdir -p artifacts/libpng-safe-final
+set +e
+bash test.sh \
+  --config repositories.yml \
+  --tests-root tests \
+  --artifact-root "$PWD/artifacts/libpng-safe-final" \
+  --mode original \
+  --override-deb-root /home/yans/safelibs/pipeline/ports/port-libpng/validator-overrides \
+  --library libpng \
+  --record-casts
+status=$?
+printf '%s\n' "$status" > artifacts/libpng-safe-final/validator.exit-code
+exit "$status"
+```
+
+Final cleanup command, run before commit from `/home/yans/safelibs/pipeline/ports/port-libpng`:
+
+```bash
+rm -rf \
+  safe/debian/.debhelper \
+  safe/debian/tmp \
+  safe/debian/libpng-dev \
+  safe/debian/libpng-tools \
+  safe/debian/libpng16-16-udeb \
+  safe/debian/libpng16-16t64 \
+  safe/debian/build-tools \
+  safe/debian/cargo-home \
+  safe/debian/upstream-source-root
+rm -f \
+  safe/debian/*.debhelper.log \
+  safe/debian/*.substvars \
+  safe/debian/files \
+  safe/debian/debhelper-build-stamp
+```
+
+Final package artifact SHA-256 values:
+
+| SHA-256 | Artifact |
+| --- | --- |
+| `98a9add5589904c1182687a278a513d43156a87359201437b859cd5418278090` | `libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `634fe83cc53e8eb8905cdddff28d3dab448d540d99b8bcf48929802fe932e350` | `libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7` | `libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `a915d48037d9d14a858ea60566f71989788e1f3bb0a2e5754eac385cd9112d85` | `libpng16-16t64-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb` |
+| `1c567d67fbc99e6a32015d434895edb5bd2bbcdeb810a749d80e5f4745dcce4b` | `libpng-tools-dbgsym_1.6.43-5ubuntu0.5+safelibs1_amd64.ddeb` |
+| `e7d07f272fc8c02d98a39ed4ed1b3d1e69d71fc386d08acbe24eb58116a85cf4` | `libpng16-16-udeb_1.6.43-5ubuntu0.5+safelibs1_amd64.udeb` |
+| `74c85e838b317fbb4584758606dc33b187c58e46a9a7d804c89206556b9c0ea3` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.buildinfo` |
+| `400e318d8d71ba6c4a6768451a5647e546a3b65e05ebc1678db0c9aa66a6073e` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_amd64.changes` |
+| `4a76927c1d24fc1e061bb7d5a034700ff5bbde87ee5c665f69a591dc5eb4d418` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.dsc` |
+| `13248ac375d630dc30fa3cbc25017706164a1c3df390145c8a548a4a3a88cd94` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.debian.tar.xz` |
+| `9a6522cf8fe4b4444684d462202684310055fa8458e3c22db9fee783a4814fdb` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1.tar.xz` |
+| `245573d767b5374b12e0d261b69d38c48236b15581c5cf3de8b46caa494e4ba5` | `libpng1.6_1.6.43.orig.tar.xz` |
+| `cf8a88332f2c31100179e7c2c8108789179abba76405fbdc50f28e8caf521130` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.buildinfo` |
+| `ad0ebf2ad46732b458525700d2f7bc37d006753a580b6372150ca19383f04f00` | `libpng1.6_1.6.43-5ubuntu0.5+safelibs1_source.changes` |
+
+Final validator override SHA-256 values:
+
+| SHA-256 | Override artifact |
+| --- | --- |
+| `98a9add5589904c1182687a278a513d43156a87359201437b859cd5418278090` | `validator-overrides/libpng/libpng16-16t64_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `634fe83cc53e8eb8905cdddff28d3dab448d540d99b8bcf48929802fe932e350` | `validator-overrides/libpng/libpng-dev_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+| `9685e238a815c5eac1dcb87ef55972072aac07f5f7ccd00e53a03968ac28abf7` | `validator-overrides/libpng/libpng-tools_1.6.43-5ubuntu0.5+safelibs1_amd64.deb` |
+
+Final binary and source package SHA-256s match the Phase 4 Netpbm baseline
+through Phase 6 catch-all; the rebuild is reproducible across Phases 4–7.
+
+Final validator results:
+
+```json
+{
+  "schema_version": 2,
+  "library": "libpng",
+  "mode": "original",
+  "cases": 175,
+  "source_cases": 5,
+  "usage_cases": 170,
+  "passed": 175,
+  "failed": 0,
+  "casts": 175,
+  "duration_seconds": 0.0
+}
+```
+
+- Final summary JSON: `validator/artifacts/libpng-safe-final/results/libpng/summary.json`.
+- Final exit code file: `validator/artifacts/libpng-safe-final/validator.exit-code` (`0`).
+- All 175 testcases (5 source, 170 usage) report `status: "passed"`, `exit_code: 0`, and `override_debs_installed: true`.
+- Per-case artifact coverage: 175 result JSON files, 175 testcase logs, and 175 cast files; every testcase ID from `validator-case-inventory.json` has a matching result JSON, log, and cast.
+
+Final rerun failures by class:
+
+| Classification | Failing testcase IDs |
+| --- | --- |
+| Source/API | none |
+| CLI/source fixtures | none |
+| Netpbm usage | none |
+| pngquant usage | none |
+| Other/catch-all | none |
+
 ## Proof And Exceptions
 
 `validator-case-inventory.json` records `proof_rejects_original_override: true`.
-At validator commit `87b321fe728340d6fc6dd2f638583cca82c667c3`, proof
-generation rejects original-mode result JSON when `override_debs_installed` is
-`true`. Acceptance evidence for this initial phase is the per-case result JSON,
-testcase logs, casts, package hashes, the artifact gate above, and the recorded
-validator exit code.
+At validator commit `87b321fe728340d6fc6dd2f638583cca82c667c3`,
+`validator/tools/verify_proof_artifacts.py` rejects original-mode result JSON
+when `override_debs_installed` is `true`, so Phase 7 does not run the proof
+verifier (per the phase contract; this is documented validator-tooling
+behavior, not a libpng-safe failure). Acceptance evidence for the final
+phase is the per-case result JSON, testcase logs, casts, package hashes, the
+artifact gate above, and the recorded validator exit code at
+`validator/artifacts/libpng-safe-final/validator.exit-code`.
 
 Validator Bug Exceptions: none
